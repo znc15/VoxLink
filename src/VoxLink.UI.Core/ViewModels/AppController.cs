@@ -108,7 +108,17 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
 
     public Version AppVersion { get; }
     public bool IsCheckingForUpdates { get => _isCheckingForUpdates; private set => SetProperty(ref _isCheckingForUpdates, value); }
-    public bool IsUpdateAvailable { get => _isUpdateAvailable; private set => SetProperty(ref _isUpdateAvailable, value); }
+    public bool IsUpdateAvailable
+    {
+        get => _isUpdateAvailable;
+        private set
+        {
+            if (SetProperty(ref _isUpdateAvailable, value))
+            {
+                OnPropertyChanged(nameof(UpdateBannerVisible));
+            }
+        }
+    }
     public bool UpdateBannerVisible => IsUpdateAvailable && !_updateBannerDismissed;
     public void DismissUpdateBanner()
     {
