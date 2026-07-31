@@ -1,0 +1,72 @@
+# Third-Party Notices
+
+VoxLink includes redistributable Windows App SDK and self-contained .NET runtime components. The release package includes the complete upstream license files at:
+
+- `WINDOWS-APP-SDK-LICENSE.txt`
+- `WINDOWS-APP-SDK-NOTICES.txt`
+- `DOTNET-LICENSE.txt`
+- `DOTNET-THIRD-PARTY-NOTICES.txt`
+- `engine/DOTNET-LICENSE.txt`
+- `engine/DOTNET-THIRD-PARTY-NOTICES.txt`
+- `engine/OPENVR-LICENSE.txt`
+- `engine/SHERPA-ONNX-LICENSE.txt`
+- `engine/ONNXRUNTIME-LICENSE.txt`
+- `engine/ONNXRUNTIME-THIRD-PARTY-NOTICES.txt`
+
+## Windows UI Runtime
+
+- Microsoft Windows App SDK and WinUI 3, distributed under the Microsoft Windows App SDK license included with the package
+- Microsoft WebView2 and other transitive Windows App SDK components, with notices included in `WINDOWS-APP-SDK-NOTICES.txt`
+- .NET runtime and Windows Desktop runtime, MIT License, Copyright .NET Foundation and Contributors
+- `System.Security.Cryptography.ProtectedData`, part of the .NET runtime libraries
+
+The retired Flutter frontend under `src/voxlink_app` is not built into or distributed with the WinUI release package.
+
+## Audio Engine
+
+- NAudio, Microsoft Public License (Ms-PL): <https://github.com/naudio/NAudio>
+- EdgeTTS.DotNet, MIT License: <https://github.com/twn39/EdgeTTS.DotNet>
+- Whisper.net, MIT License: <https://github.com/sandrohanea/whisper.net>
+- Whisper.net.Runtime / whisper.cpp runtime, MIT License: <https://github.com/ggml-org/whisper.cpp>
+- System.Speech, MIT License: <https://github.com/dotnet/runtime>
+- sherpa-onnx `1.13.4` managed API and Windows x64 runtime, Apache License 2.0: <https://github.com/k2-fsa/sherpa-onnx/tree/v1.13.4>
+- Microsoft ONNX Runtime `1.27.0`, MIT License: <https://github.com/microsoft/onnxruntime/tree/v1.27.0>
+
+Source versions, upstream commits, and imported-file SHA-256 values are recorded in `src/VoxLink/ThirdParty/SherpaOnnx/README.md` and distributed as `engine/SHERPA-ONNX-NOTICES.md`. Windows App SDK self-contained ML assets in the release root remain covered by `WINDOWS-APP-SDK-LICENSE.txt` and `WINDOWS-APP-SDK-NOTICES.txt`; the separate files under `engine/` cover the sherpa runtime's ONNX Runtime dependency.
+
+## VR Runtime
+
+- Valve OpenVR `v2.15.6` C# bindings and Windows x64 runtime, BSD 3-Clause License: <https://github.com/ValveSoftware/openvr/tree/v2.15.6>
+
+The OpenVR runtime is loaded only when SteamVR subtitles are enabled or tested. It does not provide VRChat voice or chat input; VoxLink continues to capture other-player audio through local WASAPI loopback. The complete Valve license is distributed as `engine/OPENVR-LICENSE.txt`.
+## Models and Online Services
+
+Whisper model files are downloaded on demand from the `ggerganov/whisper.cpp` Hugging Face repository or a mirror. They are not bundled in the release package; see the upstream model card and provenance.
+
+The optional CAMPPlus Chinese-English 16 kHz speaker-embedding model is not bundled. When local anonymous speaker labels are first enabled, VoxLink downloads `3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx` from the sherpa-onnx speaker-model release and accepts it only when its size and SHA-256 match the values pinned in the source. The sherpa-onnx release states that each model has its own license and refers users to the corresponding model repository; the 3D-Speaker code repository is Apache-2.0, but users remain responsible for the model-weight terms that apply in their jurisdiction.
+
+Default no-key translation and online text-to-speech rely on third-party public services, including MyMemory, Google Translate, and Microsoft Edge Read Aloud. Optional DashScope, DeepSeek, MiMo, OpenAI-compatible, SiliconFlow, Soniox, and custom services are not bundled with VoxLink and may apply their own terms, quotas, data-retention policies, and regional restrictions. Cloud ASR is disabled until the user explicitly enables raw-audio upload.
+
+## EdgeTTS.DotNet License
+
+MIT License
+
+Copyright (c) 2025 Curry
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

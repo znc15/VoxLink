@@ -1,0 +1,402 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="VoxLink.UI.Pages.LivePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:models="using:VoxLink.UI.Core.Models"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Background="Transparent"
+    mc:Ignorable="d">
+    <Grid Padding="24,20,24,24" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Spacing="3">
+                <TextBlock Style="{StaticResource PageTitleStyle}" Text="实时翻译" />
+                <TextBlock
+                    Style="{StaticResource CaptionStyle}"
+                    Text="识别麦克风并将译文发送到 VRChat" />
+            </StackPanel>
+            <Border
+                Grid.Column="1"
+                Padding="10,6"
+                VerticalAlignment="Top"
+                Background="{StaticResource VoxLinkAccentSoftBrush}"
+                CornerRadius="{StaticResource VoxLinkRadiusLarge}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <FontIcon
+                        FontSize="12"
+                        Foreground="{StaticResource VoxLinkAccentBrush}"
+                        Glyph="&#xE73E;" />
+                    <TextBlock
+                        x:Name="EngineBadgeText"
+                        VerticalAlignment="Center"
+                        Foreground="{StaticResource VoxLinkAccentBrush}"
+                        FontSize="12"
+                        FontWeight="SemiBold"
+                        Text="引擎连接中" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <InfoBar
+            x:Name="UpdateInfoBar"
+            Grid.Row="1"
+            IsClosable="True"
+            IsOpen="False"
+            Severity="Informational"
+            Closed="UpdateInfoBar_Closed">
+            <InfoBar.ActionButton>
+                <Button Content="打开下载页" Click="OpenRelease_Click" />
+            </InfoBar.ActionButton>
+        </InfoBar>
+
+        <InfoBar
+            x:Name="RestartHintBar"
+            Grid.Row="2"
+            IsClosable="False"
+            IsOpen="False"
+            Severity="Warning"
+            Message="采集来源或设备已更改，重新开始会话后生效。" />
+
+        <InfoBar
+            x:Name="ErrorInfoBar"
+            Grid.Row="3"
+            IsClosable="True"
+            IsOpen="False"
+            Severity="Error"
+            Closed="ErrorInfoBar_Closed" />
+
+        <Border Grid.Row="4" Padding="14,12" Style="{StaticResource PanelBorderStyle}">
+            <Grid ColumnSpacing="10" RowSpacing="7">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="输出模式" />
+                <ToggleButton
+                    x:Name="OscModeButton"
+                    Grid.Column="1"
+                    MinWidth="126"
+                    Click="OscModeButton_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                        <FontIcon FontSize="13" Glyph="&#xE8C1;" />
+                        <TextBlock Text="OSC 文字" />
+                    </StackPanel>
+                </ToggleButton>
+                <ToggleButton
+                    x:Name="VoiceModeButton"
+                    Grid.Column="2"
+                    MinWidth="138"
+                    Click="VoiceModeButton_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                        <FontIcon FontSize="13" Glyph="&#xE767;" />
+                        <TextBlock Text="VRChat 语音" />
+                    </StackPanel>
+                </ToggleButton>
+                <Button
+                    Grid.Column="4"
+                    Click="Onboarding_Click"
+                    ToolTipService.ToolTip="打开新手引导">
+                    <FontIcon Glyph="&#xE897;" />
+                </Button>
+                <FontIcon
+                    x:Name="ModeStatusIcon"
+                    Grid.Row="1"
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    Foreground="{StaticResource VoxLinkAccentBrush}"
+                    FontSize="12"
+                    Glyph="&#xE946;" />
+                <TextBlock
+                    x:Name="ModeStatusText"
+                    Grid.Row="1"
+                    Grid.Column="2"
+                    Grid.ColumnSpan="3"
+                    VerticalAlignment="Center"
+                    Style="{StaticResource CaptionStyle}" />
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="5" Style="{StaticResource PanelBorderStyle}">
+            <Grid x:Name="LanguageGrid" ColumnSpacing="12" RowSpacing="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition x:Name="FirstLanguageColumn" Width="*" />
+                    <ColumnDefinition x:Name="SwapColumn" Width="44" />
+                    <ColumnDefinition x:Name="SecondLanguageColumn" Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <ComboBox
+                    x:Name="MyLanguageBox"
+                    Header="我的语言"
+                    DisplayMemberPath="DisplayName"
+                    ItemsSource="{x:Bind Controller.Languages}"
+                    SelectedValue="{x:Bind Controller.Settings.MyLanguageCode, Mode=TwoWay}"
+                    SelectedValuePath="Code"
+                    SelectionChanged="Language_SelectionChanged" />
+                <Button
+                    x:Name="SwapButton"
+                    Grid.Column="1"
+                    Width="44"
+                    Height="44"
+                    Margin="0,18,0,0"
+                    HorizontalAlignment="Center"
+                    Click="SwapButton_Click"
+                    ToolTipService.ToolTip="交换语言">
+                    <FontIcon Glyph="&#xE8AB;" />
+                </Button>
+                <ComboBox
+                    x:Name="OtherLanguageBox"
+                    Grid.Column="2"
+                    Header="对方语言"
+                    DisplayMemberPath="DisplayName"
+                    ItemsSource="{x:Bind Controller.Languages}"
+                    SelectedValue="{x:Bind Controller.Settings.OtherLanguageCode, Mode=TwoWay}"
+                    SelectedValuePath="Code"
+                    SelectionChanged="Language_SelectionChanged" />
+                <ComboBox
+                    x:Name="SecondaryLanguageBox"
+                    Grid.Row="1"
+                    Grid.Column="2"
+                    Header="第二目标语言"
+                    DisplayMemberPath="DisplayName"
+                    ItemsSource="{x:Bind Controller.SecondaryLanguages}"
+                    SelectedValue="{x:Bind Controller.Settings.SecondaryTargetLanguageCode, Mode=TwoWay}"
+                    SelectedValuePath="Code"
+                    SelectionChanged="Language_SelectionChanged" />
+                <VisualStateManager.VisualStateGroups>
+                    <VisualStateGroup>
+                        <VisualState x:Name="NarrowLanguages">
+                            <VisualState.Setters>
+                                <Setter Target="FirstLanguageColumn.Width" Value="*" />
+                                <Setter Target="SwapColumn.Width" Value="44" />
+                                <Setter Target="SecondLanguageColumn.Width" Value="0" />
+                                <Setter Target="SwapButton.(Grid.Row)" Value="1" />
+                                <Setter Target="SwapButton.(Grid.Column)" Value="0" />
+                                <Setter Target="SwapButton.Margin" Value="0" />
+                                <Setter Target="OtherLanguageBox.(Grid.Row)" Value="2" />
+                                <Setter Target="OtherLanguageBox.(Grid.Column)" Value="0" />
+                                <Setter Target="SecondaryLanguageBox.(Grid.Row)" Value="3" />
+                                <Setter Target="SecondaryLanguageBox.(Grid.Column)" Value="0" />
+                            </VisualState.Setters>
+                        </VisualState>
+                        <VisualState x:Name="WideLanguages">
+                            <VisualState.StateTriggers>
+                                <AdaptiveTrigger MinWindowWidth="900" />
+                            </VisualState.StateTriggers>
+                        </VisualState>
+                    </VisualStateGroup>
+                </VisualStateManager.VisualStateGroups>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="6" Padding="16,12" Style="{StaticResource PanelBorderStyle}">
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center" Orientation="Horizontal" Spacing="9">
+                    <Ellipse
+                        x:Name="SessionStatusDot"
+                        Width="8"
+                        Height="8"
+                        Fill="{ThemeResource TextFillColorTertiaryBrush}" />
+                    <StackPanel>
+                        <TextBlock x:Name="SessionStatusText" FontWeight="SemiBold" Text="准备中" />
+                        <TextBlock
+                            x:Name="ModelStatusText"
+                            Style="{StaticResource CaptionStyle}"
+                            Visibility="Collapsed" />
+                    </StackPanel>
+                </StackPanel>
+                <Button
+                    x:Name="SessionButton"
+                    Grid.Column="1"
+                    MinWidth="120"
+                    Click="SessionButton_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon x:Name="SessionButtonIcon" FontSize="14" Glyph="&#xE768;" />
+                        <TextBlock x:Name="SessionButtonText" Text="开始会话" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="7" MinHeight="96" Padding="0" Style="{StaticResource PanelBorderStyle}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="52" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Grid Padding="16,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center" Orientation="Horizontal" Spacing="8">
+                        <TextBlock FontWeight="SemiBold" Text="会话记录" />
+                        <TextBlock x:Name="MessageCountText" Style="{StaticResource CaptionStyle}" Text="0" />
+                    </StackPanel>
+                    <Button
+                        Grid.Column="1"
+                        Background="Transparent"
+                        Click="ClearMessages_Click"
+                        ToolTipService.ToolTip="清空会话记录">
+                        <SymbolIcon Symbol="Delete" />
+                    </Button>
+                </Grid>
+
+                <Grid Grid.Row="1">
+                    <StackPanel
+                        x:Name="EmptyState"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Orientation="Horizontal"
+                        Spacing="10">
+                        <FontIcon
+                            FontSize="20"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Glyph="&#xE8BD;" />
+                        <StackPanel Spacing="2">
+                            <TextBlock FontWeight="SemiBold" Text="等待第一条消息" />
+                            <TextBlock Style="{StaticResource CaptionStyle}" Text="开始会话或在下方输入文字" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <ListView
+                        x:Name="ConversationList"
+                        ItemsSource="{x:Bind Controller.Messages}"
+                        SelectionMode="None">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="models:ConversationMessage">
+                                <Grid Padding="12,10" ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="38" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border
+                                        Width="36"
+                                        Height="36"
+                                        Background="{StaticResource VoxLinkAccentSoftBrush}"
+                                        CornerRadius="{StaticResource VoxLinkRadiusSmall}">
+                                        <FontIcon
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            Foreground="{StaticResource VoxLinkAccentBrush}"
+                                            FontSize="16"
+                                            Glyph="{x:Bind DirectionGlyph}" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Spacing="3">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock FontSize="12" FontWeight="SemiBold" Text="{x:Bind HeaderLabel}" />
+                                            <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Text="{x:Bind TimeLabel}" />
+                                        </StackPanel>
+                                        <TextBlock FontSize="15" FontWeight="SemiBold" Text="{x:Bind PrimaryDisplayText}" TextWrapping="Wrap" />
+                                        <TextBlock Foreground="{StaticResource VoxLinkAccentBrush}" FontSize="13" Text="{x:Bind SecondaryDisplayText}" TextWrapping="Wrap" />
+                                        <TextBlock Style="{StaticResource CaptionStyle}" Text="{x:Bind SourceDisplayText}" />
+                                    </StackPanel>
+                                    <Button
+                                        Grid.Column="2"
+                                        VerticalAlignment="Top"
+                                        Click="SpeakMessage_Click"
+                                        IsEnabled="{x:Bind CanSpeak}"
+                                        Tag="{x:Bind}"
+                                        ToolTipService.ToolTip="朗读译文">
+                                        <FontIcon FontSize="14" Glyph="&#xE767;" />
+                                    </Button>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="8" Padding="12" Style="{StaticResource PanelBorderStyle}">
+            <Grid ColumnSpacing="10" RowSpacing="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <ToggleButton
+                        x:Name="TranslateModeButton"
+                        IsChecked="True"
+                        Click="TranslateModeButton_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon FontSize="13" Glyph="&#xE8C1;" />
+                            <TextBlock Text="翻译" />
+                        </StackPanel>
+                    </ToggleButton>
+                    <ToggleButton
+                        x:Name="GenerateModeButton"
+                        Click="GenerateModeButton_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon FontSize="13" Glyph="&#xE945;" />
+                            <TextBlock Text="AI 生成" />
+                        </StackPanel>
+                    </ToggleButton>
+                </StackPanel>
+                <TextBlock
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    Style="{StaticResource CaptionStyle}"
+                    Text="Ctrl + Enter" />
+                <TextBox
+                    x:Name="ComposerBox"
+                    Grid.Row="1"
+                    AcceptsReturn="True"
+                    KeyDown="ComposerBox_KeyDown"
+                    MaxHeight="120"
+                    MinHeight="48"
+                    PlaceholderText="输入要发送给对方的内容"
+                    TextWrapping="Wrap" />
+                <Button
+                    x:Name="SubmitButton"
+                    Grid.Row="1"
+                    Grid.Column="1"
+                    VerticalAlignment="Stretch"
+                    MinWidth="130"
+                    Click="SubmitButton_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="14" Glyph="&#xE724;" />
+                        <TextBlock x:Name="SubmitButtonText" Text="翻译并发送" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+        </Border>
+    </Grid>
+</Page>

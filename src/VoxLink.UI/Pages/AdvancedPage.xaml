@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="VoxLink.UI.Pages.AdvancedPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Background="Transparent"
+    mc:Ignorable="d">
+    <ScrollViewer>
+        <StackPanel Padding="24,20,24,28" Spacing="14">
+            <StackPanel Spacing="3">
+                <TextBlock Style="{StaticResource PageTitleStyle}" Text="高级设置" />
+                <TextBlock Style="{StaticResource CaptionStyle}" Text="会话行为、全局快捷键与运行状态" />
+            </StackPanel>
+
+            <Border Style="{StaticResource PanelBorderStyle}">
+                <StackPanel Spacing="16">
+                    <TextBlock Style="{StaticResource SectionTitleStyle}" Text="会话行为" />
+                    <ToggleSwitch
+                        Header="显示游戏字幕悬浮窗"
+                        IsOn="{x:Bind Controller.Settings.ShowOverlay, Mode=TwoWay}"
+                        OffContent="关闭"
+                        OnContent="开启" />
+                    <ToggleSwitch
+                        x:Name="SpeakMyTranslationSwitch"
+                        Header="启用 VRChat 语音翻译"
+                        IsOn="{x:Bind Controller.Settings.SpeakMyTranslation, Mode=OneWay}"
+                        OffContent="仅发送 Chatbox 文字"
+                        OnContent="文字与 TTS 语音"
+                        Toggled="SpeakMyTranslationSwitch_Toggled" />
+                    <TextBlock
+                        Style="{StaticResource CaptionStyle}"
+                        Text="开启后首页切换为 VRChat 语音模式，并要求语音输出指向虚拟声卡。"
+                        TextWrapping="Wrap" />
+                    <RadioButtons
+                        x:Name="SpeechContentButtons"
+                        Header="我的出站语音内容"
+                        MaxColumns="2"
+                        SelectionChanged="SpeechContentButtons_SelectionChanged">
+                        <RadioButton Content="主译文" Tag="Translation" />
+                        <RadioButton Content="识别原话" Tag="Original" />
+                    </RadioButtons>
+                    <TextBlock
+                        Style="{StaticResource CaptionStyle}"
+                        Text="入站语音始终朗读译文；此选择只影响我的麦克风识别和手动输入。"
+                        TextWrapping="Wrap" />
+                    <ToggleSwitch
+                        Header="自动朗读他人语音译文"
+                        IsOn="{x:Bind Controller.Settings.SpeakInboundTranslation, Mode=TwoWay}"
+                        OffContent="关闭"
+                        OnContent="开启" />
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource PanelBorderStyle}">
+                <StackPanel Spacing="14">
+                    <StackPanel Spacing="3">
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="说话人标签" />
+                        <TextBlock
+                            x:Name="SpeakerModeDescription"
+                            Style="{StaticResource CaptionStyle}"
+                            Text="关闭时不区分系统音频中的说话人。" />
+                    </StackPanel>
+                    <ComboBox
+                        x:Name="SpeakerModeBox"
+                        Header="模式"
+                        SelectionChanged="SpeakerModeBox_SelectionChanged">
+                        <ComboBoxItem Content="关闭" Tag="Off" />
+                        <ComboBoxItem Content="本地匿名 A/B/C" Tag="Local" />
+                        <ComboBoxItem Content="云端 provider speaker ID" Tag="Cloud" />
+                    </ComboBox>
+                    <InfoBar
+                        x:Name="LocalSpeakerInfo"
+                        IsClosable="False"
+                        IsOpen="False"
+                        Message="首次启用本地标签时下载约 27 MB 的 Apache-2.0 sherpa-onnx CAMPPlus 模型并校验 SHA-256；模型仅保存在本机。"
+                        Severity="Informational" />
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource PanelBorderStyle}">
+                <StackPanel Spacing="14">
+                    <StackPanel Spacing="3">
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="全局快捷键" />
+                        <TextBlock Style="{StaticResource CaptionStyle}" Text="格式示例：Ctrl+Alt+Space。保存后由本地 Engine 注册。" />
+                    </StackPanel>
+                    <TextBox
+                        Header="开始 / 停止会话"
+                        PlaceholderText="Ctrl+Alt+Space"
+                        Text="{x:Bind Controller.Settings.ToggleHotkey, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBox
+                        Header="翻译当前输入"
+                        PlaceholderText="Ctrl+Alt+Enter"
+                        Text="{x:Bind Controller.Settings.TranslateHotkey, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource PanelBorderStyle}">
+                <StackPanel Spacing="14">
+                    <TextBlock Style="{StaticResource SectionTitleStyle}" Text="运行状态" />
+                    <Grid RowSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="170" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="音频引擎" />
+                        <TextBlock x:Name="EngineStateText" Grid.Column="1" FontWeight="SemiBold" />
+                        <TextBlock Grid.Row="1" Text="翻译会话" />
+                        <TextBlock x:Name="SessionStateText" Grid.Row="1" Grid.Column="1" FontWeight="SemiBold" />
+                        <TextBlock Grid.Row="2" Text="当前活动" />
+                        <TextBlock x:Name="ActivityText" Grid.Row="2" Grid.Column="1" FontWeight="SemiBold" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource PanelBorderStyle}">
+                <StackPanel Spacing="14">
+                    <StackPanel Spacing="3">
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="版本与更新" />
+                        <TextBlock Style="{StaticResource CaptionStyle}" Text="从 GitHub Releases 检查 VoxLink 新版本。" />
+                    </StackPanel>
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Spacing="4">
+                            <TextBlock x:Name="VersionText" FontWeight="SemiBold" />
+                            <TextBlock x:Name="UpdateStatusText" Style="{StaticResource CaptionStyle}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="CheckUpdatesButton" Click="CheckForUpdates_Click">
+                                <StackPanel Orientation="Horizontal" Spacing="7">
+                                    <FontIcon FontSize="13" Glyph="&#xE72C;" />
+                                    <TextBlock Text="检查更新" />
+                                </StackPanel>
+                            </Button>
+                            <Button x:Name="OpenReleaseButton" Click="OpenRelease_Click" Visibility="Collapsed">
+                                <StackPanel Orientation="Horizontal" Spacing="7">
+                                    <FontIcon FontSize="13" Glyph="&#xE8A7;" />
+                                    <TextBlock Text="打开下载页" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border
+                Padding="18"
+                Background="{StaticResource VoxLinkAccentSoftBrush}"
+                BorderBrush="#7BC8B8"
+                BorderThickness="1"
+                CornerRadius="{StaticResource VoxLinkRadiusMedium}">
+                <Grid ColumnSpacing="14">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="36" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon
+                        Foreground="{StaticResource VoxLinkAccentBrush}"
+                        FontSize="24"
+                        Glyph="&#xE72E;" />
+                    <StackPanel Grid.Column="1" Spacing="4">
+                        <TextBlock FontWeight="SemiBold" Text="本地数据边界" />
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="本地 Whisper 与本地说话人模型留在本机。云端 ASR 仅在明确允许后上传原始音频；普通设置为 JSON，API Key 和请求头使用当前 Windows 用户 DPAPI 加密。"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

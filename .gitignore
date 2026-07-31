@@ -1,0 +1,19 @@
+bin/
+obj/
+.vs/
+.idea/
+*.user
+*.suo
+TestResults/
+.pi-subagents/
+
+# 发布产物仅保留 README 需要的示例截图
+artifacts/*
+!artifacts/voxlink-main.png
+
+# 遗留 Flutter 前端（已被 WinUI 3 版本取代），仅保留在本地
+src/voxlink_app/
+flutter-releases-windows.json
+
+# 本地工具（便携版 Inno Setup 编译器）
+scripts/tools/

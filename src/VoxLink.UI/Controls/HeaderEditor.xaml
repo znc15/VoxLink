@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="VoxLink.UI.Controls.HeaderEditor"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+    <StackPanel Spacing="8">
+        <Grid ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock FontWeight="SemiBold" Text="自定义请求头" />
+                <TextBlock Style="{StaticResource CaptionStyle}" Text="值以密码字段保存，不写入普通设置文件。" />
+            </StackPanel>
+            <Button
+                Grid.Column="1"
+                Click="AddHeader_Click"
+                ToolTipService.ToolTip="添加请求头">
+                <SymbolIcon Symbol="Add" />
+            </Button>
+        </Grid>
+
+        <ListView
+            ItemsSource="{x:Bind Entries}"
+            SelectionMode="None">
+            <ListView.ItemTemplate>
+                <DataTemplate>
+                    <Grid Margin="0,3" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="180" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox
+                            Header="名称"
+                            PlaceholderText="X-Custom-Header"
+                            Tag="{Binding}"
+                            Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                            TextChanged="HeaderName_TextChanged" />
+                        <PasswordBox
+                            Grid.Column="1"
+                            Header="值"
+                            Loaded="HeaderValue_Loaded"
+                            PasswordChanged="HeaderValue_PasswordChanged"
+                            PasswordRevealMode="Peek"
+                            PlaceholderText="请求头值"
+                            Tag="{Binding}" />
+                        <Button
+                            Grid.Column="2"
+                            VerticalAlignment="Bottom"
+                            Click="RemoveHeader_Click"
+                            Tag="{Binding}"
+                            ToolTipService.ToolTip="删除请求头">
+                            <SymbolIcon Symbol="Delete" />
+                        </Button>
+                    </Grid>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+    </StackPanel>
+</UserControl>

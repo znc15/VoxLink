@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ContentDialog
+    x:Class="VoxLink.UI.Controls.OnboardingDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="VoxLink 新手引导"
+    CloseButtonText="稍后"
+    DefaultButton="Primary"
+    PrimaryButtonClick="Dialog_PrimaryButtonClick"
+    SecondaryButtonClick="Dialog_SecondaryButtonClick">
+    <ScrollViewer MaxHeight="560" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Width="520" Spacing="16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="StepTitleText" FontSize="18" FontWeight="SemiBold" />
+                <TextBlock x:Name="StepCounterText" Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" />
+            </Grid>
+
+            <InfoBar
+                x:Name="GuideErrorBar"
+                IsClosable="False"
+                IsOpen="False"
+                Severity="Warning" />
+
+            <StackPanel x:Name="ModeStep" Spacing="14">
+                <TextBlock
+                    Style="{StaticResource CaptionStyle}"
+                    Text="选择首页的一键模式。两种模式都只识别你的麦克风并把译文发送到 VRChat Chatbox。" />
+                <RadioButtons
+                    x:Name="ModeButtons"
+                    MaxColumns="1"
+                    SelectionChanged="ModeButtons_SelectionChanged">
+                    <RadioButton Tag="OscText">
+                        <Grid MinWidth="430" Padding="4,8" ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="36" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <FontIcon VerticalAlignment="Top" FontSize="20" Foreground="{StaticResource VoxLinkAccentBrush}" Glyph="&#xE8C1;" />
+                            <StackPanel Grid.Column="1" Spacing="3">
+                                <TextBlock FontWeight="SemiBold" Text="OSC 文字翻译" />
+                                <TextBlock Style="{StaticResource CaptionStyle}" Text="麦克风 → 识别 → 翻译 → VRChat Chatbox。无需虚拟声卡。" />
+                            </StackPanel>
+                        </Grid>
+                    </RadioButton>
+                    <RadioButton Tag="VrChatVoice">
+                        <Grid MinWidth="430" Padding="4,8" ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="36" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <FontIcon VerticalAlignment="Top" FontSize="20" Foreground="{StaticResource VoxLinkAccentBrush}" Glyph="&#xE767;" />
+                            <StackPanel Grid.Column="1" Spacing="3">
+                                <TextBlock FontWeight="SemiBold" Text="VRChat 语音翻译" />
+                                <TextBlock Style="{StaticResource CaptionStyle}" Text="在 Chatbox 文字基础上，把原话或译文通过 TTS 和虚拟声卡送入 VRChat。" />
+                            </StackPanel>
+                        </Grid>
+                    </RadioButton>
+                </RadioButtons>
+                <InfoBar
+                    IsClosable="False"
+                    IsOpen="True"
+                    Message="系统音频翻译是独立高级功能，本模式不会自动开启（以免 TTS 被回环再次识别）。需要翻译他人播放的系统语音时，请在「音频设备」页开启系统音频回环。"
+                    Severity="Informational" />
+            </StackPanel>
+
+            <StackPanel x:Name="DevicesStep" Spacing="14" Visibility="Collapsed">
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="44" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <ComboBox
+                        x:Name="MyLanguageBox"
+                        Header="我的语言"
+                        DisplayMemberPath="DisplayName"
+                        SelectedValuePath="Code" />
+                    <Button
+                        Grid.Column="1"
+                        Width="40"
+                        Height="40"
+                        Margin="0,18,0,0"
+                        Click="SwapLanguages_Click"
+                        ToolTipService.ToolTip="交换语言">
+                        <FontIcon Glyph="&#xE8AB;" />
+                    </Button>
+                    <ComboBox
+                        x:Name="OtherLanguageBox"
+                        Grid.Column="2"
+                        Header="对方语言"
+                        DisplayMemberPath="DisplayName"
+                        SelectedValuePath="Code" />
+                </Grid>
+
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <ComboBox
+                        x:Name="MicrophoneBox"
+                        Header="麦克风输入"
+                        DisplayMemberPath="Label"
+                        SelectedValuePath="Id" />
+                    <Button Grid.Column="1" Margin="0,18,0,0" Click="RefreshDevices_Click" ToolTipService.ToolTip="刷新设备">
+                        <FontIcon Glyph="&#xE72C;" />
+                    </Button>
+                </Grid>
+
+                <StackPanel x:Name="VoiceSettingsPanel" Spacing="12" Visibility="Collapsed">
+                    <InfoBar
+                        x:Name="VirtualCableInfoBar"
+                        IsClosable="False"
+                        IsOpen="True" />
+                    <ComboBox
+                        x:Name="VoiceOutputBox"
+                        Header="VoxLink 语音输出（虚拟声卡播放端）"
+                        DisplayMemberPath="Label"
+                        SelectedValuePath="Id"
+                        SelectionChanged="VoiceOutputBox_SelectionChanged" />
+                    <RadioButtons x:Name="SpeechContentButtons" Header="朗读内容" MaxColumns="2">
+                        <RadioButton Content="翻译后内容" Tag="Translation" />
+                        <RadioButton Content="识别原话" Tag="Original" />
+                    </RadioButtons>
+                    <HyperlinkButton Padding="0" Click="OpenVirtualCableDownload_Click" Content="打开 VB-CABLE 官方下载页" />
+                </StackPanel>
+            </StackPanel>
+
+            <StackPanel x:Name="TestStep" Spacing="14" Visibility="Collapsed">
+                <InfoBar
+                    IsClosable="False"
+                    IsOpen="True"
+                    Message="在 VRChat 的 Action Menu → Options → OSC 中启用 OSC。Chatbox 测试会发送一条可见消息。"
+                    Severity="Informational"
+                    Title="启用 VRChat OSC" />
+                <StackPanel x:Name="VoiceVrChatInstructions" Spacing="8" Visibility="Collapsed">
+                    <InfoBar
+                        IsClosable="False"
+                        IsOpen="True"
+                        Message="在 VRChat 设置 → Audio → Microphone 中选择虚拟声卡的录音端，例如 CABLE Output。VoxLink 选择的是配对的播放端 CABLE Input。"
+                        Severity="Informational"
+                        Title="选择 VRChat 麦克风" />
+                </StackPanel>
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Button Click="TestOsc_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                            <FontIcon FontSize="13" Glyph="&#xE724;" />
+                            <TextBlock Text="测试 Chatbox" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="TestVoiceButton" Grid.Column="1" Click="TestVoice_Click" Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                            <FontIcon FontSize="13" Glyph="&#xE767;" />
+                            <TextBlock Text="测试语音路由" />
+                        </StackPanel>
+                    </Button>
+                    <ProgressRing x:Name="TestProgress" Grid.Column="2" Width="20" Height="20" HorizontalAlignment="Left" IsActive="False" Visibility="Collapsed" />
+                </Grid>
+                <TextBlock x:Name="TestStatusText" Style="{StaticResource CaptionStyle}" Text="测试完成后即可一键开始会话。" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>

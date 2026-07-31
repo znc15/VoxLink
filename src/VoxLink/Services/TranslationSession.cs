@@ -1,0 +1,1170 @@
+using System.IO;
+using System.Net.Sockets;
+using System.Threading.Channels;
+using VoxLink.Audio;
+using VoxLink.Models;
+
+namespace VoxLink.Services;
+
+public sealed class TranslationSession : IAsyncDisposable
+{
+    private readonly IAsrRecognizerFactory _asrFactory;
+    private readonly TranslationServiceFactory _translationFactory;
+    private readonly ITextToSpeechService _textToSpeech;
+    private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
+    private readonly object _streamingUtteranceGate = new();
+    private CancellationTokenSource? _sessionCancellation;
+    private CancellationTokenRegistration _externalCancellationRegistration;
+    private Channel<SpeechWorkItem>? _workItems;
+    private Task? _worker;
+    private WasapiSpeechCapture? _microphoneCapture;
+    private WasapiSpeechCapture? _loopbackCapture;
+    private StreamingSourcePump? _microphoneStream;
+    private StreamingSourcePump? _loopbackStream;
+    private VrChatOscListener? _muteSelfListener;
+    private LocalSpeakerLabeler? _speakerLabeler;
+    private IAsrRecognizer? _recognizer;
+    private AppSettings? _settings;
+    private ITranslationService? _translator;
+    private OpenAiTranslationService? _refinementService;
+    private volatile bool _vrChatMuted;
+    private volatile bool _isRunning;
+    private int _refinementWarningRaised;
+    private string? _outboundStreamingUtteranceId;
+    private string? _inboundStreamingUtteranceId;
+    private int _disposeState;
+
+    public TranslationSession(
+        ISpeechRecognizer speechRecognizer,
+        TranslationServiceFactory translationFactory,
+        ITextToSpeechService textToSpeech)
+        : this(new LegacyAsrRecognizerFactory(speechRecognizer), translationFactory, textToSpeech)
+    {
+    }
+
+    public TranslationSession(
+        IAsrRecognizerFactory asrFactory,
+        TranslationServiceFactory translationFactory,
+        ITextToSpeechService textToSpeech)
+    {
+        ArgumentNullException.ThrowIfNull(asrFactory);
+        ArgumentNullException.ThrowIfNull(translationFactory);
+        ArgumentNullException.ThrowIfNull(textToSpeech);
+        _asrFactory = asrFactory;
+        _translationFactory = translationFactory;
+        _textToSpeech = textToSpeech;
+        _asrFactory.ModelProgress += OnModelProgress;
+    }
+
+    public event EventHandler<SessionStatusEventArgs>? StatusChanged;
+
+    public event EventHandler<ConversationMessage>? MessageReceived;
+
+    public event EventHandler<ConversationMessage>? PartialMessageReceived;
+
+    public event EventHandler<SessionErrorEventArgs>? ErrorOccurred;
+
+    public event EventHandler<ModelProgressEventArgs>? ModelProgress;
+
+    public bool IsRunning => _isRunning;
+
+    public async Task StartAsync(AppSettings settings, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
+        await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_isRunning)
+            {
+                return;
+            }
+
+            if (!settings.CaptureMicrophone && !settings.CaptureSystemAudio)
+            {
+                throw new InvalidOperationException("请至少启用麦克风或系统音频中的一个来源。");
+            }
+
+            _isRunning = true;
+            try
+            {
+                await StartCoreAsync(settings, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                await StopCoreAsync().ConfigureAwait(false);
+                throw;
+            }
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
+    }
+
+    public async Task StopAsync()
+    {
+        await _lifecycleGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            await StopCoreAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
+    }
+
+    public async Task<ConversationMessage> TranslateTypedTextAsync(
+        string text,
+        AppSettings settings,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            throw new ArgumentException("请输入要翻译的内容。", nameof(text));
+        }
+
+        if (_textToSpeech is IConfigurableTextToSpeechService configurableSpeech)
+        {
+            configurableSpeech.Configure(settings);
+        }
+
+        var source = LanguageCatalog.Get(settings.MyLanguageCode);
+        var target = LanguageCatalog.Get(settings.OtherLanguageCode);
+        var translator = _translationFactory.Create(settings);
+        OpenAiTranslationService? refinementService = null;
+        if (settings.EnableTranslationRefinement)
+        {
+            refinementService = _translationFactory.CreateChatService(settings);
+        }
+
+        RaiseStatus("正在翻译输入文本", SessionActivity.Translating);
+        var message = await TranslateFinalTextAsync(
+            TranslationDirection.Typed,
+            ChineseTextNormalizer.Normalize(text.Trim(), source),
+            source,
+            target,
+            settings,
+            translator,
+            refinementService,
+            speaker: null,
+            cancellationToken).ConfigureAwait(false);
+        MessageReceived?.Invoke(this, message);
+
+        if (ShouldSpeakTranslation(message, settings))
+        {
+            var (speechText, speechLanguage) = ResolveSpeech(message, settings, source, target);
+            RaiseStatus("正在输出语音", SessionActivity.Speaking);
+            await _textToSpeech.SpeakAsync(
+                speechText,
+                speechLanguage,
+                settings.VoiceOutputDeviceId,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        RaiseReadyStatus();
+        return message;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.CompareExchange(ref _disposeState, 1, 0) != 0)
+        {
+            return;
+        }
+
+        await StopAsync().ConfigureAwait(false);
+        _asrFactory.ModelProgress -= OnModelProgress;
+        await _asrFactory.DisposeAsync().ConfigureAwait(false);
+        await _textToSpeech.DisposeAsync().ConfigureAwait(false);
+        _lifecycleGate.Dispose();
+    }
+
+    private async Task StartCoreAsync(AppSettings settings, CancellationToken cancellationToken)
+    {
+        _settings = settings.Clone();
+        _refinementWarningRaised = 0;
+        ResetStreamingUtteranceIds();
+        _vrChatMuted = false;
+        if (_textToSpeech is IConfigurableTextToSpeechService configurableSpeech)
+        {
+            configurableSpeech.Configure(_settings);
+        }
+
+        _translator = _settings.TranscriptionOnly
+            ? null
+            : _translationFactory.Create(_settings);
+        _refinementService = !_settings.TranscriptionOnly && _settings.EnableTranslationRefinement
+            ? _translationFactory.CreateChatService(_settings)
+            : null;
+        _sessionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var sessionToken = _sessionCancellation.Token;
+        _workItems = Channel.CreateBounded<SpeechWorkItem>(new BoundedChannelOptions(8)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = false
+        });
+
+        RaiseStatus("正在准备语音识别", SessionActivity.Preparing);
+        _recognizer = _asrFactory.Create(_settings);
+        await _recognizer.PrepareAsync(sessionToken).ConfigureAwait(false);
+        await PrepareSpeakerLabelsAsync(_settings, _recognizer, sessionToken).ConfigureAwait(false);
+        _worker = ProcessWorkItemsAsync(_workItems.Reader, sessionToken);
+
+        if (_recognizer.SupportsStreaming)
+        {
+            await StartStreamingSourcesAsync(_settings, _recognizer, sessionToken).ConfigureAwait(false);
+        }
+
+        if (_settings.VrChatMuteSelfEnabled && _settings.CaptureMicrophone)
+        {
+            StartMuteSelfListener(_settings);
+        }
+
+        StartCaptures(_settings);
+        if (cancellationToken.CanBeCanceled)
+        {
+            _externalCancellationRegistration = cancellationToken.Register(
+                static state => ThreadPool.QueueUserWorkItem(
+                    static queuedState => _ = ((TranslationSession)queuedState!).StopAfterExternalCancellationAsync(),
+                    state),
+                this);
+        }
+
+        RaiseStatus(GetListeningText(_settings), SessionActivity.Listening);
+    }
+
+    private async Task StopCoreAsync()
+    {
+        if (!_isRunning && _sessionCancellation is null)
+        {
+            return;
+        }
+
+        _isRunning = false;
+        var cancellation = _sessionCancellation;
+        var worker = _worker;
+        var microphone = _microphoneCapture;
+        var loopback = _loopbackCapture;
+        var microphoneStream = _microphoneStream;
+        var loopbackStream = _loopbackStream;
+        var muteSelfListener = _muteSelfListener;
+        var recognizer = _recognizer;
+        var speakerLabeler = _speakerLabeler;
+        var workItems = _workItems;
+        var externalRegistration = _externalCancellationRegistration;
+
+        _sessionCancellation = null;
+        _worker = null;
+        _microphoneCapture = null;
+        _loopbackCapture = null;
+        _microphoneStream = null;
+        _loopbackStream = null;
+        _muteSelfListener = null;
+        _recognizer = null;
+        _speakerLabeler = null;
+        _workItems = null;
+        _externalCancellationRegistration = default;
+        _settings = null;
+        _translator = null;
+        _refinementService = null;
+        _vrChatMuted = false;
+        ResetStreamingUtteranceIds();
+
+        externalRegistration.Dispose();
+        _textToSpeech.Stop();
+        StopCapture(microphone, microphoneStream, OnMicrophoneUtterance, OnMicrophonePcmChunk, OnDeviceFallback);
+        StopCapture(loopback, loopbackStream, OnLoopbackUtterance, OnLoopbackPcmChunk, OnDeviceFallback);
+        loopbackStream?.CompleteInput();
+        workItems?.Writer.TryComplete();
+        cancellation?.Cancel();
+
+        await DisposeCaptureAsync(microphone).ConfigureAwait(false);
+        await DisposeCaptureAsync(loopback).ConfigureAwait(false);
+        if (microphoneStream is not null)
+        {
+            await microphoneStream.DisposeAsync().ConfigureAwait(false);
+        }
+
+        if (loopbackStream is not null)
+        {
+            await loopbackStream.DisposeAsync().ConfigureAwait(false);
+        }
+
+        if (muteSelfListener is not null)
+        {
+            muteSelfListener.MuteStateChanged -= OnMuteStateChanged;
+            muteSelfListener.ListenFailed -= OnMuteListenFailed;
+            await muteSelfListener.DisposeAsync().ConfigureAwait(false);
+        }
+
+        await IgnoreCancellationAsync(worker).ConfigureAwait(false);
+        if (recognizer is not null)
+        {
+            await recognizer.DisposeAsync().ConfigureAwait(false);
+        }
+
+        if (speakerLabeler is not null)
+        {
+            speakerLabeler.ModelProgress -= OnModelProgress;
+            await speakerLabeler.DisposeAsync().ConfigureAwait(false);
+        }
+
+        cancellation?.Dispose();
+        RaiseStatus("翻译已停止", SessionActivity.Idle);
+    }
+
+    private async Task PrepareSpeakerLabelsAsync(
+        AppSettings settings,
+        IAsrRecognizer recognizer,
+        CancellationToken cancellationToken)
+    {
+        if (settings.SpeakerLabelMode == SpeakerLabelMode.Off)
+        {
+            return;
+        }
+
+        if (settings.SpeakerLabelMode == SpeakerLabelMode.Cloud)
+        {
+            if (!recognizer.Capabilities.SupportsCloudSpeakerLabels)
+            {
+                ErrorOccurred?.Invoke(this, new SessionErrorEventArgs(
+                    "当前 ASR 不支持云端说话人标签，已在本次会话中关闭标签。",
+                    new InvalidOperationException("只有 Soniox 流式协议支持云端 speaker ID。")));
+            }
+
+            return;
+        }
+
+        if (recognizer.SupportsStreaming)
+        {
+            ErrorOccurred?.Invoke(this, new SessionErrorEventArgs(
+                "流式 ASR 无法可靠对齐本地说话人音频窗口，已在本次会话中关闭本地标签。",
+                new InvalidOperationException("本地说话人标签仅用于 VAD 分段识别。")));
+            return;
+        }
+
+        var labeler = new LocalSpeakerLabeler();
+        labeler.ModelProgress += OnModelProgress;
+        try
+        {
+            await labeler.PrepareAsync(cancellationToken).ConfigureAwait(false);
+            _speakerLabeler = labeler;
+        }
+        catch (OperationCanceledException)
+        {
+            labeler.ModelProgress -= OnModelProgress;
+            await labeler.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+        catch (Exception exception)
+        {
+            labeler.ModelProgress -= OnModelProgress;
+            await labeler.DisposeAsync().ConfigureAwait(false);
+            ErrorOccurred?.Invoke(this, new SessionErrorEventArgs(
+                "本地说话人模型不可用，转写会继续但不显示说话人标签。",
+                exception));
+        }
+    }
+
+    private async Task StartStreamingSourcesAsync(
+        AppSettings settings,
+        IAsrRecognizer recognizer,
+        CancellationToken cancellationToken)
+    {
+        if (settings.CaptureMicrophone)
+        {
+            _microphoneStream = new StreamingSourcePump(
+                recognizer,
+                TranslationDirection.Outbound,
+                LanguageCatalog.Get(settings.MyLanguageCode),
+                OnStreamingTranscript,
+                OnStreamingFault);
+            await _microphoneStream.StartAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        if (settings.CaptureSystemAudio)
+        {
+            _loopbackStream = new StreamingSourcePump(
+                recognizer,
+                TranslationDirection.Inbound,
+                LanguageCatalog.Get(settings.OtherLanguageCode),
+                OnStreamingTranscript,
+                OnStreamingFault);
+            await _loopbackStream.StartAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private void StartMuteSelfListener(AppSettings settings)
+    {
+        try
+        {
+            var listener = new VrChatOscListener(
+                settings.VrChatOscListenAddress,
+                settings.VrChatOscListenPort);
+            listener.MuteStateChanged += OnMuteStateChanged;
+            listener.ListenFailed += OnMuteListenFailed;
+            listener.Start();
+            _muteSelfListener = listener;
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or SocketException)
+        {
+            ErrorOccurred?.Invoke(this, new SessionErrorEventArgs(
+                "VRChat MuteSelf 监听不可用，麦克风仍按 VoxLink 开关采集。",
+                exception));
+        }
+    }
+
+    private void StartCaptures(AppSettings settings)
+    {
+        if (settings.CaptureMicrophone)
+        {
+            _microphoneCapture = new WasapiSpeechCapture(
+                settings.MicrophoneDeviceId,
+                loopback: false,
+                settings.VoiceThreshold,
+                settings.SilenceDurationMs,
+                () => _textToSpeech.IsSpeaking || _vrChatMuted,
+                settings.SmartSentenceSegmentation);
+            _microphoneCapture.UtteranceReady += OnMicrophoneUtterance;
+            _microphoneCapture.CaptureFailed += OnCaptureFailed;
+            _microphoneCapture.DeviceFallbackOccurred += OnDeviceFallback;
+            if (_microphoneStream is not null)
+            {
+                _microphoneCapture.PcmChunkReady += OnMicrophonePcmChunk;
+            }
+
+            _microphoneCapture.Start();
+        }
+
+        if (settings.CaptureSystemAudio)
+        {
+            var voiceSharesLoopbackDevice = string.IsNullOrWhiteSpace(settings.VoiceOutputDeviceId)
+                || settings.VoiceOutputDeviceId == settings.SystemAudioDeviceId;
+            _loopbackCapture = new WasapiSpeechCapture(
+                settings.SystemAudioDeviceId,
+                loopback: true,
+                settings.VoiceThreshold,
+                settings.SilenceDurationMs,
+                () => voiceSharesLoopbackDevice && _textToSpeech.IsSpeaking,
+                settings.SmartSentenceSegmentation);
+            _loopbackCapture.UtteranceReady += OnLoopbackUtterance;
+            _loopbackCapture.CaptureFailed += OnCaptureFailed;
+            _loopbackCapture.DeviceFallbackOccurred += OnDeviceFallback;
+            if (_loopbackStream is not null)
+            {
+                _loopbackCapture.PcmChunkReady += OnLoopbackPcmChunk;
+            }
+
+            _loopbackCapture.Start();
+        }
+    }
+
+    private async Task StopAfterExternalCancellationAsync()
+    {
+        try
+        {
+            await StopAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            ErrorOccurred?.Invoke(this, new SessionErrorEventArgs("取消翻译会话时发生错误。", exception));
+        }
+    }
+
+    private void OnMicrophoneUtterance(object? sender, AudioUtterance utterance)
+    {
+        if (_recognizer?.SupportsStreaming == true)
+        {
+            return;
+        }
+
+        Enqueue(SpeechWorkItem.FromUtterance(TranslationDirection.Outbound, utterance));
+    }
+
+    private void OnLoopbackUtterance(object? sender, AudioUtterance utterance)
+    {
+        if (_recognizer?.SupportsStreaming == true)
+        {
+            return;
+        }
+
+        Enqueue(SpeechWorkItem.FromUtterance(TranslationDirection.Inbound, utterance));
+    }
+
+    private void OnMicrophonePcmChunk(object? sender, float[] samples) =>
+        _microphoneStream?.TryWrite(samples);
+
+    private void OnLoopbackPcmChunk(object? sender, float[] samples) =>
+        _loopbackStream?.TryWrite(samples);
+
+    private void OnCaptureFailed(object? sender, Exception exception) =>
+        ErrorOccurred?.Invoke(this, new SessionErrorEventArgs("音频设备已断开或不可用。", exception));
+
+    private void OnDeviceFallback(object? sender, string requestedDeviceId)
+    {
+        ErrorOccurred?.Invoke(this, new SessionErrorEventArgs(
+            "未找到已保存的音频设备，已回退到 Windows 默认设备。",
+            new InvalidOperationException($"Requested device '{requestedDeviceId}' was not found.")));
+    }
+
+    private void OnMuteStateChanged(object? sender, bool muted)
+    {
+        _vrChatMuted = muted;
+        if (muted)
+        {
+            RaiseStatus("VRChat 麦克风已静音，暂停 VoxLink 麦克风采集", SessionActivity.Listening);
+        }
+        else if (_settings is not null)
+        {
+            RaiseStatus(GetListeningText(_settings), SessionActivity.Listening);
+        }
+    }
+
+    private void OnMuteListenFailed(object? sender, Exception exception) =>
+        ErrorOccurred?.Invoke(this, new SessionErrorEventArgs(
+            "VRChat MuteSelf 监听已中断，系统音频翻译不受影响。",
+            exception));
+
+    private void OnStreamingTranscript(
+        TranslationDirection direction,
+        StreamingTranscriptEventArgs transcript)
+    {
+        if (!_isRunning || string.IsNullOrWhiteSpace(transcript.Text))
+        {
+            return;
+        }
+
+        var speaker = GetCloudSpeaker(transcript.SpeakerId);
+        var utteranceId = GetStreamingUtteranceId(direction, transcript.IsFinal);
+        if (!transcript.IsFinal)
+        {
+            var partialText = ChineseTextNormalizer.Normalize(transcript.Text.Trim(), LanguageCatalog.Get(
+                direction == TranslationDirection.Outbound
+                    ? _settings?.MyLanguageCode
+                    : _settings?.OtherLanguageCode));
+            PartialMessageReceived?.Invoke(this, new ConversationMessage(
+                direction,
+                partialText,
+                partialText,
+                DateTimeOffset.Now)
+            {
+                SpeakerId = speaker?.Id,
+                SpeakerLabel = speaker?.Label,
+                UtteranceId = utteranceId,
+                IsFinal = false,
+                TranscriptionOnly = true
+            });
+            return;
+        }
+
+        Enqueue(SpeechWorkItem.FromTranscript(
+            direction,
+            transcript.Text,
+            transcript.SpeakerId,
+            utteranceId));
+    }
+
+    private string GetStreamingUtteranceId(
+        TranslationDirection direction,
+        bool completesUtterance)
+    {
+        lock (_streamingUtteranceGate)
+        {
+            var current = direction == TranslationDirection.Outbound
+                ? _outboundStreamingUtteranceId
+                : _inboundStreamingUtteranceId;
+            current ??= Guid.NewGuid().ToString("N");
+
+            if (direction == TranslationDirection.Outbound)
+            {
+                _outboundStreamingUtteranceId = completesUtterance ? null : current;
+            }
+            else
+            {
+                _inboundStreamingUtteranceId = completesUtterance ? null : current;
+            }
+
+            return current;
+        }
+    }
+
+    private void ResetStreamingUtteranceIds()
+    {
+        lock (_streamingUtteranceGate)
+        {
+            _outboundStreamingUtteranceId = null;
+            _inboundStreamingUtteranceId = null;
+        }
+    }
+
+    private void ResetStreamingUtteranceId(TranslationDirection direction)
+    {
+        lock (_streamingUtteranceGate)
+        {
+            if (direction == TranslationDirection.Outbound)
+            {
+                _outboundStreamingUtteranceId = null;
+            }
+            else
+            {
+                _inboundStreamingUtteranceId = null;
+            }
+        }
+    }
+
+    private void OnStreamingFault(TranslationDirection direction, Exception exception)
+    {
+        ResetStreamingUtteranceId(direction);
+        ErrorOccurred?.Invoke(this, new SessionErrorEventArgs(
+            $"{GetDirectionLabel(direction)}流式 ASR 连接中断，正在自动重连。",
+            exception));
+    }
+
+    private void Enqueue(SpeechWorkItem workItem)
+    {
+        if (!_isRunning || !(_workItems?.Writer.TryWrite(workItem) ?? false))
+        {
+            return;
+        }
+
+        RaiseStatus(
+            workItem.Direction == TranslationDirection.Outbound ? "听到你的语音" : "听到系统语音",
+            SessionActivity.Transcribing);
+    }
+
+    private async Task ProcessWorkItemsAsync(
+        ChannelReader<SpeechWorkItem> reader,
+        CancellationToken cancellationToken)
+    {
+        await foreach (var workItem in reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+        {
+            try
+            {
+                await ProcessWorkItemAsync(workItem, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception exception)
+            {
+                ErrorOccurred?.Invoke(this, new SessionErrorEventArgs(
+                    "这句话处理失败，监听仍会继续。",
+                    exception));
+                RaiseReadyStatus();
+            }
+        }
+    }
+
+    private async Task ProcessWorkItemAsync(
+        SpeechWorkItem workItem,
+        CancellationToken cancellationToken)
+    {
+        var settings = _settings ?? throw new InvalidOperationException("翻译会话尚未配置。");
+        var recognizer = _recognizer ?? throw new InvalidOperationException("语音识别器尚未配置。");
+        var source = workItem.Direction == TranslationDirection.Outbound
+            ? LanguageCatalog.Get(settings.MyLanguageCode)
+            : LanguageCatalog.Get(settings.OtherLanguageCode);
+        var target = workItem.Direction == TranslationDirection.Outbound
+            ? LanguageCatalog.Get(settings.OtherLanguageCode)
+            : LanguageCatalog.Get(settings.MyLanguageCode);
+        string sourceText;
+        SpeakerIdentity? speaker;
+
+        if (workItem.Utterance is not null)
+        {
+            RaiseStatus("正在识别语音", SessionActivity.Transcribing);
+            var result = await recognizer.TranscribeAsync(
+                workItem.Utterance,
+                source,
+                cancellationToken).ConfigureAwait(false);
+            sourceText = ChineseTextNormalizer.Normalize(result.Text.Trim(), source);
+            speaker = GetCloudSpeaker(result.SpeakerId);
+            if (speaker is null
+                && workItem.Direction == TranslationDirection.Inbound
+                && _speakerLabeler is not null)
+            {
+                speaker = await _speakerLabeler.IdentifyAsync(
+                    workItem.Utterance,
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+        else
+        {
+            sourceText = ChineseTextNormalizer.Normalize(workItem.SourceText?.Trim() ?? string.Empty, source);
+            speaker = GetCloudSpeaker(workItem.SpeakerId);
+        }
+
+        if (sourceText.Length == 0)
+        {
+            RaiseReadyStatus();
+            return;
+        }
+
+        ConversationMessage message;
+        if (settings.TranscriptionOnly)
+        {
+            message = new ConversationMessage(
+                workItem.Direction,
+                sourceText,
+                sourceText,
+                DateTimeOffset.Now)
+            {
+                SpeakerId = speaker?.Id,
+                SpeakerLabel = speaker?.Label,
+                TranscriptionOnly = true
+            };
+        }
+        else
+        {
+            var translator = _translator ?? throw new InvalidOperationException("翻译服务尚未配置。");
+            RaiseStatus("正在翻译", SessionActivity.Translating);
+            message = await TranslateFinalTextAsync(
+                workItem.Direction,
+                sourceText,
+                source,
+                target,
+                settings,
+                translator,
+                _refinementService,
+                speaker,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        message = message with { UtteranceId = workItem.UtteranceId };
+        MessageReceived?.Invoke(this, message);
+        if (ShouldSpeakTranslation(message, settings))
+        {
+            var (speechText, speechLanguage) = ResolveSpeech(message, settings, source, target);
+            RaiseStatus("正在输出语音", SessionActivity.Speaking);
+            await _textToSpeech.SpeakAsync(
+                speechText,
+                speechLanguage,
+                settings.VoiceOutputDeviceId,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        RaiseReadyStatus();
+    }
+
+    internal static bool ShouldSpeakTranslation(
+        ConversationMessage message,
+        AppSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(settings);
+        return !message.TranscriptionOnly
+            && message.IsFinal
+            && message.Direction switch
+            {
+                TranslationDirection.Inbound => settings.SpeakInboundTranslation,
+                TranslationDirection.Outbound or TranslationDirection.Typed => settings.SpeakMyTranslation,
+                _ => false
+            };
+    }
+
+    internal static (string Text, LanguageOption Language) ResolveSpeech(
+        ConversationMessage message,
+        AppSettings settings,
+        LanguageOption source,
+        LanguageOption target) =>
+        settings.OutboundSpeechContent == OutboundSpeechContent.Original
+            && message.Direction is (TranslationDirection.Outbound or TranslationDirection.Typed)
+            ? (message.SourceText, source)
+            : (message.TranslatedText, target);
+
+    private async Task<ConversationMessage> TranslateFinalTextAsync(
+        TranslationDirection direction,
+        string sourceText,
+        LanguageOption source,
+        LanguageOption primaryTarget,
+        AppSettings settings,
+        ITranslationService translator,
+        OpenAiTranslationService? refinementService,
+        SpeakerIdentity? speaker,
+        CancellationToken cancellationToken)
+    {
+        var secondaryTarget = TryGetSecondaryTarget(settings, primaryTarget);
+        var primaryTask = translator.TranslateAsync(
+            sourceText,
+            source,
+            primaryTarget,
+            cancellationToken);
+        var secondaryTask = secondaryTarget is null
+            ? Task.FromResult(string.Empty)
+            : translator.TranslateAsync(sourceText, source, secondaryTarget, cancellationToken);
+        await Task.WhenAll(primaryTask, secondaryTask).ConfigureAwait(false);
+        var primary = await primaryTask.ConfigureAwait(false);
+        var secondary = await secondaryTask.ConfigureAwait(false);
+        primary = ChineseTextNormalizer.Normalize(primary.Trim(), primaryTarget);
+        secondary = ChineseTextNormalizer.Normalize(secondary.Trim(), secondaryTarget ?? primaryTarget);
+        if (refinementService is not null)
+        {
+            primary = await RefineTranslationAsync(
+                refinementService,
+                sourceText,
+                primary,
+                source,
+                primaryTarget,
+                settings,
+                cancellationToken).ConfigureAwait(false);
+            if (secondaryTarget is not null && secondary.Length > 0)
+            {
+                secondary = await RefineTranslationAsync(
+                    refinementService,
+                    sourceText,
+                    secondary,
+                    source,
+                    secondaryTarget,
+                    settings,
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        primary = ChineseTextNormalizer.Normalize(primary.Trim(), primaryTarget);
+        secondary = ChineseTextNormalizer.Normalize(secondary.Trim(), secondaryTarget ?? primaryTarget);
+        return new ConversationMessage(direction, sourceText, primary, DateTimeOffset.Now)
+        {
+            SecondaryTranslatedText = secondary.Trim(),
+            SpeakerId = speaker?.Id,
+            SpeakerLabel = speaker?.Label
+        };
+    }
+
+    private async Task<string> RefineTranslationAsync(
+        OpenAiTranslationService service,
+        string sourceText,
+        string translation,
+        LanguageOption source,
+        LanguageOption target,
+        AppSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var instruction = string.IsNullOrWhiteSpace(settings.TranslationRefinementPrompt)
+            ? "Make the translation natural and concise for multiplayer game voice chat. Preserve names, numbers, intent, and safety-relevant details."
+            : settings.TranslationRefinementPrompt.Trim();
+        try
+        {
+            var chineseConstraint = target.Culture.Equals("zh-CN", StringComparison.OrdinalIgnoreCase)
+                ? "\nUse Simplified Chinese (简体中文) only; never use Traditional Chinese."
+                : string.Empty;
+            return await service.GenerateAsync(
+                $"Refine the translation from {source.DisplayName} to {target.DisplayName}.\n" +
+                $"Instruction: {instruction}{chineseConstraint}\n" +
+                $"Source: {sourceText}\n" +
+                $"Draft: {translation}\n" +
+                "Return only the refined translation.",
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            if (Interlocked.Exchange(ref _refinementWarningRaised, 1) == 0)
+            {
+                ErrorOccurred?.Invoke(this, new SessionErrorEventArgs(
+                    "LLM 译文润色失败，已保留原始译文并继续会话。",
+                    exception));
+            }
+
+            return translation;
+        }
+    }
+
+    private SpeakerIdentity? GetCloudSpeaker(string? speakerId)
+    {
+        if (_settings?.SpeakerLabelMode != SpeakerLabelMode.Cloud
+            || string.IsNullOrWhiteSpace(speakerId)
+            || _recognizer?.Capabilities.SupportsCloudSpeakerLabels != true)
+        {
+            return null;
+        }
+
+        var id = speakerId.Trim();
+        return new SpeakerIdentity(id, $"说话人 {id}");
+    }
+
+    private static LanguageOption? TryGetSecondaryTarget(
+        AppSettings settings,
+        LanguageOption primaryTarget)
+    {
+        var code = settings.SecondaryTargetLanguageCode?.Trim();
+        if (string.IsNullOrWhiteSpace(code)
+            || code.Equals(primaryTarget.Code, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return LanguageCatalog.All.FirstOrDefault(
+            language => language.Code.Equals(code, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"不支持的第二目标语言代码：{code}");
+    }
+
+    private void RaiseReadyStatus()
+    {
+        var settings = _settings;
+        RaiseStatus(
+            _isRunning && settings is not null ? GetListeningText(settings) : "可以开始",
+            _isRunning ? SessionActivity.Listening : SessionActivity.Idle);
+    }
+
+    private void RaiseStatus(string message, SessionActivity activity) =>
+        StatusChanged?.Invoke(this, new SessionStatusEventArgs(message, activity));
+
+    private void OnModelProgress(object? sender, ModelProgressEventArgs eventArgs) =>
+        ModelProgress?.Invoke(this, eventArgs);
+
+    private static string GetListeningText(AppSettings settings)
+    {
+        if (settings.CaptureMicrophone && settings.CaptureSystemAudio)
+        {
+            return settings.TranscriptionOnly ? "双路转写已开启" : "双向翻译已开启";
+        }
+
+        if (settings.CaptureMicrophone)
+        {
+            return settings.TranscriptionOnly ? "麦克风转写已开启" : "麦克风翻译已开启";
+        }
+
+        return settings.TranscriptionOnly ? "系统音频转写已开启" : "系统音频翻译已开启";
+    }
+
+    private static string GetDirectionLabel(TranslationDirection direction) =>
+        direction == TranslationDirection.Outbound ? "麦克风" : "系统音频";
+
+    private static void StopCapture(
+        WasapiSpeechCapture? capture,
+        StreamingSourcePump? stream,
+        EventHandler<AudioUtterance> utteranceHandler,
+        EventHandler<float[]> pcmHandler,
+        EventHandler<string> fallbackHandler)
+    {
+        if (capture is null)
+        {
+            return;
+        }
+
+        capture.UtteranceReady -= utteranceHandler;
+        capture.DeviceFallbackOccurred -= fallbackHandler;
+        if (stream is not null)
+        {
+            capture.PcmChunkReady -= pcmHandler;
+        }
+
+        capture.Stop();
+    }
+
+    private async Task DisposeCaptureAsync(WasapiSpeechCapture? capture)
+    {
+        if (capture is null)
+        {
+            return;
+        }
+
+        capture.CaptureFailed -= OnCaptureFailed;
+        await capture.DisposeAsync().ConfigureAwait(false);
+    }
+
+    private static async Task IgnoreCancellationAsync(Task? task)
+    {
+        if (task is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await task.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private sealed record SpeechWorkItem(
+        TranslationDirection Direction,
+        AudioUtterance? Utterance,
+        string? SourceText,
+        string? SpeakerId,
+        string? UtteranceId)
+    {
+        public static SpeechWorkItem FromUtterance(
+            TranslationDirection direction,
+            AudioUtterance utterance) => new(direction, utterance, null, null, null);
+
+        public static SpeechWorkItem FromTranscript(
+            TranslationDirection direction,
+            string text,
+            string? speakerId,
+            string utteranceId) => new(direction, null, text.Trim(), speakerId, utteranceId);
+    }
+
+    internal sealed class StreamingSourcePump : IAsyncDisposable
+    {
+        private readonly IAsrRecognizer _recognizer;
+        private readonly TranslationDirection _direction;
+        private readonly LanguageOption _language;
+        private readonly Action<TranslationDirection, StreamingTranscriptEventArgs> _onTranscript;
+        private readonly Action<TranslationDirection, Exception> _onFault;
+        private readonly Channel<float[]> _audio = Channel.CreateBounded<float[]>(new BoundedChannelOptions(40)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = false
+        });
+        private Task? _worker;
+        private int _disposeState;
+
+        public StreamingSourcePump(
+            IAsrRecognizer recognizer,
+            TranslationDirection direction,
+            LanguageOption language,
+            Action<TranslationDirection, StreamingTranscriptEventArgs> onTranscript,
+            Action<TranslationDirection, Exception> onFault)
+        {
+            _recognizer = recognizer;
+            _direction = direction;
+            _language = language;
+            _onTranscript = onTranscript;
+            _onFault = onFault;
+        }
+
+        public async Task StartAsync(CancellationToken cancellationToken)
+        {
+            var initialStream = await _recognizer.StartStreamAsync(_language, cancellationToken)
+                .ConfigureAwait(false);
+            _worker = RunAsync(initialStream, cancellationToken);
+        }
+
+        public bool TryWrite(float[] samples) =>
+            Volatile.Read(ref _disposeState) == 0 && _audio.Writer.TryWrite(samples);
+
+        public void CompleteInput() => _audio.Writer.TryComplete();
+
+        public async ValueTask DisposeAsync()
+        {
+            if (Interlocked.CompareExchange(ref _disposeState, 1, 0) != 0)
+            {
+                return;
+            }
+
+            _audio.Writer.TryComplete();
+            await IgnoreCancellationAsync(_worker).ConfigureAwait(false);
+        }
+
+        private async Task RunAsync(IAsrStream initialStream, CancellationToken cancellationToken)
+        {
+            IAsrStream? stream = initialStream;
+            var retry = 0;
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    stream ??= await _recognizer.StartStreamAsync(_language, cancellationToken)
+                        .ConfigureAwait(false);
+                    await RunConnectedAsync(stream, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception exception)
+                {
+                    _onFault(_direction, exception);
+                    while (_audio.Reader.TryRead(out _))
+                    {
+                    }
+
+                    retry = Math.Min(retry + 1, 4);
+                    await Task.Delay(TimeSpan.FromSeconds(1 << (retry - 1)), cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                finally
+                {
+                    if (stream is not null)
+                    {
+                        await stream.DisposeAsync().ConfigureAwait(false);
+                        stream = null;
+                    }
+                }
+            }
+        }
+
+        private async Task RunConnectedAsync(IAsrStream stream, CancellationToken cancellationToken)
+        {
+            var streamFault = new TaskCompletionSource<Exception>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            EventHandler<StreamingTranscriptEventArgs> transcriptHandler =
+                (_, transcript) => _onTranscript(_direction, transcript);
+            EventHandler<Exception> faultHandler =
+                (_, exception) => streamFault.TrySetResult(exception);
+            stream.TranscriptReceived += transcriptHandler;
+            stream.Faulted += faultHandler;
+            try
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    var audioReady = _audio.Reader.WaitToReadAsync(cancellationToken).AsTask();
+                    var completed = await Task.WhenAny(
+                        audioReady,
+                        stream.Completion,
+                        streamFault.Task).ConfigureAwait(false);
+                    if (ReferenceEquals(completed, streamFault.Task))
+                    {
+                        throw await streamFault.Task.ConfigureAwait(false);
+                    }
+
+                    if (ReferenceEquals(completed, stream.Completion))
+                    {
+                        await stream.Completion.ConfigureAwait(false);
+                        if (streamFault.Task.IsCompletedSuccessfully)
+                        {
+                            throw streamFault.Task.Result;
+                        }
+
+                        throw new IOException("流式 ASR 服务关闭了连接。");
+                    }
+
+                    if (!await audioReady.ConfigureAwait(false))
+                    {
+                        using var stopTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+                        await stream.StopAsync(stopTimeout.Token).ConfigureAwait(false);
+                        return;
+                    }
+
+                    while (_audio.Reader.TryRead(out var samples))
+                    {
+                        await stream.SendAudioAsync(samples, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+            }
+            finally
+            {
+                stream.TranscriptReceived -= transcriptHandler;
+                stream.Faulted -= faultHandler;
+            }
+        }
+    }
+}
+
+public enum SessionActivity
+{
+    Idle,
+    Preparing,
+    Listening,
+    Transcribing,
+    Translating,
+    Speaking,
+    Error
+}
+
+public sealed record SessionStatusEventArgs(string Message, SessionActivity Activity);
+
+public sealed record SessionErrorEventArgs(string Message, Exception Exception);

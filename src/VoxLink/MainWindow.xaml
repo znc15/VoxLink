@@ -1,0 +1,575 @@
+<Window x:Class="VoxLink.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="VoxLink"
+        Width="1180"
+        Height="790"
+        MinWidth="940"
+        MinHeight="680"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource CanvasBrush}">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="220" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <Grid Background="#172320">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="92" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <StackPanel Margin="24,20,18,0">
+                <TextBlock Foreground="White"
+                           FontSize="24"
+                           FontWeight="SemiBold"
+                           Text="VoxLink" />
+                <TextBlock Margin="0,3,0,0"
+                           Foreground="#8FA39E"
+                           FontSize="12"
+                           Text="双向语音翻译" />
+            </StackPanel>
+
+            <StackPanel Grid.Row="1" Margin="0,10,0,0">
+                <RadioButton IsChecked="True"
+                             AutomationProperties.Name="实时翻译"
+                             GroupName="Navigation"
+                             Style="{StaticResource NavButtonStyle}"
+                             Tag="0"
+                             Click="Navigation_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Width="28"
+                                   FontFamily="Segoe Fluent Icons"
+                                   FontSize="17"
+                                   Text="&#xE8C1;" />
+                        <TextBlock VerticalAlignment="Center" Text="实时翻译" />
+                    </StackPanel>
+                </RadioButton>
+                <RadioButton AutomationProperties.Name="设备与快捷键"
+                             GroupName="Navigation"
+                             Style="{StaticResource NavButtonStyle}"
+                             Tag="1"
+                             Click="Navigation_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Width="28"
+                                   FontFamily="Segoe Fluent Icons"
+                                   FontSize="17"
+                                   Text="&#xE995;" />
+                        <TextBlock VerticalAlignment="Center" Text="设备与快捷键" />
+                    </StackPanel>
+                </RadioButton>
+                <RadioButton AutomationProperties.Name="高级设置"
+                             GroupName="Navigation"
+                             Style="{StaticResource NavButtonStyle}"
+                             Tag="2"
+                             Click="Navigation_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Width="28"
+                                   FontFamily="Segoe Fluent Icons"
+                                   FontSize="17"
+                                   Text="&#xE713;" />
+                        <TextBlock VerticalAlignment="Center" Text="高级设置" />
+                    </StackPanel>
+                </RadioButton>
+            </StackPanel>
+
+            <Border Grid.Row="2"
+                    Margin="16,0,16,18"
+                    Padding="12"
+                    Background="#202E2B"
+                    CornerRadius="6">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Ellipse Width="8"
+                             Height="8"
+                             Margin="0,2,10,0"
+                             VerticalAlignment="Top"
+                             Fill="{StaticResource AccentBrush}" />
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Foreground="#EAF1EF"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   Text="{Binding StatusText}" />
+                        <TextBlock Margin="0,3,0,0"
+                                   Foreground="#91A49F"
+                                   FontSize="11"
+                                   Text="{Binding ToggleHotkey}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="70" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Border Padding="30,0"
+                    Background="{StaticResource SurfaceBrush}"
+                    BorderBrush="{StaticResource LineBrush}"
+                    BorderThickness="0,0,0,1">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Foreground="{StaticResource InkBrush}"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   Text="多人游戏实时沟通" />
+                        <TextBlock Margin="0,3,0,0"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   FontSize="11"
+                                   Text="本地语音识别 · 自动双向翻译" />
+                    </StackPanel>
+                    <Button Grid.Column="1"
+                            MinWidth="138"
+                            AutomationProperties.Name="{Binding StartStopLabel}"
+                            Command="{Binding StartStopCommand}"
+                            Style="{StaticResource PrimaryButtonStyle}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Margin="0,0,9,0"
+                                       FontFamily="Segoe Fluent Icons"
+                                       FontSize="15"
+                                       Text="{Binding StartStopGlyph}" />
+                            <TextBlock Text="{Binding StartStopLabel}" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+            </Border>
+
+            <TabControl x:Name="WorkspaceTabs"
+                        Grid.Row="1"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        SelectedIndex="0">
+                <TabControl.Template>
+                    <ControlTemplate TargetType="TabControl">
+                        <ContentPresenter Content="{TemplateBinding SelectedContent}"
+                                          ContentTemplate="{TemplateBinding SelectedContentTemplate}" />
+                    </ControlTemplate>
+                </TabControl.Template>
+
+                <TabItem>
+                    <Grid Margin="30,24,30,26">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource SectionHeadingStyle}" Text="实时翻译" />
+                                <TextBlock Margin="0,5,0,0"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           Text="我的语音发给对方，对方语音显示字幕" />
+                            </StackPanel>
+                            <Button Grid.Column="1"
+                                    AutomationProperties.Name="清空会话"
+                                    Command="{Binding ClearConversationCommand}"
+                                    Style="{StaticResource IconButtonStyle}"
+                                    ToolTip="清空会话"
+                                    Content="&#xE74D;" />
+                        </Grid>
+
+                        <Border Grid.Row="1"
+                                Margin="0,18,0,0"
+                                Padding="18,14"
+                                Background="{StaticResource SurfaceBrush}"
+                                BorderBrush="{StaticResource LineBrush}"
+                                BorderThickness="1"
+                                CornerRadius="6">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="52" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource FieldLabelStyle}" Text="我的语言" />
+                                    <ComboBox AutomationProperties.Name="我的语言"
+                                              ItemsSource="{Binding Languages}"
+                                              SelectedItem="{Binding MyLanguage}" />
+                                </StackPanel>
+                                <Button Grid.Column="1"
+                                        Margin="6,19,6,0"
+                                        AutomationProperties.Name="交换语言"
+                                        Command="{Binding SwapLanguagesCommand}"
+                                        Style="{StaticResource IconButtonStyle}"
+                                        ToolTip="交换语言"
+                                        Content="&#xE8AB;" />
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Style="{StaticResource FieldLabelStyle}" Text="对方语言" />
+                                    <ComboBox AutomationProperties.Name="对方语言"
+                                              ItemsSource="{Binding Languages}"
+                                              SelectedItem="{Binding OtherLanguage}" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <Grid Grid.Row="2" Margin="0,16,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Padding="17"
+                                    Background="{StaticResource SurfaceBrush}"
+                                    BorderBrush="{StaticResource LineBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="6">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="108" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Style="{StaticResource FieldLabelStyle}" Text="输入内容" />
+                                    <TextBox Grid.Row="1"
+                                             Padding="0"
+                                             AcceptsReturn="True"
+                                             AutomationProperties.Name="要翻译的文本"
+                                             BorderThickness="0"
+                                             FontSize="16"
+                                             Text="{Binding InputText, UpdateSourceTrigger=PropertyChanged}"
+                                             TextWrapping="Wrap"
+                                             VerticalContentAlignment="Top"
+                                             PreviewKeyDown="InputTextBox_OnPreviewKeyDown" />
+                                    <Grid Grid.Row="2" Margin="0,12,0,0">
+                                        <CheckBox VerticalAlignment="Center"
+                                                  AutomationProperties.Name="翻译后朗读"
+                                                  Content="翻译后朗读"
+                                                  IsChecked="{Binding SpeakMyTranslation}" />
+                                        <Button HorizontalAlignment="Right"
+                                                AutomationProperties.Name="翻译并朗读"
+                                                Command="{Binding TranslateTextCommand}"
+                                                Style="{StaticResource PrimaryButtonStyle}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Margin="0,0,8,0"
+                                                           FontFamily="Segoe Fluent Icons"
+                                                           Text="&#xE8C1;" />
+                                                <TextBlock Text="翻译并朗读" />
+                                            </StackPanel>
+                                        </Button>
+                                    </Grid>
+                                </Grid>
+                            </Border>
+
+                            <Border Grid.Column="2"
+                                    Padding="17"
+                                    Background="#EDF5F2"
+                                    BorderBrush="#C9DED8"
+                                    BorderThickness="1"
+                                    CornerRadius="6">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Foreground="#477069"
+                                               FontSize="12"
+                                               Text="译文" />
+                                    <TextBlock Grid.Row="1"
+                                               Margin="0,11,0,0"
+                                               Foreground="{StaticResource InkBrush}"
+                                               FontSize="18"
+                                               Text="{Binding TranslatedText}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="2"
+                                               HorizontalAlignment="Right"
+                                               Foreground="#64857E"
+                                               FontFamily="Segoe Fluent Icons"
+                                               FontSize="15"
+                                               Text="&#xE8D4;" />
+                                </Grid>
+                            </Border>
+                        </Grid>
+
+                        <Grid Grid.Row="3" Margin="0,18,0,0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <Grid>
+                                <TextBlock Foreground="{StaticResource InkBrush}"
+                                           FontSize="14"
+                                           FontWeight="SemiBold"
+                                           Text="最近会话" />
+                                <TextBlock HorizontalAlignment="Right"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           FontSize="11"
+                                           Text="麦克风和系统声音会分别标记" />
+                            </Grid>
+                            <ListBox Grid.Row="1"
+                                     Margin="0,10,0,0"
+                                     AutomationProperties.Name="最近会话"
+                                     ItemsSource="{Binding Conversation}"
+                                     Style="{StaticResource QuietListBoxStyle}">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                        <Setter Property="Padding" Value="0" />
+                                        <Setter Property="Margin" Value="0,0,0,8" />
+                                        <Setter Property="Background" Value="Transparent" />
+                                        <Setter Property="Focusable" Value="False" />
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Padding="13,10"
+                                                Background="{StaticResource SurfaceBrush}"
+                                                BorderBrush="{StaticResource LineBrush}"
+                                                BorderThickness="0,0,0,1">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="54" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Foreground="{StaticResource AccentBrush}"
+                                                           FontSize="12"
+                                                           FontWeight="SemiBold"
+                                                           Text="{Binding DirectionLabel}" />
+                                                <StackPanel Grid.Column="1">
+                                                    <TextBlock Foreground="{StaticResource InkBrush}"
+                                                               FontSize="14"
+                                                               Text="{Binding TranslatedText}"
+                                                               TextWrapping="Wrap" />
+                                                    <TextBlock Margin="0,4,0,0"
+                                                               Foreground="{StaticResource MutedBrush}"
+                                                               FontSize="11"
+                                                               Text="{Binding SourceText}"
+                                                               TextWrapping="Wrap" />
+                                                </StackPanel>
+                                                <TextBlock Grid.Column="2"
+                                                           Margin="14,0,0,0"
+                                                           Foreground="#91A09C"
+                                                           FontSize="11"
+                                                           Text="{Binding Time}" />
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+
+                        <Border Grid.RowSpan="4"
+                                Margin="0,52,0,0"
+                                Padding="12,9"
+                                VerticalAlignment="Top"
+                                Background="{StaticResource DangerSoftBrush}"
+                                BorderBrush="#E9B9A9"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Visibility="{Binding HasError, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock Foreground="#93412E"
+                                       Text="{Binding ErrorText}"
+                                       TextWrapping="Wrap" />
+                        </Border>
+
+                        <ProgressBar Grid.RowSpan="4"
+                                     Height="3"
+                                     Margin="0,-24,0,0"
+                                     VerticalAlignment="Top"
+                                     Foreground="{StaticResource AccentBrush}"
+                                     Maximum="100"
+                                     Value="{Binding ModelProgress, Mode=OneWay}"
+                                     Visibility="{Binding IsModelProgressVisible, Converter={StaticResource BoolToVisibilityConverter}}" />
+                    </Grid>
+                </TabItem>
+
+                <TabItem>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel MaxWidth="760"
+                                    Margin="30,24,30,40"
+                                    HorizontalAlignment="Left">
+                            <TextBlock Style="{StaticResource SectionHeadingStyle}" Text="设备与快捷键" />
+                            <TextBlock Margin="0,5,0,25"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       Text="默认设备可直接工作；虚拟声卡仅在游戏需要接收译后语音时选择" />
+
+                            <TextBlock Margin="0,0,0,14"
+                                       Foreground="{StaticResource InkBrush}"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       Text="音频设备" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="18" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource FieldLabelStyle}" Text="我的麦克风" />
+                                    <ComboBox AutomationProperties.Name="我的麦克风"
+                                              ItemsSource="{Binding MicrophoneDevices}"
+                                              SelectedItem="{Binding MicrophoneDevice}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Style="{StaticResource FieldLabelStyle}" Text="监听的系统输出" />
+                                    <ComboBox AutomationProperties.Name="监听的系统输出"
+                                              ItemsSource="{Binding RenderDevices}"
+                                              SelectedItem="{Binding SystemAudioDevice}" />
+                                </StackPanel>
+                            </Grid>
+                            <StackPanel Margin="0,18,0,0">
+                                <TextBlock Style="{StaticResource FieldLabelStyle}" Text="译后语音输出" />
+                                <ComboBox AutomationProperties.Name="译后语音输出"
+                                          ItemsSource="{Binding RenderDevices}"
+                                          SelectedItem="{Binding VoiceOutputDevice}" />
+                                <TextBlock Margin="0,7,0,0"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           FontSize="11"
+                                           Text="选择 CABLE Input 等虚拟设备后，在游戏中把 CABLE Output 设为麦克风" />
+                            </StackPanel>
+
+                            <Border Height="1" Margin="0,28" Background="{StaticResource LineBrush}" />
+
+                            <TextBlock Margin="0,0,0,14"
+                                       Foreground="{StaticResource InkBrush}"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       Text="快捷键" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="18" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource FieldLabelStyle}" Text="开始 / 停止监听" />
+                                    <ComboBox AutomationProperties.Name="开始或停止监听快捷键"
+                                              ItemsSource="{Binding HotkeyOptions}"
+                                              SelectedItem="{Binding ToggleHotkey}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Style="{StaticResource FieldLabelStyle}" Text="翻译输入框内容" />
+                                    <ComboBox AutomationProperties.Name="翻译输入框快捷键"
+                                              ItemsSource="{Binding TranslateHotkeyOptions}"
+                                              SelectedItem="{Binding TranslateHotkey}" />
+                                </StackPanel>
+                            </Grid>
+
+                            <Border Height="1" Margin="0,28" Background="{StaticResource LineBrush}" />
+
+                            <TextBlock Margin="0,0,0,14"
+                                       Foreground="{StaticResource InkBrush}"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       Text="显示与输出" />
+                            <CheckBox Margin="0,0,0,13"
+                                      AutomationProperties.Name="显示对方语音的悬浮字幕"
+                                      Content="显示对方语音的悬浮字幕"
+                                      IsChecked="{Binding ShowOverlay}" />
+                            <CheckBox AutomationProperties.Name="我的翻译自动朗读到输出设备"
+                                      Content="我的翻译自动朗读到输出设备"
+                                      IsChecked="{Binding SpeakMyTranslation}" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <TabItem>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel MaxWidth="760"
+                                    Margin="30,24,30,40"
+                                    HorizontalAlignment="Left">
+                            <TextBlock Style="{StaticResource SectionHeadingStyle}" Text="高级设置" />
+                            <TextBlock Margin="0,5,0,25"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       Text="大多数情况下保留默认值即可" />
+
+                            <TextBlock Margin="0,0,0,14"
+                                       Foreground="{StaticResource InkBrush}"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       Text="语音识别" />
+                            <TextBlock Style="{StaticResource FieldLabelStyle}" Text="本地 Whisper 模型" />
+                            <ComboBox AutomationProperties.Name="本地 Whisper 模型"
+                                      ItemsSource="{Binding WhisperModels}"
+                                      SelectedItem="{Binding WhisperModel}" />
+                            <TextBlock Margin="0,18,0,7"
+                                       Style="{StaticResource FieldLabelStyle}"
+                                       Text="语音触发阈值" />
+                            <Slider AutomationProperties.Name="语音触发阈值"
+                                    Minimum="0.005"
+                                    Maximum="0.08"
+                                    TickFrequency="0.005"
+                                    Value="{Binding VoiceThreshold}" />
+                            <TextBlock Margin="0,15,0,7"
+                                       Style="{StaticResource FieldLabelStyle}"
+                                       Text="自动断句静音时长（毫秒）" />
+                            <TextBox Width="160"
+                                     AutomationProperties.Name="自动断句静音时长（毫秒）"
+                                     HorizontalAlignment="Left"
+                                     Text="{Binding SilenceDurationMs, UpdateSourceTrigger=LostFocus}" />
+
+                            <Border Height="1" Margin="0,28" Background="{StaticResource LineBrush}" />
+
+                            <TextBlock Margin="0,0,0,14"
+                                       Foreground="{StaticResource InkBrush}"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       Text="翻译服务" />
+                            <TextBlock Style="{StaticResource FieldLabelStyle}" Text="提供商" />
+                            <ComboBox AutomationProperties.Name="翻译服务提供商"
+                                      ItemsSource="{Binding TranslationProviders}"
+                                      SelectedItem="{Binding TranslationProvider}" />
+
+                            <StackPanel Margin="0,18,0,0"
+                                        IsEnabled="{Binding IsOpenAiProvider}">
+                                <TextBlock Style="{StaticResource FieldLabelStyle}" Text="API 地址" />
+                                <TextBox AutomationProperties.Name="OpenAI 兼容 API 地址"
+                                         Text="{Binding OpenAiBaseUrl, UpdateSourceTrigger=LostFocus}" />
+                                <Grid Margin="0,16,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="18" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource FieldLabelStyle}" Text="模型名称" />
+                                        <TextBox AutomationProperties.Name="OpenAI 兼容模型名称"
+                                                 Text="{Binding OpenAiModel, UpdateSourceTrigger=LostFocus}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Style="{StaticResource FieldLabelStyle}" Text="API Key（本地服务可留空）" />
+                                        <PasswordBox x:Name="OpenAiPasswordBox"
+                                                     AutomationProperties.Name="OpenAI 兼容 API Key"
+                                                     PasswordChanged="OpenAiPasswordBox_OnPasswordChanged" />
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+
+                            <Border Margin="0,26,0,0"
+                                    Padding="14,12"
+                                    Background="#EAF1EF"
+                                    CornerRadius="6">
+                                <TextBlock Foreground="#4F6661"
+                                           FontSize="12"
+                                           Text="设置自动保存在当前 Windows 用户目录。切换模型或音频设备后，请停止并重新开始翻译。"
+                                           TextWrapping="Wrap" />
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+            </TabControl>
+        </Grid>
+    </Grid>
+</Window>

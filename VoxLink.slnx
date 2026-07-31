@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/VoxLink.UI.Core/VoxLink.UI.Core.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="src/VoxLink.UI/VoxLink.UI.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="src/VoxLink/VoxLink.csproj" />
+    <Project Path="src/VoxLink.Engine/VoxLink.Engine.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/VoxLink.Tests/VoxLink.Tests.csproj" />
+  </Folder>
+</Solution>
