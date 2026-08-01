@@ -3,6 +3,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using VoxLink.UI.Controls;
+using VoxLink.UI.Core.Services;
 using VoxLink.UI.Pages;
 using Windows.Graphics;
 
@@ -55,6 +56,7 @@ public sealed partial class MainWindow : Window
             "audio" => typeof(AudioPage),
             "vrchat" => typeof(VRChatPage),
             "advanced" => typeof(AdvancedPage),
+            "logs" => typeof(LogsPage),
             _ => typeof(LivePage)
         };
         if (ContentFrame.CurrentSourcePageType != pageType)
@@ -138,10 +140,12 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception exception)
         {
+            LogService.Instance.Error("UI", exception, "关闭流程异常");
             System.Diagnostics.Debug.WriteLine($"VoxLink shutdown failed: {exception}");
         }
         finally
         {
+            LogService.Instance.Info("UI", "VoxLink 即将退出。");
             _allowClose = true;
             RootLayout.Loaded -= RootLayout_Loaded;
             App.Controller.PropertyChanged -= Controller_PropertyChanged;

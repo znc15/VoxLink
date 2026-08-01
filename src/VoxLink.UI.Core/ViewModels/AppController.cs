@@ -50,6 +50,14 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     private string? _updateStatusText;
     private string? _latestReleaseUrl;
     private bool _needsSessionRestart;
+
+    private const string SourceApp = "应用";
+    private const string SourceEngine = "引擎";
+    private const string SourceSession = "会话";
+    private const string SourceTranslation = "翻译";
+    private const string SourceUpdate = "更新";
+    private const string SourceSettings = "设置";
+
     public AppController(
         IEngineGateway engine,
         ISettingsRepository settingsRepository,
@@ -305,6 +313,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 NeedsSessionRestart = false;
                 StatusMessage = "已停止";
                 Activity = "idle";
+                LogService.Instance.Info(SourceSession, "已停止翻译会话。");
             });
             return;
         }
@@ -327,6 +336,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson() },
                 TimeSpan.FromMinutes(20));
             IsRunning = true;
+            LogService.Instance.Info(SourceSession, $"开始翻译会话：{Settings.MyLanguageCode} → {Settings.OtherLanguageCode}（{DescribeCaptureSources()}）。");
         });
     }
 
@@ -356,6 +366,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             await SaveNowAsync();
             if (ComposerMode == ComposerMode.Translate)
             {
+                LogService.Instance.Info(SourceTranslation, "手动翻译：" + TruncateForLog(trimmed));
                 await _engine.RequestAsync("translate", new Dictionary<string, object?>
                 {
                     ["text"] = trimmed,
@@ -364,6 +375,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 return;
             }
 
+            LogService.Instance.Info(SourceTranslation, "AI 生成：" + TruncateForLog(trimmed));
             var result = await _engine.RequestAsync("generate", new Dictionary<string, object?>
             {
                 ["prompt"] = trimmed,
@@ -551,10 +563,12 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             LatestReleaseUrl = result.ReleaseUrl;
             IsUpdateAvailable = result.State == ReleaseCheckState.UpdateAvailable;
             UpdateStatusText = result.Message;
+            LogService.Instance.Info(SourceUpdate, result.Message);
         }
-        catch (Exception)
+        catch (Exception exception)
         {
             UpdateStatusText = "无法检查更新，请稍后重试。";
+            LogService.Instance.Warning(SourceUpdate, "检查更新失败：" + exception.GetBaseException().Message);
         }
         finally
         {
@@ -803,6 +817,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     {
         try
         {
+            LogService.Instance.Info(SourceApp, "正在加载设置并连接音频引擎…");
             var loadedSettings = await _settingsRepository.LoadAsync(cancellationToken);
             loadedSettings.NormalizeQuickStartSettings();
             Settings = loadedSettings;
@@ -818,6 +833,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             }
 
             EngineConnected = true;
+            LogService.Instance.Info(SourceEngine, "音频引擎已连接。");
             var result = await _engine.RequestAsync(
                 "initialize",
                 new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson() },
@@ -829,6 +845,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
 
             StatusMessage = "就绪";
             Activity = "idle";
+            LogService.Instance.Info(SourceApp, "初始化完成，已就绪。");
         }
         catch (Exception exception) when (exception is EngineException or IOException or UnauthorizedAccessException or CryptographicException)
         {
@@ -837,6 +854,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 ErrorMessage = FriendlyError(exception);
                 StatusMessage = "引擎不可用";
                 Activity = "error";
+                LogService.Instance.Error(SourceApp, exception, "初始化失败");
             }
         }
         finally
@@ -876,6 +894,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         catch (Exception exception) when (exception is EngineException or IOException or UnauthorizedAccessException or CryptographicException)
         {
             PostToUi(() => ErrorMessage = FriendlyError(exception));
+            LogService.Instance.Warning(SourceSettings, "保存或同步配置失败：" + FriendlyError(exception));
         }
     }
 
@@ -917,6 +936,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         {
             ErrorMessage = FriendlyError(exception);
             Activity = "error";
+            LogService.Instance.Error(SourceApp, exception, "操作失败");
         }
         finally
         {
@@ -970,14 +990,25 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         {
             case "ready":
                 EngineConnected = true;
+                LogService.Instance.Info(SourceEngine, "引擎就绪。");
                 break;
             case "status":
                 StatusMessage = ReadString(engineEvent.Data, "message", StatusMessage);
                 Activity = ReadString(engineEvent.Data, "activity", Activity);
                 IsRunning = ReadBool(engineEvent.Data, "running", IsRunning);
+                LogService.Instance.Debug(SourceEngine, $"状态：{StatusMessage}（{Activity}，运行中={IsRunning}）");
                 break;
             case "message":
-                UpsertConversationMessage(ConversationMessage.FromJson(engineEvent.Data));
+                var finalMessage = ConversationMessage.FromJson(engineEvent.Data);
+                UpsertConversationMessage(finalMessage);
+                if (finalMessage.IsFinal)
+                {
+                    LogService.Instance.Info(SourceEngine, $"识别完成：{TruncateForLog(finalMessage.SourceText)} → {TruncateForLog(finalMessage.TranslatedText)}");
+                }
+                else
+                {
+                    LogService.Instance.Debug(SourceEngine, "识别中：" + TruncateForLog(finalMessage.SourceText));
+                }
                 break;
             case "partialMessage":
                 UpsertConversationMessage(ConversationMessage.FromJson(engineEvent.Data));
@@ -985,17 +1016,24 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             case "modelProgress":
                 ModelStatus = ReadString(engineEvent.Data, "status");
                 ModelProgress = ReadDouble(engineEvent.Data, "progress");
+                LogService.Instance.Debug(SourceEngine, $"模型进度：{ModelStatus} {ModelProgress:P0}");
                 break;
             case "error":
                 ErrorMessage = ReadString(engineEvent.Data, "message", "引擎处理失败。");
+                LogService.Instance.Warning(SourceEngine, "引擎错误：" + ErrorMessage);
                 break;
             case "fatal":
                 EngineConnected = false;
                 IsRunning = false;
                 ErrorMessage = ReadString(engineEvent.Data, "message", "音频引擎已退出。");
+                LogService.Instance.Error(SourceEngine, "引擎致命错误：" + ErrorMessage);
                 break;
             case "protocolError":
                 ErrorMessage = ReadString(engineEvent.Data, "message", "引擎协议错误。");
+                LogService.Instance.Warning(SourceEngine, "协议错误：" + ErrorMessage);
+                break;
+            case "diagnostic":
+                LogService.Instance.Debug(SourceEngine, "诊断：" + ReadString(engineEvent.Data, "message"));
                 break;
             case "hotkey":
                 HandleHotkey(ReadString(engineEvent.Data, "action"));
@@ -1301,6 +1339,34 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             : $"{label}地址必须是完整的 HTTP 或 HTTPS URL。";
 
     private static string FriendlyError(Exception error) => error.GetBaseException().Message.Trim();
+
+    private string DescribeCaptureSources()
+    {
+        var sources = new List<string>();
+        if (Settings.CaptureMicrophone)
+        {
+            sources.Add("麦克风");
+        }
+
+        if (Settings.CaptureSystemAudio)
+        {
+            sources.Add("系统回环");
+        }
+
+        return sources.Count == 0 ? "无采集来源" : string.Join(" + ", sources);
+    }
+
+    private static string TruncateForLog(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return string.Empty;
+        }
+
+        var normalized = text.Replace("\n", " ").Replace("\r", " ").Trim();
+        const int Max = 200;
+        return normalized.Length > Max ? normalized[..Max] + "…" : normalized;
+    }
 
     private static string ReadString(JsonElement json, string name, string fallback = "") =>
         json.ValueKind == JsonValueKind.Object

@@ -46,6 +46,7 @@ public partial class App : Application
         args.Handled = true;
         if (Controller is not null)
         {
+            LogService.Instance.Error("UI", args.Exception, "未处理异常");
             System.Diagnostics.Debug.WriteLine(args.Exception);
         }
     }
