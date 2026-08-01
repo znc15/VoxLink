@@ -1,10 +1,8 @@
 using System.Collections.Specialized;
 using System.ComponentModel;
-using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
 using VoxLink.UI.Core.Models;
 using VoxLink.UI.Core.ViewModels;
 using Windows.System;
@@ -13,8 +11,7 @@ namespace VoxLink.UI.Pages;
 
 public sealed partial class LivePage : Page
 {
-    private static readonly SolidColorBrush RunningDotBrush = new(ColorHelper.FromArgb(255, 15, 123, 63));
-    private static readonly SolidColorBrush StoppedDotBrush = new(ColorHelper.FromArgb(255, 96, 105, 114));
+    private bool? _isNarrowLanguageLayout;
     private long _lastScrollTicks;
     private bool _trailingScrollScheduled;
 
@@ -65,12 +62,17 @@ public sealed partial class LivePage : Page
         ModelStatusText.Visibility = Controller.ModelStatus.Length == 0
             ? Visibility.Collapsed
             : Visibility.Visible;
-        SessionStatusDot.Fill = Controller.IsRunning ? RunningDotBrush : StoppedDotBrush;
+        SessionRunningDot.Visibility = Controller.IsRunning ? Visibility.Visible : Visibility.Collapsed;
+        SessionStoppedDot.Visibility = Controller.IsRunning ? Visibility.Collapsed : Visibility.Visible;
+        var hasError = !string.IsNullOrWhiteSpace(Controller.ErrorMessage);
         ErrorInfoBar.Message = Controller.ErrorMessage ?? string.Empty;
-        ErrorInfoBar.IsOpen = !string.IsNullOrWhiteSpace(Controller.ErrorMessage);
+        ErrorInfoBar.IsOpen = hasError;
+        ErrorInfoBar.Visibility = hasError ? Visibility.Visible : Visibility.Collapsed;
         UpdateInfoBar.Message = Controller.UpdateStatusText ?? "发现新版本。";
         UpdateInfoBar.IsOpen = Controller.UpdateBannerVisible;
+        UpdateInfoBar.Visibility = Controller.UpdateBannerVisible ? Visibility.Visible : Visibility.Collapsed;
         RestartHintBar.IsOpen = Controller.NeedsSessionRestart;
+        RestartHintBar.Visibility = Controller.NeedsSessionRestart ? Visibility.Visible : Visibility.Collapsed;
         RefreshMessages();
     }
 
@@ -115,8 +117,65 @@ public sealed partial class LivePage : Page
         }
     }
 
-    private void ErrorInfoBar_Closed(InfoBar sender, InfoBarClosedEventArgs args) => Controller.DismissError();
-    private void UpdateInfoBar_Closed(InfoBar sender, InfoBarClosedEventArgs args) => Controller.DismissUpdateBanner();
+    private void LanguageGrid_SizeChanged(object sender, SizeChangedEventArgs args) =>
+        ApplyLanguageLayout(args.NewSize.Width);
+
+    private void ApplyLanguageLayout(double width)
+    {
+        if (width <= 0)
+        {
+            return;
+        }
+
+        var isNarrow = width < 720;
+        if (_isNarrowLanguageLayout == isNarrow)
+        {
+            return;
+        }
+
+        _isNarrowLanguageLayout = isNarrow;
+        if (isNarrow)
+        {
+            FirstLanguageColumn.Width = new GridLength(1, GridUnitType.Star);
+            SwapColumn.Width = new GridLength(0);
+            SecondLanguageColumn.Width = new GridLength(0);
+            Grid.SetRow(MyLanguageBox, 0);
+            Grid.SetColumn(MyLanguageBox, 0);
+            Grid.SetRow(SwapButton, 1);
+            Grid.SetColumn(SwapButton, 0);
+            SwapButton.Margin = new Thickness(0);
+            Grid.SetRow(OtherLanguageBox, 2);
+            Grid.SetColumn(OtherLanguageBox, 0);
+            Grid.SetRow(SecondaryLanguageBox, 3);
+            Grid.SetColumn(SecondaryLanguageBox, 0);
+            return;
+        }
+
+        FirstLanguageColumn.Width = new GridLength(1, GridUnitType.Star);
+        SwapColumn.Width = new GridLength(44);
+        SecondLanguageColumn.Width = new GridLength(1, GridUnitType.Star);
+        Grid.SetRow(MyLanguageBox, 0);
+        Grid.SetColumn(MyLanguageBox, 0);
+        Grid.SetRow(SwapButton, 0);
+        Grid.SetColumn(SwapButton, 1);
+        SwapButton.Margin = new Thickness(0, 18, 0, 0);
+        Grid.SetRow(OtherLanguageBox, 0);
+        Grid.SetColumn(OtherLanguageBox, 2);
+        Grid.SetRow(SecondaryLanguageBox, 1);
+        Grid.SetColumn(SecondaryLanguageBox, 2);
+    }
+
+    private void ErrorInfoBar_Closed(InfoBar sender, InfoBarClosedEventArgs args)
+    {
+        ErrorInfoBar.Visibility = Visibility.Collapsed;
+        Controller.DismissError();
+    }
+    private void UpdateInfoBar_Closed(InfoBar sender, InfoBarClosedEventArgs args)
+    {
+        UpdateInfoBar.Visibility = Visibility.Collapsed;
+        Controller.DismissUpdateBanner();
+    }
+
     private void OpenRelease_Click(object sender, RoutedEventArgs args) => Controller.OpenLatestReleasePage();
     private void Language_SelectionChanged(object sender, SelectionChangedEventArgs args) => Controller.NotifySettingsChanged();
     private void SwapButton_Click(object sender, RoutedEventArgs args) => Controller.SwapLanguages();

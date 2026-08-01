@@ -1,9 +1,7 @@
 using System.ComponentModel;
-using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 using VoxLink.UI.Controls;
 using VoxLink.UI.Pages;
 using Windows.Graphics;
@@ -22,13 +20,12 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
-        AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         AppWindow.Resize(new SizeInt32(1280, 800));
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
-            presenter.PreferredMinimumWidth = 680;
-            presenter.PreferredMinimumHeight = 620;
+            presenter.PreferredMinimumWidth = 640;
+            presenter.PreferredMinimumHeight = 560;
         }
 
         AppWindow.Closing += AppWindow_Closing;
@@ -39,9 +36,8 @@ public sealed partial class MainWindow : Window
         UpdateEngineStatus();
     }
 
-    private void PaneToggleButton_Click(object sender, RoutedEventArgs args) =>
+    private void AppTitleBar_PaneToggleRequested(TitleBar sender, object args) =>
         NavView.IsPaneOpen = !NavView.IsPaneOpen;
-
 
     private void NavView_SelectionChanged(
         NavigationView sender,
@@ -118,9 +114,8 @@ public sealed partial class MainWindow : Window
     {
         var connected = App.Controller.EngineConnected;
         EngineStatusText.Text = connected ? "本地引擎已连接" : App.Controller.StatusMessage;
-        EngineStatusDot.Fill = new SolidColorBrush(connected
-            ? ColorHelper.FromArgb(255, 15, 123, 63)
-            : ColorHelper.FromArgb(255, 154, 91, 0));
+        EngineConnectedDot.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
+        EngineWarningDot.Visibility = connected ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private async void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)

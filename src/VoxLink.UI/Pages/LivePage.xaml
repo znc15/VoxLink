@@ -9,22 +9,8 @@
     Background="Transparent"
     mc:Ignorable="d"
     NavigationCacheMode="Required">
-    <Grid Padding="24,20,24,24" RowSpacing="12">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
+    <ScrollViewer Style="{StaticResource PageScrollViewerStyle}">
+        <StackPanel Style="{StaticResource PageStackStyle}">
 
         <Grid>
             <Grid.ColumnDefinitions>
@@ -41,17 +27,17 @@
                 Grid.Column="1"
                 Padding="10,6"
                 VerticalAlignment="Top"
-                Background="{StaticResource VoxLinkAccentSoftBrush}"
+                Background="{ThemeResource VoxLinkAccentSoftBrush}"
                 CornerRadius="{StaticResource VoxLinkRadiusLarge}">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                     <FontIcon
                         FontSize="12"
-                        Foreground="{StaticResource VoxLinkAccentBrush}"
+                        Foreground="{ThemeResource VoxLinkAccentBrush}"
                         Glyph="&#xE73E;" />
                     <TextBlock
                         x:Name="EngineBadgeText"
                         VerticalAlignment="Center"
-                        Foreground="{StaticResource VoxLinkAccentBrush}"
+                        Foreground="{ThemeResource VoxLinkAccentBrush}"
                         FontSize="12"
                         FontWeight="SemiBold"
                         Text="引擎连接中" />
@@ -65,6 +51,7 @@
             IsClosable="True"
             IsOpen="False"
             Severity="Informational"
+            Visibility="Collapsed"
             Closed="UpdateInfoBar_Closed">
             <InfoBar.ActionButton>
                 <Button Content="打开下载页" Click="OpenRelease_Click" />
@@ -77,6 +64,7 @@
             IsClosable="False"
             IsOpen="False"
             Severity="Warning"
+            Visibility="Collapsed"
             Message="采集来源或设备已更改，重新开始会话后生效。" />
 
         <InfoBar
@@ -85,6 +73,7 @@
             IsClosable="True"
             IsOpen="False"
             Severity="Error"
+            Visibility="Collapsed"
             Closed="ErrorInfoBar_Closed" />
 
         <Border Grid.Row="4" Padding="14,12" Style="{StaticResource PanelBorderStyle}">
@@ -127,7 +116,11 @@
         </Border>
 
         <Border Grid.Row="5" Style="{StaticResource PanelBorderStyle}">
-            <Grid x:Name="LanguageGrid" ColumnSpacing="12" RowSpacing="10">
+            <Grid
+                x:Name="LanguageGrid"
+                ColumnSpacing="12"
+                RowSpacing="10"
+                SizeChanged="LanguageGrid_SizeChanged">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition x:Name="FirstLanguageColumn" Width="*" />
                     <ColumnDefinition x:Name="SwapColumn" Width="44" />
@@ -178,29 +171,6 @@
                     SelectedValue="{x:Bind Controller.Settings.SecondaryTargetLanguageCode, Mode=TwoWay}"
                     SelectedValuePath="Code"
                     SelectionChanged="Language_SelectionChanged" />
-                <VisualStateManager.VisualStateGroups>
-                    <VisualStateGroup>
-                        <VisualState x:Name="NarrowLanguages">
-                            <VisualState.Setters>
-                                <Setter Target="FirstLanguageColumn.Width" Value="*" />
-                                <Setter Target="SwapColumn.Width" Value="44" />
-                                <Setter Target="SecondLanguageColumn.Width" Value="0" />
-                                <Setter Target="SwapButton.(Grid.Row)" Value="1" />
-                                <Setter Target="SwapButton.(Grid.Column)" Value="0" />
-                                <Setter Target="SwapButton.Margin" Value="0" />
-                                <Setter Target="OtherLanguageBox.(Grid.Row)" Value="2" />
-                                <Setter Target="OtherLanguageBox.(Grid.Column)" Value="0" />
-                                <Setter Target="SecondaryLanguageBox.(Grid.Row)" Value="3" />
-                                <Setter Target="SecondaryLanguageBox.(Grid.Column)" Value="0" />
-                            </VisualState.Setters>
-                        </VisualState>
-                        <VisualState x:Name="WideLanguages">
-                            <VisualState.StateTriggers>
-                                <AdaptiveTrigger MinWindowWidth="900" />
-                            </VisualState.StateTriggers>
-                        </VisualState>
-                    </VisualStateGroup>
-                </VisualStateManager.VisualStateGroups>
             </Grid>
         </Border>
 
@@ -211,11 +181,15 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <StackPanel VerticalAlignment="Center" Orientation="Horizontal" Spacing="9">
-                    <Ellipse
-                        x:Name="SessionStatusDot"
-                        Width="8"
-                        Height="8"
-                        Fill="{ThemeResource TextFillColorTertiaryBrush}" />
+                    <Grid Width="10" Height="10" VerticalAlignment="Center">
+                        <Ellipse
+                            x:Name="SessionRunningDot"
+                            Fill="{ThemeResource VoxLinkSuccessBrush}"
+                            Visibility="Collapsed" />
+                        <Ellipse
+                            x:Name="SessionStoppedDot"
+                            Fill="{ThemeResource VoxLinkMutedBrush}" />
+                    </Grid>
                     <StackPanel>
                         <TextBlock x:Name="SessionStatusText" FontWeight="SemiBold" Text="准备中" />
                         <TextBlock
@@ -237,7 +211,7 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="7" MinHeight="96" Padding="0" Style="{StaticResource PanelBorderStyle}">
+        <Border Grid.Row="7" Height="200" Padding="0" Style="{StaticResource PanelBorderStyle}">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="52" />
@@ -293,12 +267,12 @@
                                     <Border
                                         Width="36"
                                         Height="36"
-                                        Background="{StaticResource VoxLinkAccentSoftBrush}"
+                                        Background="{ThemeResource VoxLinkAccentSoftBrush}"
                                         CornerRadius="{StaticResource VoxLinkRadiusSmall}">
                                         <FontIcon
                                             HorizontalAlignment="Center"
                                             VerticalAlignment="Center"
-                                            Foreground="{StaticResource VoxLinkAccentBrush}"
+                                            Foreground="{ThemeResource VoxLinkAccentBrush}"
                                             FontSize="16"
                                             Glyph="{x:Bind DirectionGlyph}" />
                                     </Border>
@@ -308,7 +282,7 @@
                                             <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Text="{x:Bind TimeLabel}" />
                                         </StackPanel>
                                         <TextBlock FontSize="15" FontWeight="SemiBold" Text="{x:Bind PrimaryDisplayText}" TextWrapping="Wrap" />
-                                        <TextBlock Foreground="{StaticResource VoxLinkAccentBrush}" FontSize="13" Text="{x:Bind SecondaryDisplayText}" TextWrapping="Wrap" />
+                                        <TextBlock Foreground="{ThemeResource VoxLinkAccentBrush}" FontSize="13" Text="{x:Bind SecondaryDisplayText}" TextWrapping="Wrap" />
                                         <TextBlock Style="{StaticResource CaptionStyle}" Text="{x:Bind SourceDisplayText}" />
                                     </StackPanel>
                                     <Button
@@ -385,5 +359,6 @@
                 </Button>
             </Grid>
         </Border>
-    </Grid>
+        </StackPanel>
+    </ScrollViewer>
 </Page>

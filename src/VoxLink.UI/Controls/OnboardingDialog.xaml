@@ -13,7 +13,7 @@
     PrimaryButtonClick="Dialog_PrimaryButtonClick"
     SecondaryButtonClick="Dialog_SecondaryButtonClick">
     <ScrollViewer MaxHeight="560" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Width="520" Spacing="16">
+        <StackPanel MaxWidth="520" MinWidth="420" Spacing="16">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -38,12 +38,12 @@
                     MaxColumns="1"
                     SelectionChanged="ModeButtons_SelectionChanged">
                     <RadioButton Tag="OscText">
-                        <Grid MinWidth="430" Padding="4,8" ColumnSpacing="12">
+                        <Grid Padding="4,8" ColumnSpacing="12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="36" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <FontIcon VerticalAlignment="Top" FontSize="20" Foreground="{StaticResource VoxLinkAccentBrush}" Glyph="&#xE8C1;" />
+                            <FontIcon VerticalAlignment="Top" FontSize="20" Foreground="{ThemeResource VoxLinkAccentBrush}" Glyph="&#xE8C1;" />
                             <StackPanel Grid.Column="1" Spacing="3">
                                 <TextBlock FontWeight="SemiBold" Text="仅文字" />
                                 <TextBlock Style="{StaticResource CaptionStyle}" Text="麦克风 → 识别 → 翻译 → VRChat Chatbox。无需虚拟声卡。" />
@@ -51,12 +51,12 @@
                         </Grid>
                     </RadioButton>
                     <RadioButton Tag="VrChatVoice">
-                        <Grid MinWidth="430" Padding="4,8" ColumnSpacing="12">
+                        <Grid Padding="4,8" ColumnSpacing="12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="36" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <FontIcon VerticalAlignment="Top" FontSize="20" Foreground="{StaticResource VoxLinkAccentBrush}" Glyph="&#xE767;" />
+                            <FontIcon VerticalAlignment="Top" FontSize="20" Foreground="{ThemeResource VoxLinkAccentBrush}" Glyph="&#xE767;" />
                             <StackPanel Grid.Column="1" Spacing="3">
                                 <TextBlock FontWeight="SemiBold" Text="VRChat 语音翻译" />
                                 <TextBlock Style="{StaticResource CaptionStyle}" Text="在 Chatbox 文字基础上，把原话或译文通过 TTS 和虚拟声卡送入 VRChat。" />

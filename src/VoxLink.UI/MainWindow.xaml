@@ -11,88 +11,40 @@
         <MicaBackdrop Kind="Base" />
     </Window.SystemBackdrop>
 
-    <Grid x:Name="RootLayout" RequestedTheme="Light">
+    <Grid
+        x:Name="RootLayout"
+        Background="Transparent">
         <Grid.RowDefinitions>
-            <RowDefinition Height="48" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
         <TitleBar
             x:Name="AppTitleBar"
-            Title=" "
-            Subtitle=" "
+            Title="VoxLink"
+            Subtitle="游戏实时翻译"
             IsBackButtonVisible="False"
-            IsPaneToggleButtonVisible="False" />
-        <Button
-            x:Name="PaneToggleButton"
-            Width="40"
-            Height="40"
-            Margin="8,4,0,0"
-            Padding="0"
-            HorizontalAlignment="Left"
-            VerticalAlignment="Center"
-            Background="{ThemeResource SubtleFillColorSecondaryBrush}"
-            CornerRadius="8"
-            Click="PaneToggleButton_Click"
-            ToolTipService.ToolTip="展开或收起导航">
-            <FontIcon FontSize="16" Glyph="&#xE700;" />
-        </Button>
-        <StackPanel
-            Margin="56,0,0,0"
-            VerticalAlignment="Center"
-            Orientation="Horizontal"
-            Spacing="10">
-            <Border
-                Width="28"
-                Height="28"
-                Background="{StaticResource VoxLinkAccentBrush}"
-                CornerRadius="{StaticResource VoxLinkRadiusSmall}">
-                <FontIcon
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    Foreground="White"
-                    FontSize="15"
-                    Glyph="&#xE8C1;" />
-            </Border>
-            <StackPanel VerticalAlignment="Center" Spacing="0">
-                <TextBlock FontSize="14" FontWeight="SemiBold" Text="VoxLink" />
-                <TextBlock FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="游戏实时翻译" />
-            </StackPanel>
-        </StackPanel>
+            IsPaneToggleButtonVisible="True"
+            PaneToggleRequested="AppTitleBar_PaneToggleRequested">
+            <TitleBar.IconSource>
+                <ImageIconSource ImageSource="Assets/AppIcon.ico" />
+            </TitleBar.IconSource>
+        </TitleBar>
 
         <NavigationView
             x:Name="NavView"
             Grid.Row="1"
             AlwaysShowHeader="False"
-            CompactModeThresholdWidth="680"
-            ExpandedModeThresholdWidth="9999"
+            Background="Transparent"
+            CompactModeThresholdWidth="720"
+            CompactPaneLength="56"
+            ExpandedModeThresholdWidth="1080"
             IsBackButtonVisible="Collapsed"
             IsPaneToggleButtonVisible="False"
             IsSettingsVisible="False"
-            OpenPaneLength="248"
+            OpenPaneLength="240"
             PaneDisplayMode="Auto"
             SelectionChanged="NavView_SelectionChanged">
-            <NavigationView.PaneHeader>
-                <StackPanel Margin="12,8,8,8" Orientation="Horizontal" Spacing="10">
-                    <Border
-                        Width="32"
-                        Height="32"
-                        Background="{StaticResource VoxLinkAccentBrush}"
-                        CornerRadius="{StaticResource VoxLinkRadiusSmall}">
-                        <FontIcon
-                            HorizontalAlignment="Center"
-                            VerticalAlignment="Center"
-                            Foreground="White"
-                            FontSize="17"
-                            Glyph="&#xE8C1;" />
-                    </Border>
-                    <StackPanel VerticalAlignment="Center">
-                        <TextBlock FontSize="16" FontWeight="SemiBold" Text="VoxLink" />
-                        <TextBlock Style="{StaticResource CaptionStyle}" Text="本地音频 · 在线翻译" />
-                    </StackPanel>
-                </StackPanel>
-            </NavigationView.PaneHeader>
-
             <NavigationView.MenuItems>
                 <NavigationViewItemHeader Content="工作区" />
                 <NavigationViewItem
@@ -129,22 +81,28 @@
 
             <NavigationView.PaneFooter>
                 <Border
-                    Margin="8,12"
-                    Padding="10"
-                    Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                    Margin="8,8,8,12"
+                    Padding="12,10"
+                    Background="{ThemeResource VoxLinkSurfaceSecondaryBrush}"
+                    BorderBrush="{ThemeResource VoxLinkStrokeBrush}"
+                    BorderThickness="1"
                     CornerRadius="{StaticResource VoxLinkRadiusSmall}">
-                    <StackPanel Orientation="Horizontal" Spacing="9">
-                        <Ellipse
-                            x:Name="EngineStatusDot"
-                            Width="8"
-                            Height="8"
-                            VerticalAlignment="Center"
-                            Fill="{StaticResource VoxLinkWarningBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <Grid Width="10" Height="10" VerticalAlignment="Center">
+                            <Ellipse
+                                x:Name="EngineConnectedDot"
+                                Fill="{ThemeResource VoxLinkSuccessBrush}"
+                                Visibility="Collapsed" />
+                            <Ellipse
+                                x:Name="EngineWarningDot"
+                                Fill="{ThemeResource VoxLinkWarningBrush}" />
+                        </Grid>
                         <TextBlock
                             x:Name="EngineStatusText"
                             VerticalAlignment="Center"
                             FontSize="12"
-                            Text="正在连接音频引擎" />
+                            Text="正在连接音频引擎"
+                            TextTrimming="CharacterEllipsis" />
                     </StackPanel>
                 </Border>
             </NavigationView.PaneFooter>

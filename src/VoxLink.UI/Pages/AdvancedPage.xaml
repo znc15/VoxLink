@@ -8,8 +8,8 @@
     Background="Transparent"
     mc:Ignorable="d"
     NavigationCacheMode="Required">
-    <ScrollViewer>
-        <StackPanel Padding="24,20,24,28" Spacing="14">
+    <ScrollViewer Style="{StaticResource PageScrollViewerStyle}">
+        <StackPanel Style="{StaticResource PageStackStyle}">
             <StackPanel Spacing="3">
                 <TextBlock Style="{StaticResource PageTitleStyle}" Text="高级设置" />
                 <TextBlock Style="{StaticResource CaptionStyle}" Text="会话行为、全局快捷键与运行状态" />
@@ -153,8 +153,8 @@
 
             <Border
                 Padding="18"
-                Background="{StaticResource VoxLinkAccentSoftBrush}"
-                BorderBrush="#7BC8B8"
+                Background="{ThemeResource VoxLinkAccentSoftBrush}"
+                BorderBrush="{ThemeResource VoxLinkTintStrokeBrush}"
                 BorderThickness="1"
                 CornerRadius="{StaticResource VoxLinkRadiusMedium}">
                 <Grid ColumnSpacing="14">
@@ -163,7 +163,7 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <FontIcon
-                        Foreground="{StaticResource VoxLinkAccentBrush}"
+                        Foreground="{ThemeResource VoxLinkAccentBrush}"
                         FontSize="24"
                         Glyph="&#xE72E;" />
                     <StackPanel Grid.Column="1" Spacing="4">

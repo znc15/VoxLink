@@ -9,8 +9,8 @@
     Background="Transparent"
     mc:Ignorable="d"
     NavigationCacheMode="Required">
-    <ScrollViewer>
-        <StackPanel Padding="24,20,24,28" Spacing="14">
+    <ScrollViewer Style="{StaticResource PageScrollViewerStyle}">
+        <StackPanel Style="{StaticResource PageStackStyle}">
             <StackPanel Spacing="3">
                 <TextBlock Style="{StaticResource PageTitleStyle}" Text="AI 与语音" />
                 <TextBlock
