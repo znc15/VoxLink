@@ -64,6 +64,8 @@ public sealed class TranslationSession : IAsyncDisposable
 
     public event EventHandler<SessionErrorEventArgs>? ErrorOccurred;
 
+    public event EventHandler<string>? WarningOccurred;
+
     public event EventHandler<ModelProgressEventArgs>? ModelProgress;
 
     public bool IsRunning => _isRunning;
@@ -432,6 +434,7 @@ public sealed class TranslationSession : IAsyncDisposable
             _microphoneCapture.UtteranceReady += OnMicrophoneUtterance;
             _microphoneCapture.CaptureFailed += OnCaptureFailed;
             _microphoneCapture.DeviceFallbackOccurred += OnDeviceFallback;
+            _microphoneCapture.LoopbackLikeMicWarning += OnLoopbackLikeMicWarning;
             if (_microphoneStream is not null)
             {
                 _microphoneCapture.PcmChunkReady += OnMicrophonePcmChunk;
@@ -503,6 +506,10 @@ public sealed class TranslationSession : IAsyncDisposable
 
     private void OnCaptureFailed(object? sender, Exception exception) =>
         ErrorOccurred?.Invoke(this, new SessionErrorEventArgs("音频设备已断开或不可用。", exception));
+
+    private void OnLoopbackLikeMicWarning(object? sender, string deviceName) =>
+        WarningOccurred?.Invoke(this,
+            $"当前麦克风“{deviceName}”可能是系统音频回环设备，他人语音可能被当作你的语音发送到 Chatbox，建议更换为真实麦克风。");
 
     private void OnDeviceFallback(object? sender, string requestedDeviceId)
     {
@@ -968,6 +975,7 @@ public sealed class TranslationSession : IAsyncDisposable
         }
 
         capture.CaptureFailed -= OnCaptureFailed;
+        capture.LoopbackLikeMicWarning -= OnLoopbackLikeMicWarning;
         await capture.DisposeAsync().ConfigureAwait(false);
     }
 

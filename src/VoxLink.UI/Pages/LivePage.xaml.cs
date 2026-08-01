@@ -62,6 +62,10 @@ public sealed partial class LivePage : Page
         ErrorInfoBar.Message = Controller.ErrorMessage ?? string.Empty;
         ErrorInfoBar.IsOpen = hasError;
         ErrorInfoBar.Visibility = hasError ? Visibility.Visible : Visibility.Collapsed;
+        var hasWarning = !string.IsNullOrWhiteSpace(Controller.WarningMessage);
+        WarningInfoBar.Message = Controller.WarningMessage ?? string.Empty;
+        WarningInfoBar.IsOpen = hasWarning;
+        WarningInfoBar.Visibility = hasWarning ? Visibility.Visible : Visibility.Collapsed;
         UpdateInfoBar.Message = Controller.UpdateStatusText ?? "发现新版本。";
         UpdateInfoBar.IsOpen = Controller.UpdateBannerVisible;
         UpdateInfoBar.Visibility = Controller.UpdateBannerVisible ? Visibility.Visible : Visibility.Collapsed;
@@ -140,6 +144,12 @@ public sealed partial class LivePage : Page
     {
         ErrorInfoBar.Visibility = Visibility.Collapsed;
         Controller.DismissError();
+    }
+
+    private void WarningInfoBar_Closed(InfoBar sender, InfoBarClosedEventArgs args)
+    {
+        WarningInfoBar.Visibility = Visibility.Collapsed;
+        Controller.DismissWarning();
     }
     private void UpdateInfoBar_Closed(InfoBar sender, InfoBarClosedEventArgs args)
     {

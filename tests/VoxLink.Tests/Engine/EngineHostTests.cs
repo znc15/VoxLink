@@ -210,4 +210,62 @@ public sealed class EngineHostTests
         Assert.Contains(events, item => item.Name == "error");
         Assert.Contains("OSC 配置无效", exception.Message, StringComparison.Ordinal);
     }
+    [Fact]
+    public void CharBigramJaccard_IdenticalTextScoresOne()
+    {
+        Assert.Equal(1.0, EngineHost.CharBigramJaccard("今天天气真不错", "今天天气真不错"));
+    }
+
+    [Fact]
+    public void CharBigramJaccard_UnrelatedTextScoresLow()
+    {
+        Assert.True(EngineHost.CharBigramJaccard("今天天气真不错", "我想去吃火锅") < 0.5);
+    }
+
+    [Fact]
+    public void CharBigramJaccard_IgnoresCaseAndPunctuation()
+    {
+        Assert.Equal(1.0, EngineHost.CharBigramJaccard("Hello, World!", "hello world"));
+    }
+
+    [Fact]
+    public void CharBigramJaccard_EdgeCases()
+    {
+        Assert.Equal(1.0, EngineHost.CharBigramJaccard("好", "好"));
+        Assert.Equal(0.0, EngineHost.CharBigramJaccard("好", "你好"));
+        Assert.Equal(0.0, EngineHost.CharBigramJaccard("!", "?"));
+        Assert.Equal(0.0, EngineHost.CharBigramJaccard(string.Empty, string.Empty));
+        Assert.Equal(0.0, EngineHost.CharBigramJaccard(null, "文本"));
+    }
+
+    [Fact]
+    public void IsEchoText_MatchesRecentInboundTranslation()
+    {
+        var inbound = new VoxLink.Models.ConversationMessage(
+            VoxLink.Models.TranslationDirection.Inbound,
+            "source",
+            "我们一起去玩吧",
+            DateTimeOffset.UtcNow);
+
+        Assert.True(EngineHost.IsEchoText(
+            "我们一起去玩吧",
+            [inbound],
+            EngineHost.EchoSimilarityThreshold));
+        Assert.False(EngineHost.IsEchoText(
+            "我晚上想早点睡",
+            [inbound],
+            EngineHost.EchoSimilarityThreshold));
+        Assert.False(EngineHost.IsEchoText(null, [inbound], EngineHost.EchoSimilarityThreshold));
+    }
+
+    [Fact]
+    public void IsLoopbackLikeDeviceName_DetectsStereoMixAndLoopbackDevices()
+    {
+        Assert.True(VoxLink.Audio.WasapiSpeechCapture.IsLoopbackLikeDeviceName("立体声混音 (Realtek(R) Audio)"));
+        Assert.True(VoxLink.Audio.WasapiSpeechCapture.IsLoopbackLikeDeviceName("Stereo Mix"));
+        Assert.True(VoxLink.Audio.WasapiSpeechCapture.IsLoopbackLikeDeviceName("What U Hear"));
+        Assert.True(VoxLink.Audio.WasapiSpeechCapture.IsLoopbackLikeDeviceName("系统回环音频"));
+        Assert.False(VoxLink.Audio.WasapiSpeechCapture.IsLoopbackLikeDeviceName("麦克风阵列 (Realtek(R) Audio)"));
+        Assert.False(VoxLink.Audio.WasapiSpeechCapture.IsLoopbackLikeDeviceName(null));
+    }
 }

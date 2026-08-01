@@ -17,10 +17,17 @@ internal sealed class EngineHost : IAsyncDisposable
     private readonly TranslationSession _session;
     private readonly VrChatOscSender _vrChatOsc = new();
     private readonly UiHost? _uiHost;
+
+    internal const double EchoSimilarityThreshold = 0.7;
+    internal static readonly TimeSpan EchoWindow = TimeSpan.FromSeconds(10);
+    private const int MaxRecentInbound = 3;
+    private readonly object _recentInboundGate = new();
+    private readonly List<ConversationMessage> _recentInbound = [];
+    private int _echoSuppressed;
+
     private AppSettings _settings = new();
     private Exception? _vrChatOscConfigurationError;
     private bool _disposed;
-
     public EngineHost(Action<string, object> notify)
         : this(notify, startUiHost: true)
     {
@@ -44,6 +51,7 @@ internal sealed class EngineHost : IAsyncDisposable
         _session.MessageReceived += OnMessageReceived;
         _session.PartialMessageReceived += OnPartialMessageReceived;
         _session.ErrorOccurred += OnErrorOccurred;
+        _session.WarningOccurred += OnWarningOccurred;
         _session.ModelProgress += OnModelProgress;
     }
 
@@ -204,6 +212,7 @@ internal sealed class EngineHost : IAsyncDisposable
         _session.MessageReceived -= OnMessageReceived;
         _session.PartialMessageReceived -= OnPartialMessageReceived;
         _session.ErrorOccurred -= OnErrorOccurred;
+        _session.WarningOccurred -= OnWarningOccurred;
         _session.ModelProgress -= OnModelProgress;
         _vrChatOsc.SendFailed -= OnVrChatOscSendFailed;
         await _session.DisposeAsync();
@@ -363,15 +372,119 @@ internal sealed class EngineHost : IAsyncDisposable
 
         if (message.Direction == TranslationDirection.Inbound)
         {
+            if (message.IsFinal && !message.TranscriptionOnly
+                && !string.IsNullOrWhiteSpace(message.TranslatedText))
+            {
+                TrackRecentInbound(message);
+            }
+
             return;
         }
 
         var chatboxText = ComposeVrChatMessage(message, _settings);
         if (chatboxText is not null)
         {
+            if (IsEchoOfRecentInbound(message.TranslatedText))
+            {
+                if (Interlocked.Exchange(ref _echoSuppressed, 1) == 0)
+                {
+                    _notify("warning", new
+                    {
+                        message = "检测到麦克风拾取了系统音频中的他人语音回声，已抑制，未发送到 Chatbox。",
+                        detail = "如经常出现，请检查麦克风是否误选为立体声混音等回环设备。"
+                    });
+                }
+
+                return;
+            }
+
             _vrChatOsc.TryQueue(chatboxText);
         }
     }
+
+    /// <summary>
+    /// 保留最近一段时间内的他人语音译文，用于识别麦克风拾取到的系统音频回声。
+    /// </summary>
+    private void TrackRecentInbound(ConversationMessage message)
+    {
+        lock (_recentInboundGate)
+        {
+            _recentInbound.Add(message);
+            if (_recentInbound.Count > MaxRecentInbound)
+            {
+                _recentInbound.RemoveAt(0);
+            }
+        }
+    }
+
+    private bool IsEchoOfRecentInbound(string? text)
+    {
+        ConversationMessage[] recent;
+        lock (_recentInboundGate)
+        {
+            var cutoff = DateTimeOffset.UtcNow - EchoWindow;
+            _recentInbound.RemoveAll(item => item.Timestamp < cutoff);
+            recent = _recentInbound.ToArray();
+        }
+
+        return IsEchoText(text, recent, EchoSimilarityThreshold);
+    }
+
+    /// <summary>
+    /// 出站译文与最近他人语音译文高度相似时视为麦克风拾取到的系统音频回声。
+    /// </summary>
+    internal static bool IsEchoText(
+        string? outboundTranslatedText,
+        IEnumerable<ConversationMessage> recentInbound,
+        double threshold)
+    {
+        if (string.IsNullOrWhiteSpace(outboundTranslatedText))
+        {
+            return false;
+        }
+
+        return recentInbound.Any(inbound =>
+            CharBigramJaccard(outboundTranslatedText, inbound.TranslatedText) >= threshold);
+    }
+
+
+    internal static double CharBigramJaccard(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+        {
+            return 0;
+        }
+
+        var a = NormalizeForCompare(left);
+        var b = NormalizeForCompare(right);
+        if (a.Length == 0 || b.Length == 0)
+        {
+            return 0;
+        }
+
+        if (a.Length < 2 && b.Length < 2)
+        {
+            return a == b ? 1 : 0;
+        }
+
+        static IEnumerable<string> Bigrams(string text)
+        {
+            for (var i = 0; i < text.Length - 1; i++)
+            {
+                yield return text.Substring(i, 2);
+            }
+        }
+
+        var leftBigrams = new HashSet<string>(Bigrams(a), StringComparer.Ordinal);
+        var rightBigrams = new HashSet<string>(Bigrams(b), StringComparer.Ordinal);
+        var intersection = leftBigrams.Count(bigram => rightBigrams.Contains(bigram));
+        var union = leftBigrams.Count + rightBigrams.Count - intersection;
+        return union == 0 ? 0 : (double)intersection / union;
+    }
+
+    private static string NormalizeForCompare(string text) =>
+        new(text.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+
 
     internal static string? ComposeVrChatMessage(
         ConversationMessage message,
@@ -425,6 +538,14 @@ internal sealed class EngineHost : IAsyncDisposable
             message = Redact(eventArgs.Message),
             detail = Redact(eventArgs.Exception.Message)
         });
+
+    private void OnWarningOccurred(object? sender, string message) =>
+        _notify("warning", new
+        {
+            message,
+            detail = ""
+        });
+
 
     private void OnModelProgress(object? sender, ModelProgressEventArgs eventArgs) =>
         _notify("modelProgress", new

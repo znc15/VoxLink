@@ -35,6 +35,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     private string _modelStatus = string.Empty;
     private double _modelProgress;
     private string? _errorMessage;
+    private string? _warningMessage;
     private string? _testResultMessage;
     private bool _onboardingRequestPending;
     private bool _applyingQuickStartMode;
@@ -106,6 +107,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     public string ModelStatus { get => _modelStatus; private set => SetProperty(ref _modelStatus, value); }
     public double ModelProgress { get => _modelProgress; private set => SetProperty(ref _modelProgress, value); }
     public string? ErrorMessage { get => _errorMessage; private set => SetProperty(ref _errorMessage, value); }
+    public string? WarningMessage { get => _warningMessage; private set => SetProperty(ref _warningMessage, value); }
     public string? TestResultMessage
     {
         get => _testResultMessage;
@@ -593,6 +595,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     public void ClearMessages() => Messages.Clear();
     public void DismissError() => ErrorMessage = null;
 
+    public void DismissWarning() => WarningMessage = null;
     public async Task SaveNowAsync(CancellationToken cancellationToken = default)
     {
         _saveDebounce?.Cancel();
@@ -1046,6 +1049,10 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             case "error":
                 ErrorMessage = ReadString(engineEvent.Data, "message", "引擎处理失败。");
                 LogService.Instance.Warning(SourceEngine, "引擎错误：" + ErrorMessage);
+                break;
+            case "warning":
+                WarningMessage = ReadString(engineEvent.Data, "message", "引擎警告。");
+                LogService.Instance.Warning(SourceEngine, "引擎警告：" + WarningMessage);
                 break;
             case "fatal":
                 EngineConnected = false;

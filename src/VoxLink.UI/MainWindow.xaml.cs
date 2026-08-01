@@ -11,10 +11,35 @@ using VoxLink.UI.Infrastructure;
 using VoxLink.UI.Pages;
 using Windows.Graphics;
 
+
 namespace VoxLink.UI;
 
 public sealed partial class MainWindow : Window
 {
+    private const uint WmSetIcon = 0x0080;
+    private const nint IconBig = 1;
+    private const nint IconSmall = 0;
+    private const uint ImageIcon = 1;
+    private const uint LoadFromFile = 0x0010;
+    private const uint DefaultSize = 0x0040;
+    private const int SmCxsmicon = 49;
+    private const int SmCysmicon = 50;
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr LoadImageW(
+        IntPtr hInstance,
+        string lpszName,
+        uint type,
+        int cx,
+        int cy,
+        uint fuLoad);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessageW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int nIndex);
+
     private enum CloseChoice
     {
         Exit,
@@ -177,8 +202,55 @@ public sealed partial class MainWindow : Window
             ContentFrame.Navigate(typeof(ConversationHistoryPage));
         });
 
-    private async void RootLayout_Loaded(object sender, RoutedEventArgs args) =>
+    private async void RootLayout_Loaded(object sender, RoutedEventArgs args)
+    {
+        ApplyWindowIcon();
         await TryShowOnboardingAsync();
+    }
+
+    /// <summary>
+    /// 窗口显示后再次强制应用图标：WinUI 3 的 AppWindow.SetIcon 在窗口激活前调用
+    /// 可能不生效，导致任务栏仍显示旧图标；这里通过 WM_SETICON 直接写入窗口句柄。
+    /// </summary>
+    private void ApplyWindowIcon()
+    {
+        try
+        {
+            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+            AppWindow.SetIcon(iconPath);
+
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            if (hwnd == IntPtr.Zero)
+            {
+                return;
+            }
+
+            var big = LoadImageW(IntPtr.Zero, iconPath, ImageIcon, 0, 0, LoadFromFile | DefaultSize);
+            var small = LoadImageW(
+                IntPtr.Zero,
+                iconPath,
+                ImageIcon,
+                GetSystemMetrics(SmCxsmicon),
+                GetSystemMetrics(SmCysmicon),
+                LoadFromFile);
+            // WM_SETICON 后窗口仍持有句柄用于绘制（与 WPF/WinForms 行为一致），
+            // 句柄随窗口生命周期存活，进程退出时由系统统一回收，因此不主动释放。
+            if (big != IntPtr.Zero)
+            {
+                SendMessageW(hwnd, WmSetIcon, IconBig, big);
+            }
+
+            if (small != IntPtr.Zero)
+            {
+                SendMessageW(hwnd, WmSetIcon, IconSmall, small);
+            }
+        }
+        catch
+        {
+            // 图标应用失败不影响窗口启动，托盘与资源管理器图标仍由 exe 提供。
+        }
+    }
+
 
     public async Task ShowOnboardingAsync()
     {

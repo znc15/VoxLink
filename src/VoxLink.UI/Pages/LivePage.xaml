@@ -42,6 +42,14 @@
             Message="采集来源或设备已更改，重新开始会话后生效。" />
 
         <InfoBar
+            x:Name="WarningInfoBar"
+            IsClosable="True"
+            IsOpen="False"
+            Severity="Warning"
+            Visibility="Collapsed"
+            Closed="WarningInfoBar_Closed" />
+
+        <InfoBar
             x:Name="ErrorInfoBar"
             Grid.Row="3"
             IsClosable="True"

@@ -62,6 +62,11 @@ public sealed class WasapiSpeechCapture : IAsyncDisposable
                     _enumerator = new MMDeviceEnumerator();
                     var flow = _loopback ? DataFlow.Render : DataFlow.Capture;
                     _device = ResolveDevice(_enumerator, flow, _deviceId);
+                    if (!_loopback && IsLoopbackLikeDeviceName(_device.FriendlyName))
+                    {
+                        LoopbackLikeMicWarning?.Invoke(this, _device.FriendlyName);
+                    }
+
                     _capture = _loopback
                         ? new WasapiLoopbackCapture(_device)
                         : new NAudio.CoreAudioApi.WasapiCapture(_device);
@@ -246,8 +251,33 @@ public sealed class WasapiSpeechCapture : IAsyncDisposable
 
     public event EventHandler<Exception>? CaptureFailed;
 
+    /// <summary>麦克风设备可能是系统音频回环设备（如立体声混音）时触发，参数为设备名称。</summary>
+    public event EventHandler<string>? LoopbackLikeMicWarning;
+
     /// <summary>请求的设备 ID 不存在时回退到 Windows 默认设备前触发（参数为请求的设备 ID）。</summary>
     public event EventHandler<string>? DeviceFallbackOccurred;
+
+    /// <summary>
+    /// 判断设备名是否可能是系统音频回环设备（立体声混音等）。这类设备作为麦克风时，
+    /// 会把系统播放的他人语音当作“我的语音”送入出站链路，进而被发送到 VRChat Chatbox。
+    /// </summary>
+    internal static bool IsLoopbackLikeDeviceName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return false;
+        }
+
+        var normalized = name.ToLowerInvariant();
+        return normalized.Contains("stereo mix", StringComparison.Ordinal)
+            || normalized.Contains("立体声混音", StringComparison.Ordinal)
+            || normalized.Contains("what u hear", StringComparison.Ordinal)
+            || normalized.Contains("wave out mix", StringComparison.Ordinal)
+            || normalized.Contains("loopback", StringComparison.Ordinal)
+            || normalized.Contains("回环", StringComparison.Ordinal)
+            || normalized.Contains("monitor of", StringComparison.Ordinal);
+    }
+
 
 
     private sealed class CaptureResources(
