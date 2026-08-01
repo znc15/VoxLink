@@ -31,6 +31,7 @@ public sealed partial class MainWindow : Window
             presenter.PreferredMinimumHeight = 620;
         }
 
+        RootLayout.SizeChanged += RootLayout_SizeChanged;
         AppWindow.Closing += AppWindow_Closing;
         RootLayout.Loaded += RootLayout_Loaded;
         App.Controller.PropertyChanged += Controller_PropertyChanged;
@@ -39,8 +40,14 @@ public sealed partial class MainWindow : Window
         UpdateEngineStatus();
     }
 
-    private void TitleBar_PaneToggleRequested(TitleBar sender, object args) =>
+    private void RootLayout_SizeChanged(object sender, SizeChangedEventArgs args) =>
+        PaneToggleButton.Visibility = args.NewSize.Width < 1040
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+    private void PaneToggleButton_Click(object sender, RoutedEventArgs args) =>
         NavView.IsPaneOpen = !NavView.IsPaneOpen;
+
 
     private void NavView_SelectionChanged(
         NavigationView sender,

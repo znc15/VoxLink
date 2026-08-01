@@ -59,10 +59,6 @@ public sealed partial class LivePage : Page
         TranslateModeButton.IsChecked = translateMode;
         GenerateModeButton.IsChecked = !translateMode;
         SubmitButtonText.Text = translateMode ? "翻译并发送" : "生成并发送";
-        var routeStatus = Controller.VoiceRouteStatus;
-        ModeStatusText.Text = Controller.Settings.CaptureSystemAudio
-            ? routeStatus + " 系统音频翻译已开启。"
-            : routeStatus;
         ModelStatusText.Text = Controller.ModelStatus.Length == 0
             ? string.Empty
             : $"{Controller.ModelStatus} {Controller.ModelProgress:P0}";

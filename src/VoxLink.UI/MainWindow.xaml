@@ -19,15 +19,46 @@
 
         <TitleBar
             x:Name="AppTitleBar"
-            Title="VoxLink"
-            Subtitle="游戏实时翻译"
+            Title=" "
+            Subtitle=" "
             IsBackButtonVisible="False"
-            IsPaneToggleButtonVisible="True"
-            PaneToggleRequested="TitleBar_PaneToggleRequested">
-            <TitleBar.IconSource>
-                <ImageIconSource ImageSource="Assets/AppIcon.ico" />
-            </TitleBar.IconSource>
-        </TitleBar>
+            IsPaneToggleButtonVisible="False" />
+        <Button
+            x:Name="PaneToggleButton"
+            Width="40"
+            Height="40"
+            Margin="8,4,0,0"
+            Padding="0"
+            HorizontalAlignment="Left"
+            VerticalAlignment="Center"
+            Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+            CornerRadius="8"
+            Click="PaneToggleButton_Click"
+            ToolTipService.ToolTip="展开或收起导航">
+            <FontIcon FontSize="16" Glyph="&#xE700;" />
+        </Button>
+        <StackPanel
+            Margin="56,0,0,0"
+            VerticalAlignment="Center"
+            Orientation="Horizontal"
+            Spacing="10">
+            <Border
+                Width="28"
+                Height="28"
+                Background="{StaticResource VoxLinkAccentBrush}"
+                CornerRadius="{StaticResource VoxLinkRadiusSmall}">
+                <FontIcon
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Foreground="White"
+                    FontSize="15"
+                    Glyph="&#xE8C1;" />
+            </Border>
+            <StackPanel VerticalAlignment="Center" Spacing="0">
+                <TextBlock FontSize="14" FontWeight="SemiBold" Text="VoxLink" />
+                <TextBlock FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="游戏实时翻译" />
+            </StackPanel>
+        </StackPanel>
 
         <NavigationView
             x:Name="NavView"

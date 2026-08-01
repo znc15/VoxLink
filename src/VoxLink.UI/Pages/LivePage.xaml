@@ -92,14 +92,9 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
                 <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="输出模式" />
                 <ToggleButton
                     x:Name="OscModeButton"
@@ -122,27 +117,12 @@
                     </StackPanel>
                 </ToggleButton>
                 <Button
-                    Grid.Column="4"
+                    Grid.Column="3"
                     Click="Onboarding_Click"
                     Style="{StaticResource HelpBadgeButtonStyle}"
                     ToolTipService.ToolTip="打开新手引导">
                     <FontIcon FontSize="14" Glyph="&#xE897;" />
                 </Button>
-                <FontIcon
-                    x:Name="ModeStatusIcon"
-                    Grid.Row="1"
-                    Grid.Column="1"
-                    VerticalAlignment="Center"
-                    Foreground="{StaticResource VoxLinkAccentBrush}"
-                    FontSize="12"
-                    Glyph="&#xE946;" />
-                <TextBlock
-                    x:Name="ModeStatusText"
-                    Grid.Row="1"
-                    Grid.Column="2"
-                    Grid.ColumnSpan="3"
-                    VerticalAlignment="Center"
-                    Style="{StaticResource CaptionStyle}" />
             </Grid>
         </Border>
 
