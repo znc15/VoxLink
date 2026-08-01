@@ -89,7 +89,7 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel Spacing="3">
                             <TextBlock Style="{StaticResource SectionTitleStyle}" Text="VRChat 语音路由" />
-                            <TextBlock Style="{StaticResource CaptionStyle}" Text="将识别原话或主译文经 TTS 输出到虚拟声卡，再由 VRChat 作为麦克风采集。" />
+                            <TextBlock Style="{StaticResource CaptionStyle}" Text="将朗读译文或朗读原话经 TTS 输出到虚拟声卡，再由 VRChat 作为麦克风采集。" />
                         </StackPanel>
                         <Button Grid.Column="1" Click="OpenOnboarding_Click" Style="{StaticResource HelpBadgeButtonStyle}" ToolTipService.ToolTip="打开新手引导">
                             <FontIcon FontSize="14" Glyph="&#xE897;" />
@@ -131,11 +131,11 @@
                         </Grid>
                         <RadioButtons
                             x:Name="SpeechContentButtons"
-                            Header="朗读内容"
+                            Header="我说话时朗读的内容"
                             MaxColumns="2"
                             SelectionChanged="SpeechContentButtons_SelectionChanged">
-                            <RadioButton Content="翻译后内容" Tag="Translation" />
-                            <RadioButton Content="识别原话" Tag="Original" />
+                            <RadioButton Content="朗读译文" Tag="Translation" />
+                            <RadioButton Content="朗读原话" Tag="Original" />
                         </RadioButtons>
                         <Grid ColumnSpacing="10">
                             <Grid.ColumnDefinitions>
@@ -213,6 +213,36 @@
                         OffContent="关闭"
                         OnContent="开启" />
 
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button
+                                Click="TestDesktopOverlay_Click"
+                                IsEnabled="{x:Bind Controller.EngineConnected, Mode=OneWay}">
+                                <StackPanel Orientation="Horizontal" Spacing="7">
+                                    <FontIcon FontSize="13" Glyph="&#xE7F4;" />
+                                    <TextBlock Text="测试桌面字幕" />
+                                </StackPanel>
+                            </Button>
+                            <Button
+                                Click="TestVrOverlay_Click"
+                                IsEnabled="{x:Bind Controller.EngineConnected, Mode=OneWay}">
+                                <StackPanel Orientation="Horizontal" Spacing="7">
+                                    <FontIcon FontSize="13" Glyph="&#xE7F4;" />
+                                    <TextBlock Text="测试头显字幕" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                        <TextBlock
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource CaptionStyle}"
+                            Text="{x:Bind Controller.TestResultMessage, Mode=OneWay}" />
+                    </Grid>
+
                     <StackPanel Spacing="6">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -267,25 +297,6 @@
                             ValueChanged="OverlaySlider_ValueChanged" />
                     </StackPanel>
 
-                    <Grid ColumnSpacing="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <Button
-                            Click="TestVrOverlay_Click"
-                            IsEnabled="{x:Bind Controller.EngineConnected, Mode=OneWay}">
-                            <StackPanel Orientation="Horizontal" Spacing="7">
-                                <FontIcon FontSize="13" Glyph="&#xE7F4;" />
-                                <TextBlock Text="测试头显字幕" />
-                            </StackPanel>
-                        </Button>
-                        <TextBlock
-                            Grid.Column="1"
-                            VerticalAlignment="Center"
-                            Style="{StaticResource CaptionStyle}"
-                            Text="{x:Bind Controller.TestResultMessage, Mode=OneWay}" />
-                    </Grid>
                 </StackPanel>
             </Border>
         </StackPanel>

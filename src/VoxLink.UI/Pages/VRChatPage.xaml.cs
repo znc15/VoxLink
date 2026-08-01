@@ -189,6 +189,9 @@ public sealed partial class VRChatPage : Page
     private async void TestVrOverlay_Click(object sender, RoutedEventArgs args) =>
         await Controller.TestVrOverlayAsync();
 
+    private async void TestDesktopOverlay_Click(object sender, RoutedEventArgs args) =>
+        await Controller.TestDesktopOverlayAsync();
+
     private void VrChatErrorBar_Closed(InfoBar sender, InfoBarClosedEventArgs args) =>
         Controller.DismissError();
 }

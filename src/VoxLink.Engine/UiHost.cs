@@ -84,6 +84,13 @@ internal sealed class UiHost : IDisposable
             _steamVrOverlay?.ShowTest() ?? "SteamVR 字幕宿主未就绪");
     }
 
+    public string TestDesktopOverlay()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return GetDispatcher().Invoke(() =>
+            _overlay?.ShowTest() ?? "桌面字幕宿主未就绪");
+    }
+
     public void Dispose()
     {
         if (_disposed)

@@ -65,6 +65,21 @@ public partial class OverlayWindow : Window
         }
     }
 
+    public string ShowTest()
+    {
+        if (!_enabled)
+        {
+            return "桌面字幕已关闭，请先开启桌面字幕悬浮窗。";
+        }
+
+        ShowSubtitle(new ConversationMessage(
+            TranslationDirection.Inbound,
+            "VoxLink 桌面字幕测试",
+            "桌面字幕显示正常",
+            DateTimeOffset.Now));
+        return "桌面字幕测试已显示";
+    }
+
     private void OnSourceInitialized(object? sender, EventArgs eventArgs)
     {
         var handle = new WindowInteropHelper(this).Handle;

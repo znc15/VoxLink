@@ -56,7 +56,9 @@ public sealed partial class ModelProvidersPage : Page
             TranslationHeaderEditor.Configure(Controller, HeaderEditorTarget.Translation);
             AsrHeaderEditor.Configure(Controller, HeaderEditorTarget.Asr);
             SpeechHeaderEditor.Configure(Controller, HeaderEditorTarget.Speech);
-            WhisperModelButtons.SelectedItem = Controller.Settings.WhisperModel;
+            TinyModelButton.IsChecked = Controller.Settings.WhisperModel == "tiny";
+            BaseModelButton.IsChecked = Controller.Settings.WhisperModel == "base";
+            SmallModelButton.IsChecked = Controller.Settings.WhisperModel == "small";
         }
         finally
         {
@@ -66,8 +68,7 @@ public sealed partial class ModelProvidersPage : Page
 
     private void RefreshState()
     {
-        var usesPublicTranslation = !Controller.Settings.UseAiTranslation
-            || Controller.Settings.TranslationBackend == TranslationBackend.PublicFree;
+        var usesPublicTranslation = Controller.Settings.TranslationBackend == TranslationBackend.PublicFree;
         TranslationCredentials.Visibility = usesPublicTranslation
             ? Visibility.Collapsed
             : Visibility.Visible;
@@ -78,35 +79,34 @@ public sealed partial class ModelProvidersPage : Page
             && Controller.Settings.EnableTranslationRefinement
                 ? Visibility.Visible
                 : Visibility.Collapsed;
-        var usesCloudAsr = Controller.Settings.UseCloudAsr && Controller.Settings.UsesCloudAsr;
-        AsrCloudCredentials.Visibility = usesCloudAsr
+        AsrCloudCredentials.Visibility = Controller.Settings.UsesCloudAsr
             ? Visibility.Visible
             : Visibility.Collapsed;
         AsrLocalWhisperWarning.Visibility = Controller.Settings.UseCloudAsr
             && !Controller.Settings.UsesCloudAsr
                 ? Visibility.Visible
                 : Visibility.Collapsed;
-        LocalWhisperPanel.Visibility = !Controller.Settings.UseCloudAsr
-            ? Visibility.Visible
-            : Visibility.Collapsed;
+        LocalWhisperPanel.Visibility = Visibility.Visible;
+        var localWhisperEnabled = !Controller.Settings.UsesCloudAsr;
+        LocalWhisperPanel.Opacity = localWhisperEnabled ? 1.0 : 0.45;
+        PrepareModelButton.IsEnabled = localWhisperEnabled;
+        TinyModelButton.IsEnabled = localWhisperEnabled;
+        BaseModelButton.IsEnabled = localWhisperEnabled;
+        SmallModelButton.IsEnabled = localWhisperEnabled;
         AsrProtocolBox.IsEnabled = Controller.Settings.AsrProvider == AsrProvider.Custom;
-        SpeechCredentials.Visibility = Controller.Settings.UseRemoteSpeech
-            ? Visibility.Visible
-            : Visibility.Collapsed;
+        SpeechCredentials.Visibility = Visibility.Visible;
         TranslationDescription.Text = Controller.Settings.TranslationBackend switch
         {
-            TranslationBackend.PublicFree => "在 AI 与语音页开启 AI 翻译后使用此服务。",
-            TranslationBackend.DashScope => "DashScope 官方 OpenAI 兼容接口。",
-            TranslationBackend.DeepSeek => "DeepSeek 官方接口。",
-            TranslationBackend.OpenAiCompatible => "任意 OpenAI 兼容服务。",
-            _ => "自定义服务地址、模型与请求头。"
+            TranslationBackend.PublicFree => "公共免密翻译；选择其他提供方后可配置并测试。",
+            TranslationBackend.DashScope => "DashScope 官方 OpenAI 兼容接口，填写 API Key、模型等信息后可测试。",
+            TranslationBackend.DeepSeek => "DeepSeek 官方接口，填写 API Key、模型等信息后可测试。",
+            TranslationBackend.OpenAiCompatible => "任意 OpenAI 兼容服务，填写地址、模型与 API Key 后可测试。",
+            _ => "自定义服务地址、模型、API Key 与请求头。"
         };
-        AsrDescription.Text = Controller.Settings.UseCloudAsr
-            ? "云端识别会按提供方协议上传音频。"
+        AsrDescription.Text = Controller.Settings.UsesCloudAsr
+            ? "选择云端提供方后显示所需配置；本地 Whisper 会同时置灰。"
             : "本地 Whisper 识别，原始音频不会离开电脑。";
-        SpeechDescription.Text = Controller.Settings.UseRemoteSpeech
-            ? "远程语音失败时回退到本地语音。"
-            : "在 AI 与语音页开启远程语音服务后使用此配置。";
+        SpeechDescription.Text = "填写远程语音服务配置后即可试听；开启后实际朗读使用远程服务，失败时回退本地语音。";
         ModelProgressBar.Visibility = string.IsNullOrWhiteSpace(Controller.ModelStatus)
             ? Visibility.Collapsed
             : Visibility.Visible;
@@ -205,9 +205,9 @@ public sealed partial class ModelProvidersPage : Page
     private async void PrepareModel_Click(object sender, RoutedEventArgs args) =>
         await Controller.PrepareModelAsync();
 
-    private void WhisperModelButtons_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    private void WhisperModel_Checked(object sender, RoutedEventArgs args)
     {
-        if (!_loading && WhisperModelButtons.SelectedItem is string model)
+        if (!_loading && sender is RadioButton { Tag: string model })
         {
             Controller.Settings.WhisperModel = model;
         }

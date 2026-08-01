@@ -91,11 +91,14 @@
                         Grid.Column="1"
                         Width="32"
                         Height="32"
+                        Padding="0"
                         HorizontalAlignment="Center"
+                        HorizontalContentAlignment="Center"
                         VerticalAlignment="Bottom"
+                        VerticalContentAlignment="Center"
                         Click="SwapLanguages_Click"
                         ToolTipService.ToolTip="交换语言">
-                        <FontIcon Glyph="&#xE8AB;" />
+                        <FontIcon FontSize="14" Glyph="&#xE8AB;" />
                     </Button>
                     <ComboBox
                         x:Name="OtherLanguageBox"
@@ -131,9 +134,9 @@
                         DisplayMemberPath="Label"
                         SelectedValuePath="Id"
                         SelectionChanged="VoiceOutputBox_SelectionChanged" />
-                    <RadioButtons x:Name="SpeechContentButtons" Header="朗读内容" MaxColumns="2">
-                        <RadioButton Content="翻译后内容" Tag="Translation" />
-                        <RadioButton Content="识别原话" Tag="Original" />
+                    <RadioButtons x:Name="SpeechContentButtons" Header="我说话时朗读的内容" MaxColumns="2">
+                        <RadioButton Content="朗读译文" Tag="Translation" />
+                        <RadioButton Content="朗读原话" Tag="Original" />
                     </RadioButtons>
                     <HyperlinkButton Padding="0" Click="OpenVirtualCableDownload_Click" Content="打开 VB-CABLE 官方下载页" />
                 </StackPanel>

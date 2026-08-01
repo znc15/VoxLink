@@ -52,6 +52,7 @@
 
             <Style x:Key="PageScrollViewerStyle" TargetType="ScrollViewer">
                 <Setter Property="HorizontalScrollBarVisibility" Value="Disabled" />
+                <Setter Property="HorizontalScrollMode" Value="Disabled" />
                 <Setter Property="VerticalScrollBarVisibility" Value="Auto" />
                 <Setter Property="VerticalScrollMode" Value="Auto" />
             </Style>
@@ -59,7 +60,6 @@
             <Style x:Key="PageStackStyle" TargetType="StackPanel">
                 <Setter Property="Padding" Value="28,24,28,32" />
                 <Setter Property="Spacing" Value="16" />
-                <Setter Property="MaxWidth" Value="1180" />
                 <Setter Property="HorizontalAlignment" Value="Stretch" />
             </Style>
 

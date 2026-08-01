@@ -149,6 +149,30 @@ public sealed class AppControllerTests
     }
 
     [Fact]
+    public void ToEngineJson_TestModeUsesConfiguredProvidersDespiteDisabledSwitches()
+    {
+        var settings = new AppSettings
+        {
+            UseAiTranslation = false,
+            TranslationBackend = TranslationBackend.DeepSeek,
+            UseCloudAsr = false,
+            AsrProvider = AsrProvider.Soniox,
+            AsrProtocol = AsrProtocol.SonioxStreaming,
+            UseRemoteSpeech = false,
+            SpeechApiKey = "speech-key"
+        };
+
+        var json = JsonSerializer.Serialize(settings.ToEngineJson(respectSwitches: false), EngineJsonOptions);
+        var engineSettings = JsonSerializer.Deserialize<EngineSettings>(json, EngineJsonOptions);
+
+        Assert.NotNull(engineSettings);
+        Assert.Equal(EngineTranslationProvider.DeepSeek, engineSettings.TranslationProvider);
+        Assert.Equal(EngineAsrProvider.Soniox, engineSettings.AsrProvider);
+        Assert.Equal(EngineAsrProtocol.SonioxStreaming, engineSettings.AsrProtocol);
+        Assert.True(engineSettings.UseRemoteTextToSpeech);
+    }
+
+    [Fact]
     public async Task InitializeAsync_LoadsSettingsAndAppliesBootstrap()
     {
         var gateway = new FakeEngineGateway();
@@ -387,6 +411,26 @@ public sealed class AppControllerTests
     }
 
     [Fact]
+    public async Task ValidateTranslationSettingsForTest_IgnoresAiSwitch()
+    {
+        await using var controller = new AppController(
+            new FakeEngineGateway(),
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        controller.Settings.UseAiTranslation = false;
+        controller.Settings.TranslationBackend = TranslationBackend.DeepSeek;
+        controller.Settings.TranslationBaseUrl = "invalid";
+
+        Assert.Null(controller.ValidateTranslationSettings());
+        Assert.Contains("翻译服务", controller.ValidateTranslationSettingsForTest(), StringComparison.Ordinal);
+
+        controller.Settings.TranslationBaseUrl = "https://api.deepseek.com";
+        controller.Settings.TranslationModel = "deepseek-chat";
+        controller.Settings.TranslationApiKey = "key";
+        Assert.Null(controller.ValidateTranslationSettingsForTest());
+    }
+
+    [Fact]
     public async Task ValidateAsrSettings_RequiresCloudProviderOnlyWhenCloudEnabled()
     {
         await using var controller = new AppController(
@@ -406,6 +450,24 @@ public sealed class AppControllerTests
 
         controller.Settings.AsrProvider = AsrProvider.LocalWhisper;
         Assert.Contains("云端语音识别提供方", controller.ValidateAsrSettings(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ValidateAsrSettingsForTest_IgnoresCloudSwitch()
+    {
+        await using var controller = new AppController(
+            new FakeEngineGateway(),
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        controller.Settings.UseCloudAsr = false;
+        controller.Settings.ApplyAsrProviderDefaults(AsrProvider.Soniox);
+
+        Assert.Null(controller.ValidateAsrSettings());
+        Assert.Contains("允许上传", controller.ValidateAsrSettingsForTest(), StringComparison.Ordinal);
+
+        controller.Settings.AllowCloudAudioUpload = true;
+        controller.Settings.AsrApiKey = "key";
+        Assert.Null(controller.ValidateAsrSettingsForTest());
     }
 
     [Fact]

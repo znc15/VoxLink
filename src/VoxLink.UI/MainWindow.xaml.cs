@@ -15,6 +15,13 @@ namespace VoxLink.UI;
 
 public sealed partial class MainWindow : Window
 {
+    private enum CloseChoice
+    {
+        Exit,
+        KeepBackground,
+        Cancel
+    }
+
     private bool _allowClose;
     private bool _closeRequested;
     private bool _onboardingOpen;
@@ -284,8 +291,15 @@ public sealed partial class MainWindow : Window
         _closeRequested = true;
         try
         {
-            if (!await ConfirmExitIfNeededAsync())
+            var choice = await ConfirmCloseAsync();
+            if (choice == CloseChoice.Cancel)
             {
+                return;
+            }
+
+            if (choice == CloseChoice.KeepBackground)
+            {
+                KeepRunningInBackground();
                 return;
             }
 
@@ -326,31 +340,45 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task<bool> ConfirmExitIfNeededAsync()
+    private async Task<CloseChoice> ConfirmCloseAsync()
     {
         if (!App.Controller.Settings.ConfirmOnClose || RootLayout.XamlRoot is null)
         {
-            return true;
+            return CloseChoice.Exit;
         }
 
         var dialog = new ContentDialog
         {
-            Title = "退出 VoxLink？",
-            Content = "退出后实时翻译会话将停止。",
+            Title = "关闭 VoxLink？",
+            Content = "可以退出，也可以保留在后台继续运行。",
             PrimaryButtonText = "退出",
+            SecondaryButtonText = "保留后台",
             CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Primary,
+            DefaultButton = ContentDialogButton.Close,
             XamlRoot = RootLayout.XamlRoot
         };
 
         try
         {
-            return await dialog.ShowAsync() == ContentDialogResult.Primary;
+            return await dialog.ShowAsync() switch
+            {
+                ContentDialogResult.Primary => CloseChoice.Exit,
+                ContentDialogResult.Secondary => CloseChoice.KeepBackground,
+                _ => CloseChoice.Cancel
+            };
         }
         catch (Exception exception) when (exception is COMException or InvalidOperationException or ObjectDisposedException)
         {
             LogService.Instance.Warning("UI", $"退出确认对话框无法显示，已取消退出：{exception}");
-            return false;
+            return CloseChoice.Cancel;
         }
+    }
+
+    private void KeepRunningInBackground()
+    {
+        App.Controller.Settings.MinimizeToTray = true;
+        EnsureTrayIconVisibility();
+        _hiddenToTray = true;
+        AppWindow.Hide();
     }
 }

@@ -121,11 +121,14 @@
                     Grid.Column="1"
                     Width="32"
                     Height="32"
+                    Padding="0"
                     HorizontalAlignment="Center"
+                    HorizontalContentAlignment="Center"
                     VerticalAlignment="Bottom"
+                    VerticalContentAlignment="Center"
                     Click="SwapButton_Click"
                     ToolTipService.ToolTip="交换语言">
-                    <FontIcon Glyph="&#xE8AB;" />
+                    <FontIcon FontSize="14" Glyph="&#xE8AB;" />
                 </Button>
                 <ComboBox
                     x:Name="OtherLanguageBox"

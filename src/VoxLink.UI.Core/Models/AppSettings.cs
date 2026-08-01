@@ -388,7 +388,7 @@ public sealed class AppSettings : ObservableObject
         }
     }
 
-    public Dictionary<string, object?> ToEngineJson() => new(StringComparer.Ordinal)
+    public Dictionary<string, object?> ToEngineJson(bool respectSwitches = true) => new(StringComparer.Ordinal)
     {
         ["myLanguageCode"] = MyLanguageCode,
         ["otherLanguageCode"] = OtherLanguageCode,
@@ -398,7 +398,7 @@ public sealed class AppSettings : ObservableObject
         ["microphoneDeviceId"] = MicrophoneDeviceId,
         ["systemAudioDeviceId"] = SystemAudioDeviceId,
         ["voiceOutputDeviceId"] = VoiceOutputDeviceId,
-        ["translationProvider"] = !UseAiTranslation ? "googleWeb" : TranslationBackend switch
+        ["translationProvider"] = respectSwitches && !UseAiTranslation ? "googleWeb" : TranslationBackend switch
         {
             TranslationBackend.PublicFree => "googleWeb",
             TranslationBackend.DashScope => "dashScope",
@@ -412,10 +412,10 @@ public sealed class AppSettings : ObservableObject
         ["openAiHeaders"] = TranslationHeaders,
         ["enableTranslationRefinement"] = EnableTranslationRefinement,
         ["translationRefinementPrompt"] = TranslationRefinementPrompt,
-        ["asrProvider"] = !UseCloudAsr
+        ["asrProvider"] = respectSwitches && !UseCloudAsr
             ? "localWhisper"
             : JsonNamingPolicy.CamelCase.ConvertName(AsrProvider.ToString()),
-        ["asrProtocol"] = !UseCloudAsr
+        ["asrProtocol"] = respectSwitches && !UseCloudAsr
             ? "localWhisper"
             : JsonNamingPolicy.CamelCase.ConvertName(AsrProtocol.ToString()),
         ["asrBaseUrl"] = AsrBaseUrl,
@@ -423,7 +423,9 @@ public sealed class AppSettings : ObservableObject
         ["asrModel"] = AsrModel,
         ["asrHeaders"] = AsrHeaders,
         ["allowCloudAudioUpload"] = AllowCloudAudioUpload,
-        ["useRemoteTextToSpeech"] = UseRemoteSpeech,
+        ["useRemoteTextToSpeech"] = respectSwitches
+            ? UseRemoteSpeech
+            : UseRemoteSpeech || !string.IsNullOrWhiteSpace(SpeechApiKey),
         ["textToSpeechBaseUrl"] = SpeechBaseUrl,
         ["textToSpeechApiKey"] = SpeechApiKey,
         ["textToSpeechModel"] = SpeechModel,

@@ -127,7 +127,12 @@
                 </Border>
             </NavigationView.PaneFooter>
 
-            <Frame x:Name="ContentFrame" />
+            <Frame
+                x:Name="ContentFrame"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                VerticalContentAlignment="Stretch" />
         </NavigationView>
     </Grid>
 </Window>

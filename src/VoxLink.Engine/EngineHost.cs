@@ -131,22 +131,12 @@ internal sealed class EngineHost : IAsyncDisposable
             }
             case "testSpeech":
                 ApplyOptionalSettings(parameters, serializerOptions);
-                if (_settings.UseRemoteTextToSpeech)
-                {
-                    await _textToSpeech.ValidateConfiguredRemoteAsync(
-                        "语音服务连接测试",
-                        LanguageCatalog.Get("zh"),
-                        cancellationToken);
-                }
-                else
-                {
-                    await _textToSpeech.SpeakAsync(
-                        "语音服务连接成功",
-                        LanguageCatalog.Get("zh"),
-                        _settings.VoiceOutputDeviceId,
-                        cancellationToken);
-                }
-                return new { spoken = true };
+                await _textToSpeech.SpeakAsync(
+                    "语音服务连接测试",
+                    LanguageCatalog.Get("zh"),
+                    outputDeviceId: string.Empty,
+                    cancellationToken);
+                return new { spoken = true, outputDevice = "default" };
             case "testVoiceOutput":
             {
                 ApplyOptionalSettings(parameters, serializerOptions);
@@ -185,6 +175,12 @@ internal sealed class EngineHost : IAsyncDisposable
                 var status = _uiHost?.TestVrOverlay() ?? "SteamVR 字幕宿主未启动";
                 return new { status };
             }
+            case "testDesktopOverlay":
+                ApplyOptionalSettings(parameters, serializerOptions);
+                return new
+                {
+                    status = _uiHost?.TestDesktopOverlay() ?? "桌面字幕宿主未启动"
+                };
             case "shutdown":
                 await _session.StopAsync();
                 ShouldShutdown = true;
@@ -360,13 +356,13 @@ internal sealed class EngineHost : IAsyncDisposable
     private void OnMessageReceived(object? sender, ConversationMessage message)
     {
         _notify("message", ToMessagePayload(message));
+        if (_settings.ShowOverlay || _settings.ShowVrOverlay)
+        {
+            _uiHost?.ShowSubtitle(message);
+        }
+
         if (message.Direction == TranslationDirection.Inbound)
         {
-            if (_settings.ShowOverlay || _settings.ShowVrOverlay)
-            {
-                _uiHost?.ShowSubtitle(message);
-            }
-
             return;
         }
 
@@ -398,8 +394,7 @@ internal sealed class EngineHost : IAsyncDisposable
     private void OnPartialMessageReceived(object? sender, ConversationMessage message)
     {
         _notify("partialMessage", ToMessagePayload(message));
-        if (message.Direction == TranslationDirection.Inbound
-            && (_settings.ShowOverlay || _settings.ShowVrOverlay))
+        if (_settings.ShowOverlay || _settings.ShowVrOverlay)
         {
             _uiHost?.ShowSubtitle(message);
         }

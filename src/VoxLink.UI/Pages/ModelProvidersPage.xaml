@@ -39,7 +39,7 @@
                         <TextBlock
                             x:Name="TranslationDescription"
                             Style="{StaticResource CaptionStyle}"
-                            Text="在 AI 与语音页开启 AI 翻译后使用此服务。" />
+                            Text="公共免密翻译；选择其他提供方后可配置并测试。" />
                     </StackPanel>
 
                     <ComboBox
@@ -103,7 +103,7 @@
                         <TextBlock
                             x:Name="AsrDescription"
                             Style="{StaticResource CaptionStyle}"
-                            Text="在 AI 与语音页开启云端语音识别后使用云端服务；关闭时使用本地 Whisper。" />
+                            Text="选择云端提供方后显示所需配置；本地 Whisper 会同时置灰。" />
                     </StackPanel>
 
                     <InfoBar
@@ -125,42 +125,6 @@
                         <ComboBoxItem Content="OpenAI 兼容" Tag="OpenAiCompatible" />
                         <ComboBoxItem Content="自定义服务" Tag="Custom" />
                     </ComboBox>
-
-                    <StackPanel x:Name="LocalWhisperPanel" Spacing="12">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Spacing="3">
-                                <TextBlock FontWeight="SemiBold" Text="本地 Whisper 模型" />
-                                <TextBlock
-                                    Style="{StaticResource CaptionStyle}"
-                                    Text="模型只下载到本机，原始音频不会上传。" />
-                            </StackPanel>
-                            <Button Grid.Column="1" Click="PrepareModel_Click">
-                                <StackPanel Orientation="Horizontal" Spacing="7">
-                                    <FontIcon FontSize="13" Glyph="&#xE896;" />
-                                    <TextBlock Text="准备模型" />
-                                </StackPanel>
-                            </Button>
-                        </Grid>
-
-                        <RadioButtons
-                            x:Name="WhisperModelButtons"
-                            Header="模型"
-                            MaxColumns="3"
-                            SelectionChanged="WhisperModelButtons_SelectionChanged">
-                            <x:String>tiny</x:String>
-                            <x:String>base</x:String>
-                            <x:String>small</x:String>
-                        </RadioButtons>
-                        <TextBlock
-                            Style="{StaticResource CaptionStyle}"
-                            Text="tiny：最快；base：平衡；small：准确率更高。" />
-                        <ProgressBar x:Name="ModelProgressBar" Maximum="1" Visibility="Collapsed" />
-                        <TextBlock x:Name="ModelProgressText" Style="{StaticResource CaptionStyle}" Visibility="Collapsed" />
-                    </StackPanel>
 
                     <StackPanel x:Name="AsrCloudCredentials" Spacing="12">
                         <ComboBox
@@ -203,6 +167,58 @@
                 </StackPanel>
             </Border>
 
+            <Border x:Name="LocalWhisperPanel" Style="{StaticResource PanelBorderStyle}">
+                <StackPanel Spacing="16">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Spacing="3">
+                            <TextBlock Style="{StaticResource SectionTitleStyle}" Text="本地 Whisper 识别" />
+                            <TextBlock
+                                Style="{StaticResource CaptionStyle}"
+                                Text="模型只下载到本机，原始音频不会上传；选择云端识别后此区域置灰。" />
+                        </StackPanel>
+                        <Button x:Name="PrepareModelButton" Grid.Column="1" Click="PrepareModel_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <FontIcon FontSize="13" Glyph="&#xE896;" />
+                                <TextBlock Text="准备模型" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <StackPanel Spacing="10">
+                        <TextBlock FontWeight="SemiBold" Text="模型" />
+                        <StackPanel Orientation="Horizontal" Spacing="16">
+                            <RadioButton
+                                x:Name="TinyModelButton"
+                                Content="tiny"
+                                GroupName="WhisperModel"
+                                Tag="tiny"
+                                Checked="WhisperModel_Checked" />
+                            <RadioButton
+                                x:Name="BaseModelButton"
+                                Content="base"
+                                GroupName="WhisperModel"
+                                Tag="base"
+                                Checked="WhisperModel_Checked" />
+                            <RadioButton
+                                x:Name="SmallModelButton"
+                                Content="small"
+                                GroupName="WhisperModel"
+                                Tag="small"
+                                Checked="WhisperModel_Checked" />
+                        </StackPanel>
+                    </StackPanel>
+                    <TextBlock
+                        Style="{StaticResource CaptionStyle}"
+                        Text="tiny：最快；base：平衡；small：准确率更高。" />
+                    <ProgressBar x:Name="ModelProgressBar" Maximum="1" Visibility="Collapsed" />
+                    <TextBlock x:Name="ModelProgressText" Style="{StaticResource CaptionStyle}" Visibility="Collapsed" />
+                </StackPanel>
+            </Border>
+
             <Border Style="{StaticResource PanelBorderStyle}">
                 <StackPanel Spacing="16">
                     <StackPanel Spacing="3">
@@ -210,7 +226,7 @@
                         <TextBlock
                             x:Name="SpeechDescription"
                             Style="{StaticResource CaptionStyle}"
-                            Text="在 AI 与语音页开启远程语音服务后使用此配置。" />
+                            Text="填写远程语音服务配置后即可试听；开启后实际朗读使用远程服务。" />
                     </StackPanel>
 
                     <StackPanel x:Name="SpeechCredentials" Spacing="12">

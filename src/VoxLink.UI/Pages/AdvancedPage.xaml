@@ -20,7 +20,7 @@
                 <StackPanel Spacing="16">
                     <TextBlock Style="{StaticResource SectionTitleStyle}" Text="会话行为" />
                     <ToggleSwitch
-                        Header="显示游戏字幕悬浮窗"
+                        Header="桌面字幕悬浮窗"
                         IsOn="{x:Bind Controller.Settings.ShowOverlay, Mode=TwoWay}"
                         OffContent="关闭"
                         OnContent="开启" />
@@ -38,11 +38,11 @@
                         Toggled="SpeakMyTranslationSwitch_Toggled" />
                     <RadioButtons
                         x:Name="SpeechContentButtons"
-                        Header="我的出站语音内容"
+                        Header="我说话时朗读的内容"
                         MaxColumns="2"
                         SelectionChanged="SpeechContentButtons_SelectionChanged">
-                        <RadioButton Content="主译文" Tag="Translation" />
-                        <RadioButton Content="识别原话" Tag="Original" />
+                        <RadioButton Content="朗读译文" Tag="Translation" />
+                        <RadioButton Content="朗读原话" Tag="Original" />
                     </RadioButtons>
                     <ToggleSwitch
                         Header="自动朗读他人语音译文"
@@ -91,10 +91,10 @@
                         OffContent="普通最小化"
                         OnContent="后台运行" />
                     <ToggleSwitch
-                        Header="关闭前确认退出"
+                        Header="关闭前询问"
                         IsOn="{x:Bind Controller.Settings.ConfirmOnClose, Mode=TwoWay}"
-                        OffContent="直接退出"
-                        OnContent="询问确认" />
+                        OffContent="直接关闭"
+                        OnContent="询问保留后台" />
                 </StackPanel>
             </Border>
 

@@ -384,7 +384,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     public async Task TestTranslationAsync()
     {
         TestResultMessage = null;
-        var validationError = ValidateTranslationSettings();
+        var validationError = ValidateTranslationSettingsForTest();
         if (validationError is not null)
         {
             ErrorMessage = validationError;
@@ -396,7 +396,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             await SaveNowAsync();
             var result = await _engine.RequestAsync(
                 "testTranslation",
-                new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson() },
+                new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson(respectSwitches: false) },
                 TimeSpan.FromSeconds(30));
             var translated = result is { ValueKind: JsonValueKind.Object } value
                 && value.TryGetProperty("translated", out var text)
@@ -421,11 +421,9 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             await SaveNowAsync();
             await _engine.RequestAsync(
                 "testSpeech",
-                new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson() },
+                new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson(respectSwitches: false) },
                 TimeSpan.FromSeconds(45));
-            TestResultMessage = Settings.UseRemoteSpeech
-                ? "远程语音服务测试完成。"
-                : "本地语音试听完成。";
+            TestResultMessage = "语音试听完成。";
         });
     }
 
@@ -498,10 +496,27 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         });
     }
 
+    public async Task TestDesktopOverlayAsync()
+    {
+        TestResultMessage = null;
+        await RunOperationAsync(async () =>
+        {
+            await SaveNowAsync();
+            var result = await _engine.RequestAsync(
+                "testDesktopOverlay",
+                new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson() },
+                TimeSpan.FromSeconds(15));
+            TestResultMessage = result is { ValueKind: JsonValueKind.Object } value
+                && value.TryGetProperty("status", out var status)
+                ? status.GetString() ?? "桌面字幕测试完成"
+                : "桌面字幕测试完成";
+        });
+    }
+
     public async Task PrepareModelAsync()
     {
         TestResultMessage = null;
-        var validationError = ValidateAsrSettings();
+        var validationError = ValidateAsrSettingsForTest();
         if (validationError is not null)
         {
             ErrorMessage = validationError;
@@ -513,9 +528,9 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             await SaveNowAsync();
             await _engine.RequestAsync(
                 "prepareModel",
-                new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson() },
+                new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson(respectSwitches: false) },
                 TimeSpan.FromMinutes(20));
-            TestResultMessage = Settings.UseCloudAsr
+            TestResultMessage = Settings.UsesCloudAsr
                 ? "云端语音识别配置已就绪"
                 : "本地识别模型已就绪";
         });
@@ -665,14 +680,22 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     {
         if (!Settings.UseCloudAsr)
         {
-            return string.IsNullOrWhiteSpace(Settings.WhisperModel)
-                ? "请选择本地 Whisper 模型。"
-                : null;
+            return ValidateLocalWhisperSettings();
         }
 
         if (Settings.AsrProvider == AsrProvider.LocalWhisper)
         {
             return "请先在模型服务页选择云端语音识别提供方。";
+        }
+
+        return ValidateAsrSettingsForTest();
+    }
+
+    public string? ValidateAsrSettingsForTest()
+    {
+        if (!Settings.UsesCloudAsr)
+        {
+            return ValidateLocalWhisperSettings();
         }
 
         var compatibilityError = ValidateAsrProviderProtocol();
@@ -716,6 +739,11 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         return ValidateAsrProviderProtocol();
     }
 
+    private string? ValidateLocalWhisperSettings() =>
+        string.IsNullOrWhiteSpace(Settings.WhisperModel)
+            ? "请选择本地 Whisper 模型。"
+            : null;
+
     public string? ValidateTranslationSettings()
     {
         if (!Settings.UseAiTranslation)
@@ -723,9 +751,14 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             return null;
         }
 
+        return ValidateTranslationSettingsForTest();
+    }
+
+    public string? ValidateTranslationSettingsForTest()
+    {
         if (Settings.TranslationBackend == TranslationBackend.PublicFree)
         {
-            return "请先在模型服务页选择 AI 翻译服务。";
+            return null;
         }
 
         var endpointError = ValidateEndpoint(Settings.TranslationBaseUrl, "翻译服务");
