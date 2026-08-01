@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/voxlink-logo.png" alt="VoxLink" width="64">
+
 # VoxLink
 
 #### 面向 Windows 的双向实时语音翻译桌面应用，为 VRChat 等多人游戏设计
