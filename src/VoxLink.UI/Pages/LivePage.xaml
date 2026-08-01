@@ -12,38 +12,12 @@
     <ScrollViewer Style="{StaticResource PageScrollViewerStyle}">
         <StackPanel Style="{StaticResource PageStackStyle}">
 
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <StackPanel Spacing="3">
-                <TextBlock Style="{StaticResource PageTitleStyle}" Text="实时翻译" />
-                <TextBlock
-                    Style="{StaticResource CaptionStyle}"
-                    Text="识别麦克风并将译文发送到 VRChat" />
-            </StackPanel>
-            <Border
-                Grid.Column="1"
-                Padding="10,6"
-                VerticalAlignment="Top"
-                Background="{ThemeResource VoxLinkAccentSoftBrush}"
-                CornerRadius="{StaticResource VoxLinkRadiusLarge}">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <FontIcon
-                        FontSize="12"
-                        Foreground="{ThemeResource VoxLinkAccentBrush}"
-                        Glyph="&#xE73E;" />
-                    <TextBlock
-                        x:Name="EngineBadgeText"
-                        VerticalAlignment="Center"
-                        Foreground="{ThemeResource VoxLinkAccentBrush}"
-                        FontSize="12"
-                        FontWeight="SemiBold"
-                        Text="引擎连接中" />
-                </StackPanel>
-            </Border>
-        </Grid>
+        <StackPanel Spacing="3">
+            <TextBlock Style="{StaticResource PageTitleStyle}" Text="实时翻译" />
+            <TextBlock
+                Style="{StaticResource CaptionStyle}"
+                Text="识别麦克风并将译文发送到 VRChat" />
+        </StackPanel>
 
         <InfoBar
             x:Name="UpdateInfoBar"

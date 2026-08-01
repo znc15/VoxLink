@@ -51,7 +51,15 @@ internal sealed class UiHost : IDisposable
                 settings.VrOverlayWidthMeters,
                 settings.VrOverlayDistanceMeters,
                 settings.VrOverlayVerticalOffsetMeters);
-            _hotkeys!.Register(settings.ToggleHotkey, settings.TranslateHotkey);
+            try
+            {
+                _hotkeys!.Register(settings.ToggleHotkey, settings.TranslateHotkey);
+            }
+            catch (Exception exception)
+            {
+                // 快捷键非法或被占用不应阻断引擎；降级为不注册全局快捷键，写入诊断日志。
+                Console.Error.WriteLine($"全局快捷键注册失败（已跳过，请在设置中重新录制）：{exception.Message}");
+            }
         });
     }
 

@@ -60,6 +60,9 @@ public sealed class EngineClient : IEngineGateway
 
             ThrowIfClosing();
             var launch = FindEngine();
+            // Engine 以无 BOM 的 UTF-8 读写 stdin/stdout/stderr；这里必须匹配，否则首行 BOM
+            //（0xEF 0xBB 0xBF）会让引擎的 JSON 解析失败（协议错误）。
+            var utf8NoBom = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
             var startInfo = new ProcessStartInfo
             {
                 FileName = launch.Executable,
@@ -68,7 +71,10 @@ public sealed class EngineClient : IEngineGateway
                 CreateNoWindow = true,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
-                RedirectStandardError = true
+                RedirectStandardError = true,
+                StandardInputEncoding = utf8NoBom,
+                StandardOutputEncoding = utf8NoBom,
+                StandardErrorEncoding = utf8NoBom
             };
             foreach (var argument in _arguments)
             {

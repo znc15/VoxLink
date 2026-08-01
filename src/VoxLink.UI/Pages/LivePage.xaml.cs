@@ -42,7 +42,6 @@ public sealed partial class LivePage : Page
 
     private void RefreshState()
     {
-        EngineBadgeText.Text = Controller.EngineConnected ? "引擎在线" : "引擎连接中";
         SessionStatusText.Text = Controller.StatusMessage;
         SessionButtonText.Text = Controller.IsRunning ? "停止会话" : "开始会话";
         SessionButtonIcon.Glyph = Controller.IsRunning ? "\uE71A" : "\uE768";
