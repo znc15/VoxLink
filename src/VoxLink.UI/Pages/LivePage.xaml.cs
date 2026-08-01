@@ -12,8 +12,6 @@ namespace VoxLink.UI.Pages;
 public sealed partial class LivePage : Page
 {
     private bool? _isNarrowLanguageLayout;
-    private long _lastScrollTicks;
-    private bool _trailingScrollScheduled;
 
     public LivePage()
     {
@@ -43,7 +41,7 @@ public sealed partial class LivePage : Page
     private void RefreshState()
     {
         SessionStatusText.Text = Controller.StatusMessage;
-        SessionButtonText.Text = Controller.IsRunning ? "停止会话" : "开始会话";
+        SessionButtonText.Text = Controller.IsRunning ? "停止软件" : "开始软件";
         SessionButtonIcon.Glyph = Controller.IsRunning ? "\uE71A" : "\uE768";
         SessionButton.IsEnabled = !Controller.IsBusy && Controller.EngineConnected;
         SubmitButton.IsEnabled = !Controller.IsBusy && Controller.EngineConnected;
@@ -51,10 +49,7 @@ public sealed partial class LivePage : Page
         VoiceModeButton.IsEnabled = !Controller.IsRunning;
         OscModeButton.IsChecked = !Controller.IsVoiceMode;
         VoiceModeButton.IsChecked = Controller.IsVoiceMode;
-        var translateMode = Controller.ComposerMode == ComposerMode.Translate;
-        TranslateModeButton.IsChecked = translateMode;
-        GenerateModeButton.IsChecked = !translateMode;
-        SubmitButtonText.Text = translateMode ? "翻译并发送" : "生成并发送";
+        SubmitButtonText.Text = "翻译并发送";
         ModelStatusText.Text = Controller.ModelStatus.Length == 0
             ? string.Empty
             : $"{Controller.ModelStatus} {Controller.ModelProgress:P0}";
@@ -79,40 +74,19 @@ public sealed partial class LivePage : Page
     private void RefreshMessages()
     {
         MessageCountText.Text = Controller.Messages.Count.ToString();
-        EmptyState.Visibility = Controller.Messages.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        ConversationList.Visibility = Controller.Messages.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
-        if (Controller.Messages.Count > 0 && ShouldAutoScroll())
+        var latest = Controller.Messages.Count > 0 ? Controller.Messages[^1] : null;
+        EmptyState.Visibility = latest is null ? Visibility.Visible : Visibility.Collapsed;
+        LatestMessagePanel.Visibility = latest is null ? Visibility.Collapsed : Visibility.Visible;
+        if (latest is not null)
         {
-            ConversationList.ScrollIntoView(Controller.Messages[^1]);
-        }
-    }
-
-    private bool ShouldAutoScroll()
-    {
-        var now = Environment.TickCount64;
-        if (now - _lastScrollTicks >= 250)
-        {
-            _lastScrollTicks = now;
-            return true;
-        }
-
-        if (!_trailingScrollScheduled)
-        {
-            _trailingScrollScheduled = true;
-            _ = ScheduleTrailingScrollAsync();
-        }
-
-        return false;
-    }
-
-    private async Task ScheduleTrailingScrollAsync()
-    {
-        await Task.Delay(300);
-        _trailingScrollScheduled = false;
-        if (Controller.Messages.Count > 0)
-        {
-            _lastScrollTicks = Environment.TickCount64;
-            ConversationList.ScrollIntoView(Controller.Messages[^1]);
+            LatestDirectionGlyph.Glyph = latest.DirectionGlyph;
+            LatestHeaderText.Text = latest.HeaderLabel;
+            LatestTimeText.Text = latest.TimeLabel;
+            LatestPrimaryText.Text = latest.PrimaryDisplayText;
+            LatestSecondaryText.Text = latest.SecondaryDisplayText;
+            LatestSourceText.Text = latest.SourceDisplayText;
+            LatestSpeakButton.IsEnabled = latest.CanSpeak;
+            LatestSpeakButton.Tag = latest;
         }
     }
 
@@ -142,7 +116,6 @@ public sealed partial class LivePage : Page
             Grid.SetColumn(MyLanguageBox, 0);
             Grid.SetRow(SwapButton, 1);
             Grid.SetColumn(SwapButton, 0);
-            SwapButton.Margin = new Thickness(0);
             Grid.SetRow(OtherLanguageBox, 2);
             Grid.SetColumn(OtherLanguageBox, 0);
             Grid.SetRow(SecondaryLanguageBox, 3);
@@ -157,7 +130,6 @@ public sealed partial class LivePage : Page
         Grid.SetColumn(MyLanguageBox, 0);
         Grid.SetRow(SwapButton, 0);
         Grid.SetColumn(SwapButton, 1);
-        SwapButton.Margin = new Thickness(0, 18, 0, 0);
         Grid.SetRow(OtherLanguageBox, 0);
         Grid.SetColumn(OtherLanguageBox, 2);
         Grid.SetRow(SecondaryLanguageBox, 1);
@@ -188,6 +160,7 @@ public sealed partial class LivePage : Page
     private void Onboarding_Click(object sender, RoutedEventArgs args) => Controller.RequestOnboarding();
     private async void SessionButton_Click(object sender, RoutedEventArgs args) => await Controller.ToggleSessionAsync();
     private void ClearMessages_Click(object sender, RoutedEventArgs args) => Controller.ClearMessages();
+    private void ViewHistory_Click(object sender, RoutedEventArgs args) => Controller.RequestConversationHistory();
 
     private async void SpeakMessage_Click(object sender, RoutedEventArgs args)
     {
@@ -195,30 +168,6 @@ public sealed partial class LivePage : Page
         {
             await Controller.SpeakAsync(message);
         }
-    }
-
-    private void TranslateModeButton_Click(object sender, RoutedEventArgs args)
-    {
-        Controller.ComposerMode = ComposerMode.Translate;
-        TranslateModeButton.IsChecked = true;
-        GenerateModeButton.IsChecked = false;
-        SubmitButtonText.Text = "翻译并发送";
-    }
-
-    private void GenerateModeButton_Click(object sender, RoutedEventArgs args)
-    {
-        if (!Controller.CanGenerate)
-        {
-            GenerateModeButton.IsChecked = false;
-            TranslateModeButton.IsChecked = true;
-            Controller.ComposerMode = ComposerMode.Translate;
-            return;
-        }
-
-        Controller.ComposerMode = ComposerMode.Generate;
-        TranslateModeButton.IsChecked = false;
-        GenerateModeButton.IsChecked = true;
-        SubmitButtonText.Text = "生成并发送";
     }
 
     private async void SubmitButton_Click(object sender, RoutedEventArgs args) => await SubmitAsync();

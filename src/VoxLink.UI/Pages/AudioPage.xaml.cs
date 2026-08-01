@@ -44,7 +44,6 @@ public sealed partial class AudioPage : Page
         try
         {
             Bindings.Update();
-            WhisperModelButtons.SelectedItem = Controller.Settings.WhisperModel;
         }
         finally
         {
@@ -53,18 +52,8 @@ public sealed partial class AudioPage : Page
     }
     private void RefreshState()
     {
-        LocalWhisperPanel.Visibility = Controller.Settings.UsesCloudAsr
-            ? Visibility.Collapsed
-            : Visibility.Visible;
         ThresholdValueText.Text = Controller.Settings.VoiceThreshold.ToString("0.000");
         SilenceValueText.Text = $"{Controller.Settings.SilenceDurationMs} ms";
-        var hasProgress = !string.IsNullOrWhiteSpace(Controller.ModelStatus);
-        ModelProgressBar.Visibility = hasProgress ? Visibility.Visible : Visibility.Collapsed;
-        ModelProgressText.Visibility = hasProgress ? Visibility.Visible : Visibility.Collapsed;
-        ModelProgressBar.Value = Controller.ModelProgress;
-        ModelProgressText.Text = hasProgress
-            ? $"{Controller.ModelStatus} · {Controller.ModelProgress:P0}"
-            : string.Empty;
         AudioErrorBar.Message = Controller.ErrorMessage ?? string.Empty;
         AudioErrorBar.IsOpen = !string.IsNullOrWhiteSpace(Controller.ErrorMessage);
         RestartHintBar.IsOpen = Controller.NeedsSessionRestart;
@@ -80,17 +69,6 @@ public sealed partial class AudioPage : Page
 
     private async void RefreshDevices_Click(object sender, RoutedEventArgs args) =>
         await Controller.RefreshDevicesAsync();
-
-    private async void PrepareModel_Click(object sender, RoutedEventArgs args) =>
-        await Controller.PrepareModelAsync();
-
-    private void WhisperModelButtons_SelectionChanged(object sender, SelectionChangedEventArgs args)
-    {
-        if (!_loading && WhisperModelButtons.SelectedItem is string model)
-        {
-            Controller.Settings.WhisperModel = model;
-        }
-    }
 
     private void ThresholdSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs args)
     {

@@ -92,7 +92,7 @@ public sealed partial class OnboardingDialog : ContentDialog
         {
             0 => "选择使用方式",
             1 => "配置语言与设备",
-            _ => "连接 VRChat"
+            _ => "测试连接"
         };
         PrimaryButtonText = _step == 2 ? "完成设置" : "下一步";
         SecondaryButtonText = _step == 0 ? string.Empty : "上一步";
@@ -182,7 +182,7 @@ public sealed partial class OnboardingDialog : ContentDialog
         GuideErrorBar.Severity = successSeverity;
         GuideErrorBar.Message = successMessage;
         GuideErrorBar.IsOpen = true;
-        TestStatusText.Text = _controller.StatusMessage;
+        TestStatusText.Text = _controller.TestResultMessage;
     }
 
     private void ShowGuideError(string message)

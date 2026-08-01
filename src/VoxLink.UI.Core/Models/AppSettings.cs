@@ -71,6 +71,7 @@ public sealed class AppSettings : ObservableObject
     private string _microphoneDeviceId = string.Empty;
     private string _systemAudioDeviceId = string.Empty;
     private string _voiceOutputDeviceId = string.Empty;
+    private bool _useAiTranslation;
     private TranslationBackend _translationBackend = TranslationBackend.PublicFree;
     private string _translationBaseUrl = "http://localhost:11434/v1";
     private string _translationApiKey = string.Empty;
@@ -78,6 +79,7 @@ public sealed class AppSettings : ObservableObject
     private Dictionary<string, string> _translationHeaders = new(StringComparer.OrdinalIgnoreCase);
     private bool _enableTranslationRefinement;
     private string _translationRefinementPrompt = string.Empty;
+    private bool _useCloudAsr;
     private AsrProvider _asrProvider = AsrProvider.LocalWhisper;
     private AsrProtocol _asrProtocol = AsrProtocol.LocalWhisper;
     private string _asrBaseUrl = string.Empty;
@@ -134,6 +136,8 @@ public sealed class AppSettings : ObservableObject
     public string SystemAudioDeviceId { get => _systemAudioDeviceId; set => SetProperty(ref _systemAudioDeviceId, value); }
     public string VoiceOutputDeviceId { get => _voiceOutputDeviceId; set => SetProperty(ref _voiceOutputDeviceId, value); }
 
+    public bool UseAiTranslation { get => _useAiTranslation; set => SetProperty(ref _useAiTranslation, value); }
+
     [JsonConverter(typeof(JsonStringEnumConverter<TranslationBackend>))]
     public TranslationBackend TranslationBackend
     {
@@ -174,6 +178,8 @@ public sealed class AppSettings : ObservableObject
             value && TranslationBackend != TranslationBackend.PublicFree);
     }
     public string TranslationRefinementPrompt { get => _translationRefinementPrompt; set => SetProperty(ref _translationRefinementPrompt, value); }
+
+    public bool UseCloudAsr { get => _useCloudAsr; set => SetProperty(ref _useCloudAsr, value); }
 
     [JsonConverter(typeof(JsonStringEnumConverter<AsrProvider>))]
     public AsrProvider AsrProvider
@@ -392,7 +398,7 @@ public sealed class AppSettings : ObservableObject
         ["microphoneDeviceId"] = MicrophoneDeviceId,
         ["systemAudioDeviceId"] = SystemAudioDeviceId,
         ["voiceOutputDeviceId"] = VoiceOutputDeviceId,
-        ["translationProvider"] = TranslationBackend switch
+        ["translationProvider"] = !UseAiTranslation ? "googleWeb" : TranslationBackend switch
         {
             TranslationBackend.PublicFree => "googleWeb",
             TranslationBackend.DashScope => "dashScope",
@@ -406,8 +412,12 @@ public sealed class AppSettings : ObservableObject
         ["openAiHeaders"] = TranslationHeaders,
         ["enableTranslationRefinement"] = EnableTranslationRefinement,
         ["translationRefinementPrompt"] = TranslationRefinementPrompt,
-        ["asrProvider"] = JsonNamingPolicy.CamelCase.ConvertName(AsrProvider.ToString()),
-        ["asrProtocol"] = JsonNamingPolicy.CamelCase.ConvertName(AsrProtocol.ToString()),
+        ["asrProvider"] = !UseCloudAsr
+            ? "localWhisper"
+            : JsonNamingPolicy.CamelCase.ConvertName(AsrProvider.ToString()),
+        ["asrProtocol"] = !UseCloudAsr
+            ? "localWhisper"
+            : JsonNamingPolicy.CamelCase.ConvertName(AsrProtocol.ToString()),
         ["asrBaseUrl"] = AsrBaseUrl,
         ["asrApiKey"] = AsrApiKey,
         ["asrModel"] = AsrModel,

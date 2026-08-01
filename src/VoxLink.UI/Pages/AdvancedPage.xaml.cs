@@ -56,17 +56,6 @@ public sealed partial class AdvancedPage : Page
     }
     private void RefreshState()
     {
-        SpeakerModeDescription.Text = Controller.Settings.SpeakerLabelMode switch
-        {
-            SpeakerLabelMode.Local when Controller.Settings.UsesStreamingAsr =>
-                "流式 ASR 无法可靠对齐本地音频窗口，本次会话会关闭本地标签。",
-            SpeakerLabelMode.Local =>
-                "对系统回环中的完整 VAD 语句提取本地嵌入，匿名标记为说话人 A/B/C。",
-            SpeakerLabelMode.Cloud when !Controller.Settings.SupportsCloudSpeakerLabels =>
-                "当前 ASR 不支持云端 speaker ID，本次会话会关闭标签。",
-            SpeakerLabelMode.Cloud => "使用 Soniox 返回的 provider speaker ID。",
-            _ => "关闭时不区分系统音频中的说话人。"
-        };
         LocalSpeakerInfo.IsOpen = Controller.Settings.SpeakerLabelMode == SpeakerLabelMode.Local;
         var wasLoading = _loading;
         _loading = true;
@@ -80,24 +69,6 @@ public sealed partial class AdvancedPage : Page
         }
         SpeechContentButtons.IsEnabled = !Controller.IsRunning;
         SpeakMyTranslationSwitch.IsEnabled = !Controller.IsRunning;
-        EngineStateText.Text = Controller.EngineConnected ? "已连接" : "未连接";
-        SessionStateText.Text = Controller.IsRunning ? "运行中" : "已停止";
-        ActivityText.Text = Controller.Activity switch
-        {
-            "listening" => "正在监听",
-            "transcribing" => "正在识别",
-            "translating" => "正在翻译",
-            "speaking" => "正在播放",
-            "error" => "异常",
-            "preparing" => "准备中",
-            _ => "空闲"
-        };
-        VersionText.Text = $"VoxLink {Controller.AppVersion.ToString(3)}";
-        UpdateStatusText.Text = Controller.UpdateStatusText ?? string.Empty;
-        CheckUpdatesButton.IsEnabled = !Controller.IsCheckingForUpdates;
-        OpenReleaseButton.Visibility = Controller.IsUpdateAvailable
-            ? Visibility.Visible
-            : Visibility.Collapsed;
     }
 
     private void SpeakerModeBox_SelectionChanged(object sender, SelectionChangedEventArgs args)
@@ -138,10 +109,4 @@ public sealed partial class AdvancedPage : Page
         Controller.Settings.OutboundSpeechContent = content;
         Controller.NotifySettingsChanged();
     }
-
-    private async void CheckForUpdates_Click(object sender, RoutedEventArgs args) =>
-        await Controller.CheckForUpdatesAsync();
-
-    private void OpenRelease_Click(object sender, RoutedEventArgs args) =>
-        Controller.OpenLatestReleasePage();
 }

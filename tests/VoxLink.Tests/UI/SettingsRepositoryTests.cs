@@ -27,11 +27,13 @@ public sealed class SettingsRepositoryTests : IDisposable
             SecondaryTargetLanguageCode = "fr",
             CaptureMicrophone = false,
             CaptureSystemAudio = true,
+            UseAiTranslation = true,
             TranslationBackend = TranslationBackend.DeepSeek,
             TranslationApiKey = "translation-secret-value",
             EnableTranslationRefinement = true,
             TranslationRefinementPrompt = "Keep terminology.",
             AsrProvider = AsrProvider.Soniox,
+            UseCloudAsr = true,
             AsrProtocol = AsrProtocol.SonioxStreaming,
             AsrBaseUrl = "wss://stt-rt.soniox.com/transcribe-websocket",
             AsrApiKey = "asr-secret-value",
@@ -92,6 +94,8 @@ public sealed class SettingsRepositoryTests : IDisposable
         Assert.Equal("fr", loaded.SecondaryTargetLanguageCode);
         Assert.False(loaded.CaptureMicrophone);
         Assert.True(loaded.CaptureSystemAudio);
+        Assert.True(loaded.UseAiTranslation);
+        Assert.True(loaded.UseCloudAsr);
         Assert.True(loaded.EnableTranslationRefinement);
         Assert.Equal("Keep terminology.", loaded.TranslationRefinementPrompt);
         Assert.Equal(AsrProvider.Soniox, loaded.AsrProvider);
@@ -174,6 +178,8 @@ public sealed class SettingsRepositoryTests : IDisposable
 
         Assert.Equal("ko", loaded.MyLanguageCode);
         Assert.Equal("ja", loaded.OtherLanguageCode);
+        Assert.True(loaded.UseAiTranslation);
+        Assert.False(loaded.UseCloudAsr);
         Assert.Equal(TranslationBackend.DashScope, loaded.TranslationBackend);
         Assert.Equal(SpeechProtocol.OpenAiCompatible, loaded.SpeechProtocol);
         Assert.Equal("legacy-translation-key", loaded.TranslationApiKey);
@@ -193,6 +199,28 @@ public sealed class SettingsRepositoryTests : IDisposable
         Assert.DoesNotContain("legacy-translation-key", migratedPublicJson, StringComparison.Ordinal);
         Assert.DoesNotContain("legacy-header-value", migratedPublicJson, StringComparison.Ordinal);
         Assert.Contains("\"quickStartMode\": \"OscText\"", migratedPublicJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LoadAsync_InfersServiceSwitchesFromLegacyProviderSelection()
+    {
+        Directory.CreateDirectory(_directory);
+        await File.WriteAllTextAsync(
+            PathFor("settings.json"),
+            JsonSerializer.Serialize(new
+            {
+                translationBackend = "deepSeek",
+                asrProvider = "soniox",
+                asrProtocol = "sonioxStreaming"
+            }));
+
+        var loaded = await CreateRepository().LoadAsync();
+
+        Assert.True(loaded.UseAiTranslation);
+        Assert.True(loaded.UseCloudAsr);
+        var migratedJson = await File.ReadAllTextAsync(PathFor("settings.json"));
+        Assert.Contains("\"useAiTranslation\": true", migratedJson, StringComparison.Ordinal);
+        Assert.Contains("\"useCloudAsr\": true", migratedJson, StringComparison.Ordinal);
     }
 
     [Theory]

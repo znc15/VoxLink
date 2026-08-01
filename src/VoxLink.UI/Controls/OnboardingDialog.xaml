@@ -37,26 +37,30 @@
                     x:Name="ModeButtons"
                     MaxColumns="1"
                     SelectionChanged="ModeButtons_SelectionChanged">
-                    <RadioButton Tag="OscText">
+                    <RadioButton
+                        Tag="OscText"
+                        VerticalContentAlignment="Center">
                         <Grid Padding="4,8" ColumnSpacing="12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="36" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <FontIcon VerticalAlignment="Top" FontSize="20" Foreground="{ThemeResource VoxLinkAccentBrush}" Glyph="&#xE8C1;" />
+                            <FontIcon VerticalAlignment="Center" FontSize="20" Foreground="{ThemeResource VoxLinkAccentBrush}" Glyph="&#xE8C1;" />
                             <StackPanel Grid.Column="1" Spacing="3">
                                 <TextBlock FontWeight="SemiBold" Text="仅文字" />
                                 <TextBlock Style="{StaticResource CaptionStyle}" Text="麦克风 → 识别 → 翻译 → VRChat Chatbox。无需虚拟声卡。" />
                             </StackPanel>
                         </Grid>
                     </RadioButton>
-                    <RadioButton Tag="VrChatVoice">
+                    <RadioButton
+                        Tag="VrChatVoice"
+                        VerticalContentAlignment="Center">
                         <Grid Padding="4,8" ColumnSpacing="12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="36" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <FontIcon VerticalAlignment="Top" FontSize="20" Foreground="{ThemeResource VoxLinkAccentBrush}" Glyph="&#xE767;" />
+                            <FontIcon VerticalAlignment="Center" FontSize="20" Foreground="{ThemeResource VoxLinkAccentBrush}" Glyph="&#xE767;" />
                             <StackPanel Grid.Column="1" Spacing="3">
                                 <TextBlock FontWeight="SemiBold" Text="VRChat 语音翻译" />
                                 <TextBlock Style="{StaticResource CaptionStyle}" Text="在 Chatbox 文字基础上，把原话或译文通过 TTS 和虚拟声卡送入 VRChat。" />
@@ -85,9 +89,10 @@
                         SelectedValuePath="Code" />
                     <Button
                         Grid.Column="1"
-                        Width="40"
-                        Height="40"
-                        Margin="0,18,0,0"
+                        Width="32"
+                        Height="32"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Bottom"
                         Click="SwapLanguages_Click"
                         ToolTipService.ToolTip="交换语言">
                         <FontIcon Glyph="&#xE8AB;" />
@@ -169,7 +174,7 @@
                     </Button>
                     <ProgressRing x:Name="TestProgress" Grid.Column="2" Width="20" Height="20" HorizontalAlignment="Left" IsActive="False" Visibility="Collapsed" />
                 </Grid>
-                <TextBlock x:Name="TestStatusText" Style="{StaticResource CaptionStyle}" Text="测试完成后即可一键开始会话。" />
+                <TextBlock x:Name="TestStatusText" Style="{StaticResource CaptionStyle}" Text="测试完成后即可开始软件。" />
             </StackPanel>
         </StackPanel>
     </ScrollViewer>

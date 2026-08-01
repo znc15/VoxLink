@@ -50,11 +50,15 @@ public sealed class SettingsRepository : ISettingsRepository
         var publicLoad = await LoadPublicSettingsAsync(cancellationToken);
         var settings = publicLoad.Settings;
         var hasQuickStartMode = publicLoad.HasQuickStartMode;
+        var hasUseAiTranslation = publicLoad.HasUseAiTranslation;
+        var hasUseCloudAsr = publicLoad.HasUseCloudAsr;
         if (settings is null)
         {
             var legacyLoad = await LoadLegacyPublicSettingsAsync(cancellationToken);
             settings = legacyLoad.Settings;
             hasQuickStartMode = legacyLoad.HasQuickStartMode;
+            hasUseAiTranslation = legacyLoad.HasUseAiTranslation;
+            hasUseCloudAsr = legacyLoad.HasUseCloudAsr;
             migrated = true;
         }
 
@@ -62,6 +66,8 @@ public sealed class SettingsRepository : ISettingsRepository
         {
             settings = new AppSettings();
             hasQuickStartMode = false;
+            hasUseAiTranslation = false;
+            hasUseCloudAsr = false;
         }
 
         var secrets = await LoadSecretsAsync(_secretsPath, SecretEntropy, cancellationToken);
@@ -79,6 +85,20 @@ public sealed class SettingsRepository : ISettingsRepository
         settings.SpeechHeaders = secrets.SpeechHeaders;
         settings.AsrHeaders = secrets.AsrHeaders;
         migrated |= !hasQuickStartMode;
+        if (!hasUseAiTranslation || !hasUseCloudAsr)
+        {
+            if (!hasUseAiTranslation)
+            {
+                settings.UseAiTranslation = settings.TranslationBackend != TranslationBackend.PublicFree;
+            }
+
+            if (!hasUseCloudAsr)
+            {
+                settings.UseCloudAsr = settings.AsrProvider != AsrProvider.LocalWhisper;
+            }
+
+            migrated = true;
+        }
 
         var normalized = settings.NormalizeQuickStartSettings(hasQuickStartMode);
         if (migrated || normalized)
@@ -127,7 +147,9 @@ public sealed class SettingsRepository : ISettingsRepository
             var settings = document.RootElement.Deserialize<AppSettings>(SerializerOptions);
             return new PublicSettingsLoad(
                 settings,
-                HasProperty(document.RootElement, "quickStartMode"));
+                HasProperty(document.RootElement, "quickStartMode"),
+                HasProperty(document.RootElement, "useAiTranslation"),
+                HasProperty(document.RootElement, "useCloudAsr"));
         }
         catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
         {
@@ -162,7 +184,9 @@ public sealed class SettingsRepository : ISettingsRepository
             var settings = settingsDocument.RootElement.Deserialize<AppSettings>(SerializerOptions);
             return new PublicSettingsLoad(
                 settings,
-                HasProperty(settingsDocument.RootElement, "quickStartMode"));
+                HasProperty(settingsDocument.RootElement, "quickStartMode"),
+                HasProperty(settingsDocument.RootElement, "useAiTranslation"),
+                HasProperty(settingsDocument.RootElement, "useCloudAsr"));
         }
         catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
         {
@@ -226,7 +250,11 @@ public sealed class SettingsRepository : ISettingsRepository
         }
     }
 
-    private sealed record PublicSettingsLoad(AppSettings? Settings, bool HasQuickStartMode);
+    private sealed record PublicSettingsLoad(
+        AppSettings? Settings,
+        bool HasQuickStartMode,
+        bool HasUseAiTranslation = false,
+        bool HasUseCloudAsr = false);
 
     private sealed class SecretSettings
     {

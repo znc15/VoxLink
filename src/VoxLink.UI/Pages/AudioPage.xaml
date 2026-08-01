@@ -12,7 +12,7 @@
         <StackPanel Style="{StaticResource PageStackStyle}">
             <StackPanel Spacing="3">
                 <TextBlock Style="{StaticResource PageTitleStyle}" Text="音频设备" />
-                <TextBlock Style="{StaticResource CaptionStyle}" Text="配置采集来源、设备路由、本地识别模型与断句行为" />
+                <TextBlock Style="{StaticResource CaptionStyle}" Text="配置采集来源、设备路由与断句行为" />
             </StackPanel>
 
             <InfoBar
@@ -82,54 +82,6 @@
                         SelectionChanged="Device_SelectionChanged" />
                 </StackPanel>
             </Border>
-            <Border Style="{StaticResource PanelBorderStyle}">
-                <StackPanel Spacing="16">
-                    <StackPanel Spacing="3">
-                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="会话模式" />
-                        <TextBlock Style="{StaticResource CaptionStyle}" Text="仅转写不会调用翻译、朗读或 Chatbox；字幕直接显示识别原文。" />
-                    </StackPanel>
-                    <ToggleSwitch
-                        Header="仅转写"
-                        IsOn="{x:Bind Controller.Settings.TranscriptionOnly, Mode=TwoWay}"
-                        OffContent="识别并翻译"
-                        OnContent="只显示原文" />
-                </StackPanel>
-            </Border>
-            <Border x:Name="LocalWhisperPanel" Style="{StaticResource PanelBorderStyle}">
-                <StackPanel Spacing="16">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Spacing="3">
-                            <TextBlock Style="{StaticResource SectionTitleStyle}" Text="本地 Whisper 识别" />
-                            <TextBlock Style="{StaticResource CaptionStyle}" Text="模型只下载到本机，原始音频不会上传。" />
-                        </StackPanel>
-                        <Button Grid.Column="1" Click="PrepareModel_Click">
-                            <StackPanel Orientation="Horizontal" Spacing="7">
-                                <FontIcon FontSize="13" Glyph="&#xE896;" />
-                                <TextBlock Text="准备模型" />
-                            </StackPanel>
-                        </Button>
-                    </Grid>
-
-                    <RadioButtons
-                        x:Name="WhisperModelButtons"
-                        Header="模型"
-                        SelectionChanged="WhisperModelButtons_SelectionChanged">
-                        <x:String>tiny</x:String>
-                        <x:String>base</x:String>
-                        <x:String>small</x:String>
-                    </RadioButtons>
-                    <TextBlock
-                        Style="{StaticResource CaptionStyle}"
-                        Text="tiny：最快；base：平衡；small：准确率更高但占用更多内存。" />
-                    <ProgressBar x:Name="ModelProgressBar" Maximum="1" Visibility="Collapsed" />
-                    <TextBlock x:Name="ModelProgressText" Style="{StaticResource CaptionStyle}" Visibility="Collapsed" />
-                </StackPanel>
-            </Border>
-
             <Border Style="{StaticResource PanelBorderStyle}">
                 <StackPanel Spacing="18">
                     <StackPanel Spacing="3">

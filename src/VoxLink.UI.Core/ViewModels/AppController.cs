@@ -12,12 +12,6 @@ using VoxLink.UI.Core.Services;
 
 namespace VoxLink.UI.Core.ViewModels;
 
-public enum ComposerMode
-{
-    Translate,
-    Generate
-}
-
 public sealed class AppController : ObservableObject, IAsyncDisposable
 {
     private readonly IEngineGateway _engine;
@@ -36,12 +30,12 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     private bool _isRunning;
     private bool _isBusy;
     private bool _closing;
-    private string _statusMessage = "正在启动音频引擎";
+    private string _statusMessage = "正在启动软件";
     private string _activity = "preparing";
     private string _modelStatus = string.Empty;
     private double _modelProgress;
     private string? _errorMessage;
-    private ComposerMode _composerMode;
+    private string? _testResultMessage;
     private bool _onboardingRequestPending;
     private bool _applyingQuickStartMode;
     private bool _isCheckingForUpdates;
@@ -93,7 +87,6 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             _settings = value;
             AttachSettings(_settings);
             OnPropertyChanged();
-            OnPropertyChanged(nameof(CanGenerate));
             RaiseQuickStartProperties();
         }
     }
@@ -113,6 +106,11 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     public string ModelStatus { get => _modelStatus; private set => SetProperty(ref _modelStatus, value); }
     public double ModelProgress { get => _modelProgress; private set => SetProperty(ref _modelProgress, value); }
     public string? ErrorMessage { get => _errorMessage; private set => SetProperty(ref _errorMessage, value); }
+    public string? TestResultMessage
+    {
+        get => _testResultMessage;
+        private set => SetProperty(ref _testResultMessage, value);
+    }
 
     public Version AppVersion { get; }
     public bool IsCheckingForUpdates { get => _isCheckingForUpdates; private set => SetProperty(ref _isCheckingForUpdates, value); }
@@ -138,12 +136,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     public bool NeedsSessionRestart { get => _needsSessionRestart; private set => SetProperty(ref _needsSessionRestart, value); }
 
     public event EventHandler? OnboardingRequested;
-
-    public ComposerMode ComposerMode
-    {
-        get => _composerMode;
-        set => SetProperty(ref _composerMode, value);
-    }
+    public event EventHandler? ConversationHistoryRequested;
 
     public bool HasVirtualCable => FindVirtualCable() is not null;
     public bool IsVoiceMode => Settings.QuickStartMode == QuickStartMode.VrChatVoice;
@@ -164,8 +157,6 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 : "尚未配置虚拟声卡。打开新手引导完成语音路由。";
         }
     }
-    public bool CanGenerate => Settings.SupportsGeneration;
-
     public string? ValidateVrChatChatboxSettings() => Settings.VrChatChatboxEnabled
         ? ValidateIpv4Endpoint(
             Settings.VrChatOscAddress,
@@ -195,9 +186,11 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         ErrorMessage = null;
         ScheduleSaveAndConfigure();
         OnPropertyChanged(nameof(Settings));
-        OnPropertyChanged(nameof(CanGenerate));
         RaiseQuickStartProperties();
     }
+
+    public void RequestConversationHistory() =>
+        ConversationHistoryRequested?.Invoke(this, EventArgs.Empty);
 
     public void SwapLanguages()
     {
@@ -311,7 +304,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 IsRunning = false;
                 RemovePartialMessages();
                 NeedsSessionRestart = false;
-                StatusMessage = "已停止";
+                StatusMessage = "软件已停止";
                 Activity = "idle";
                 LogService.Instance.Info(SourceSession, "已停止翻译会话。");
             });
@@ -329,13 +322,14 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         {
             await SaveNowAsync();
             NeedsSessionRestart = false;
-            StatusMessage = "正在准备语音识别";
+            StatusMessage = "正在启动软件";
             Activity = "preparing";
             await _engine.RequestAsync(
                 "startSession",
                 new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson() },
                 TimeSpan.FromMinutes(20));
             IsRunning = true;
+            StatusMessage = "软件运行中";
             LogService.Instance.Info(SourceSession, $"开始翻译会话：{Settings.MyLanguageCode} → {Settings.OtherLanguageCode}（{DescribeCaptureSources()}）。");
         });
     }
@@ -355,42 +349,15 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             return;
         }
 
-        if (ComposerMode == ComposerMode.Generate && !CanGenerate)
-        {
-            ErrorMessage = "文本生成需要选择 DashScope、DeepSeek 或自定义 AI 服务。";
-            return;
-        }
-
         await RunOperationAsync(async () =>
         {
             await SaveNowAsync();
-            if (ComposerMode == ComposerMode.Translate)
+            LogService.Instance.Info(SourceTranslation, "手动翻译：" + TruncateForLog(trimmed));
+            await _engine.RequestAsync("translate", new Dictionary<string, object?>
             {
-                LogService.Instance.Info(SourceTranslation, "手动翻译：" + TruncateForLog(trimmed));
-                await _engine.RequestAsync("translate", new Dictionary<string, object?>
-                {
-                    ["text"] = trimmed,
-                    ["settings"] = Settings.ToEngineJson()
-                });
-                return;
-            }
-
-            LogService.Instance.Info(SourceTranslation, "AI 生成：" + TruncateForLog(trimmed));
-            var result = await _engine.RequestAsync("generate", new Dictionary<string, object?>
-            {
-                ["prompt"] = trimmed,
-                ["speak"] = Settings.SpeakMyTranslation,
+                ["text"] = trimmed,
                 ["settings"] = Settings.ToEngineJson()
             });
-            var generated = result is { ValueKind: JsonValueKind.Object } value
-                && value.TryGetProperty("text", out var generatedText)
-                ? generatedText.GetString() ?? string.Empty
-                : string.Empty;
-            Messages.Add(new ConversationMessage(
-                ConversationDirection.Typed,
-                trimmed,
-                generated,
-                DateTimeOffset.Now));
         });
     }
 
@@ -416,6 +383,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
 
     public async Task TestTranslationAsync()
     {
+        TestResultMessage = null;
         var validationError = ValidateTranslationSettings();
         if (validationError is not null)
         {
@@ -434,12 +402,13 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 && value.TryGetProperty("translated", out var text)
                 ? text.GetString()
                 : null;
-            StatusMessage = $"翻译连接正常：{translated}";
+            TestResultMessage = $"翻译连接正常：{translated}";
         });
     }
 
     public async Task TestSpeechAsync()
     {
+        TestResultMessage = null;
         var validationError = ValidateSpeechSettings();
         if (validationError is not null)
         {
@@ -454,12 +423,15 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 "testSpeech",
                 new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson() },
                 TimeSpan.FromSeconds(45));
-            StatusMessage = "语音服务测试完成";
+            TestResultMessage = Settings.UseRemoteSpeech
+                ? "远程语音服务测试完成。"
+                : "本地语音试听完成。";
         });
     }
 
     public async Task TestVoiceOutputAsync()
     {
+        TestResultMessage = null;
         if (!IsVoiceMode)
         {
             ErrorMessage = "请先切换到 VRChat 语音模式，再测试虚拟声卡路由。";
@@ -480,12 +452,13 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 "testVoiceOutput",
                 new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson() },
                 TimeSpan.FromSeconds(45));
-            StatusMessage = $"测试语音已发送到 {FindSelectedVoiceOutput()?.Name ?? "默认输出设备"}";
+            TestResultMessage = $"测试语音已发送到 {FindSelectedVoiceOutput()?.Name ?? "默认输出设备"}。";
         });
     }
 
     public async Task TestVrChatOscAsync()
     {
+        TestResultMessage = null;
         var validationError = ValidateVrChatChatboxSettings();
         if (validationError is not null)
         {
@@ -504,12 +477,13 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                     ["settings"] = Settings.ToEngineJson()
                 },
                 TimeSpan.FromSeconds(10));
-            StatusMessage = "VRChat OSC 测试消息已发送";
+            TestResultMessage = "VRChat OSC 测试消息已发送。";
         });
     }
 
     public async Task TestVrOverlayAsync()
     {
+        TestResultMessage = null;
         await RunOperationAsync(async () =>
         {
             await SaveNowAsync();
@@ -517,7 +491,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 "testVrOverlay",
                 new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson() },
                 TimeSpan.FromSeconds(15));
-            StatusMessage = result is { ValueKind: JsonValueKind.Object } value
+            TestResultMessage = result is { ValueKind: JsonValueKind.Object } value
                 && value.TryGetProperty("status", out var status)
                 ? status.GetString() ?? "SteamVR 字幕测试完成"
                 : "SteamVR 字幕测试完成";
@@ -526,6 +500,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
 
     public async Task PrepareModelAsync()
     {
+        TestResultMessage = null;
         var validationError = ValidateAsrSettings();
         if (validationError is not null)
         {
@@ -540,7 +515,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 "prepareModel",
                 new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson() },
                 TimeSpan.FromMinutes(20));
-            StatusMessage = Settings.UsesCloudAsr
+            TestResultMessage = Settings.UseCloudAsr
                 ? "云端语音识别配置已就绪"
                 : "本地识别模型已就绪";
         });
@@ -597,7 +572,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             ApplyBootstrap(bootstrap);
         }
 
-        StatusMessage = "设备列表已刷新";
+        TestResultMessage = "设备列表已刷新。";
     });
 
     public void ClearMessages() => Messages.Clear();
@@ -688,16 +663,27 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             language => language.Code.Equals(code.Trim(), StringComparison.OrdinalIgnoreCase));
     public string? ValidateAsrSettings()
     {
+        if (!Settings.UseCloudAsr)
+        {
+            return string.IsNullOrWhiteSpace(Settings.WhisperModel)
+                ? "请选择本地 Whisper 模型。"
+                : null;
+        }
+
+        if (Settings.AsrProvider == AsrProvider.LocalWhisper)
+        {
+            return "请先在模型服务页选择云端语音识别提供方。";
+        }
+
         var compatibilityError = ValidateAsrProviderProtocol();
         if (compatibilityError is not null)
         {
             return compatibilityError;
         }
+
         if (Settings.AsrProtocol == AsrProtocol.LocalWhisper)
         {
-            return string.IsNullOrWhiteSpace(Settings.WhisperModel)
-                ? "请选择本地 Whisper 模型。"
-                : null;
+            return "请先在模型服务页选择云端语音识别协议。";
         }
 
         if (!Settings.AllowCloudAudioUpload)
@@ -732,9 +718,14 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
 
     public string? ValidateTranslationSettings()
     {
-        if (Settings.TranslationBackend == TranslationBackend.PublicFree)
+        if (!Settings.UseAiTranslation)
         {
             return null;
+        }
+
+        if (Settings.TranslationBackend == TranslationBackend.PublicFree)
+        {
+            return "请先在模型服务页选择 AI 翻译服务。";
         }
 
         var endpointError = ValidateEndpoint(Settings.TranslationBaseUrl, "翻译服务");
@@ -843,7 +834,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 ApplyBootstrap(bootstrap);
             }
 
-            StatusMessage = "就绪";
+            StatusMessage = "软件已就绪";
             Activity = "idle";
             LogService.Instance.Info(SourceApp, "初始化完成，已就绪。");
         }
@@ -852,7 +843,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             if (!_closing)
             {
                 ErrorMessage = FriendlyError(exception);
-                StatusMessage = "引擎不可用";
+                StatusMessage = "软件启动失败";
                 Activity = "error";
                 LogService.Instance.Error(SourceApp, exception, "初始化失败");
             }
@@ -928,6 +919,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
 
         IsBusy = true;
         ErrorMessage = null;
+        TestResultMessage = null;
         try
         {
             await operation();
@@ -993,9 +985,9 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 LogService.Instance.Info(SourceEngine, "引擎就绪。");
                 break;
             case "status":
-                StatusMessage = ReadString(engineEvent.Data, "message", StatusMessage);
                 Activity = ReadString(engineEvent.Data, "activity", Activity);
                 IsRunning = ReadBool(engineEvent.Data, "running", IsRunning);
+                StatusMessage = IsRunning ? "软件运行中" : "软件已就绪";
                 LogService.Instance.Debug(SourceEngine, $"状态：{StatusMessage}（{Activity}，运行中={IsRunning}）");
                 break;
             case "message":
@@ -1126,11 +1118,6 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             return;
         }
 
-        if (args.PropertyName == nameof(AppSettings.TranslationBackend))
-        {
-            OnPropertyChanged(nameof(CanGenerate));
-        }
-
         if (args.PropertyName is nameof(AppSettings.QuickStartMode)
             or nameof(AppSettings.SpeakMyTranslation))
         {
@@ -1160,6 +1147,13 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             or nameof(AppSettings.OutboundSpeechContent))
         {
             RaiseQuickStartProperties();
+        }
+
+        if (args.PropertyName is nameof(AppSettings.UseAiTranslation)
+            or nameof(AppSettings.UseCloudAsr)
+            or nameof(AppSettings.UseRemoteSpeech))
+        {
+            OnPropertyChanged(nameof(Settings));
         }
 
         if (IsRunning

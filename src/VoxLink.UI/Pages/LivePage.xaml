@@ -119,10 +119,10 @@
                 <Button
                     x:Name="SwapButton"
                     Grid.Column="1"
-                    Width="44"
-                    Height="44"
-                    Margin="0,18,0,0"
+                    Width="32"
+                    Height="32"
                     HorizontalAlignment="Center"
+                    VerticalAlignment="Bottom"
                     Click="SwapButton_Click"
                     ToolTipService.ToolTip="交换语言">
                     <FontIcon Glyph="&#xE8AB;" />
@@ -186,7 +186,7 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="7" Height="200" Padding="0" Style="{StaticResource PanelBorderStyle}">
+        <Border Grid.Row="7" Height="210" Padding="0" Style="{StaticResource PanelBorderStyle}">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="52" />
@@ -196,13 +196,24 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <StackPanel VerticalAlignment="Center" Orientation="Horizontal" Spacing="8">
-                        <TextBlock FontWeight="SemiBold" Text="会话记录" />
+                        <TextBlock FontWeight="SemiBold" Text="最新消息" />
                         <TextBlock x:Name="MessageCountText" Style="{StaticResource CaptionStyle}" Text="0" />
                     </StackPanel>
                     <Button
                         Grid.Column="1"
+                        Background="Transparent"
+                        Click="ViewHistory_Click"
+                        ToolTipService.ToolTip="查看全部会话记录">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon FontSize="13" Glyph="&#xE8A7;" />
+                            <TextBlock Text="全部记录" />
+                        </StackPanel>
+                    </Button>
+                    <Button
+                        Grid.Column="2"
                         Background="Transparent"
                         Click="ClearMessages_Click"
                         ToolTipService.ToolTip="清空会话记录">
@@ -227,52 +238,47 @@
                         </StackPanel>
                     </StackPanel>
 
-                    <ListView
-                        x:Name="ConversationList"
-                        ItemsSource="{x:Bind Controller.Messages}"
-                        SelectionMode="None">
-                        <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="models:ConversationMessage">
-                                <Grid Padding="12,10" ColumnSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="38" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <Border
-                                        Width="36"
-                                        Height="36"
-                                        Background="{ThemeResource VoxLinkAccentSoftBrush}"
-                                        CornerRadius="{StaticResource VoxLinkRadiusSmall}">
-                                        <FontIcon
-                                            HorizontalAlignment="Center"
-                                            VerticalAlignment="Center"
-                                            Foreground="{ThemeResource VoxLinkAccentBrush}"
-                                            FontSize="16"
-                                            Glyph="{x:Bind DirectionGlyph}" />
-                                    </Border>
-                                    <StackPanel Grid.Column="1" Spacing="3">
-                                        <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <TextBlock FontSize="12" FontWeight="SemiBold" Text="{x:Bind HeaderLabel}" />
-                                            <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Text="{x:Bind TimeLabel}" />
-                                        </StackPanel>
-                                        <TextBlock FontSize="15" FontWeight="SemiBold" Text="{x:Bind PrimaryDisplayText}" TextWrapping="Wrap" />
-                                        <TextBlock Foreground="{ThemeResource VoxLinkAccentBrush}" FontSize="13" Text="{x:Bind SecondaryDisplayText}" TextWrapping="Wrap" />
-                                        <TextBlock Style="{StaticResource CaptionStyle}" Text="{x:Bind SourceDisplayText}" />
-                                    </StackPanel>
-                                    <Button
-                                        Grid.Column="2"
-                                        VerticalAlignment="Top"
-                                        Click="SpeakMessage_Click"
-                                        IsEnabled="{x:Bind CanSpeak}"
-                                        Tag="{x:Bind}"
-                                        ToolTipService.ToolTip="朗读译文">
-                                        <FontIcon FontSize="14" Glyph="&#xE767;" />
-                                    </Button>
-                                </Grid>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
+                    <Grid
+                        x:Name="LatestMessagePanel"
+                        Margin="16,12"
+                        ColumnSpacing="12"
+                        Visibility="Collapsed">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="38" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Border
+                            Width="36"
+                            Height="36"
+                            VerticalAlignment="Top"
+                            Background="{ThemeResource VoxLinkAccentSoftBrush}"
+                            CornerRadius="{StaticResource VoxLinkRadiusSmall}">
+                            <FontIcon
+                                x:Name="LatestDirectionGlyph"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource VoxLinkAccentBrush}"
+                                FontSize="16" />
+                        </Border>
+                        <StackPanel Grid.Column="1" Spacing="3">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock x:Name="LatestHeaderText" FontSize="12" FontWeight="SemiBold" />
+                                <TextBlock x:Name="LatestTimeText" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                            </StackPanel>
+                            <TextBlock x:Name="LatestPrimaryText" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" />
+                            <TextBlock x:Name="LatestSecondaryText" Foreground="{ThemeResource VoxLinkAccentBrush}" FontSize="13" TextWrapping="Wrap" />
+                            <TextBlock x:Name="LatestSourceText" Style="{StaticResource CaptionStyle}" />
+                        </StackPanel>
+                        <Button
+                            x:Name="LatestSpeakButton"
+                            Grid.Column="2"
+                            VerticalAlignment="Top"
+                            Click="SpeakMessage_Click"
+                            ToolTipService.ToolTip="朗读译文">
+                            <FontIcon FontSize="14" Glyph="&#xE767;" />
+                        </Button>
+                    </Grid>
                 </Grid>
             </Grid>
         </Border>
@@ -287,42 +293,22 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <StackPanel Orientation="Horizontal" Spacing="4">
-                    <ToggleButton
-                        x:Name="TranslateModeButton"
-                        IsChecked="True"
-                        Click="TranslateModeButton_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <FontIcon FontSize="13" Glyph="&#xE8C1;" />
-                            <TextBlock Text="翻译" />
-                        </StackPanel>
-                    </ToggleButton>
-                    <ToggleButton
-                        x:Name="GenerateModeButton"
-                        Click="GenerateModeButton_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <FontIcon FontSize="13" Glyph="&#xE945;" />
-                            <TextBlock Text="AI 生成" />
-                        </StackPanel>
-                    </ToggleButton>
-                </StackPanel>
                 <TextBlock
-                    Grid.Column="1"
-                    VerticalAlignment="Center"
+                    Grid.Row="1"
+                    Grid.ColumnSpan="2"
                     Style="{StaticResource CaptionStyle}"
-                    Text="Ctrl + Enter" />
+                    Text="Ctrl + Enter 发送" />
                 <TextBox
                     x:Name="ComposerBox"
-                    Grid.Row="1"
-                    AcceptsReturn="True"
+                    Grid.Row="0"
                     KeyDown="ComposerBox_KeyDown"
-                    MaxHeight="120"
                     MinHeight="48"
                     PlaceholderText="输入要发送给对方的内容"
-                    TextWrapping="Wrap" />
+                    TextWrapping="NoWrap"
+                    VerticalContentAlignment="Center" />
                 <Button
                     x:Name="SubmitButton"
-                    Grid.Row="1"
+                    Grid.Row="0"
                     Grid.Column="1"
                     VerticalAlignment="Stretch"
                     MinWidth="130"

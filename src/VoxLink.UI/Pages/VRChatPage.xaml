@@ -284,7 +284,7 @@
                             Grid.Column="1"
                             VerticalAlignment="Center"
                             Style="{StaticResource CaptionStyle}"
-                            Text="{x:Bind Controller.StatusMessage, Mode=OneWay}" />
+                            Text="{x:Bind Controller.TestResultMessage, Mode=OneWay}" />
                     </Grid>
                 </StackPanel>
             </Border>

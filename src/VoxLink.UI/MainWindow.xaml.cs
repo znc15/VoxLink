@@ -44,6 +44,7 @@ public sealed partial class MainWindow : Window
         RootLayout.Loaded += RootLayout_Loaded;
         App.Controller.PropertyChanged += Controller_PropertyChanged;
         App.Controller.OnboardingRequested += Controller_OnboardingRequested;
+        App.Controller.ConversationHistoryRequested += Controller_ConversationHistoryRequested;
         EnsureSettingsSubscribed();
         ContentFrame.Navigate(typeof(LivePage));
         UpdateEngineStatus();
@@ -126,11 +127,14 @@ public sealed partial class MainWindow : Window
         var pageType = tag switch
         {
             "live" => typeof(LivePage),
+            "history" => typeof(ConversationHistoryPage),
             "providers" => typeof(ProvidersPage),
             "audio" => typeof(AudioPage),
             "vrchat" => typeof(VRChatPage),
+            "models" => typeof(ModelProvidersPage),
             "advanced" => typeof(AdvancedPage),
             "logs" => typeof(LogsPage),
+            "about" => typeof(AboutPage),
             _ => typeof(LivePage)
         };
         if (ContentFrame.CurrentSourcePageType != pageType)
@@ -158,6 +162,13 @@ public sealed partial class MainWindow : Window
         _onboardingPending = true;
         DispatcherQueue.TryEnqueue(async () => await TryShowOnboardingAsync());
     }
+
+    private void Controller_ConversationHistoryRequested(object? sender, EventArgs args) =>
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            NavView.SelectedItem = null;
+            ContentFrame.Navigate(typeof(ConversationHistoryPage));
+        });
 
     private async void RootLayout_Loaded(object sender, RoutedEventArgs args) =>
         await TryShowOnboardingAsync();
@@ -305,6 +316,7 @@ public sealed partial class MainWindow : Window
         RootLayout.Loaded -= RootLayout_Loaded;
         App.Controller.PropertyChanged -= Controller_PropertyChanged;
         App.Controller.OnboardingRequested -= Controller_OnboardingRequested;
+        App.Controller.ConversationHistoryRequested -= Controller_ConversationHistoryRequested;
         if (_trayIcon is not null)
         {
             _trayIcon.RestoreRequested -= TrayIcon_RestoreRequested;

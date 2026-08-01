@@ -53,6 +53,11 @@
                         <FontIcon Glyph="&#xE720;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="会话记录" Tag="history">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8BD;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="AI 与语音" Tag="providers">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE945;" />
@@ -69,6 +74,11 @@
                         <FontIcon Glyph="&#xE7F4;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="模型服务" Tag="models">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE945;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="高级设置" Tag="advanced">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE713;" />
@@ -80,6 +90,11 @@
                 <NavigationViewItem Content="日志" Tag="logs">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE7BC;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="关于" Tag="about">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE946;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
             </NavigationView.FooterMenuItems>

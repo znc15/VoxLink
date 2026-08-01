@@ -31,6 +31,7 @@ public sealed class AppControllerTests
             MicrophoneDeviceId = "capture-1",
             SystemAudioDeviceId = "render-1",
             VoiceOutputDeviceId = "render-2",
+            UseAiTranslation = true,
             TranslationBackend = TranslationBackend.DeepSeek,
             TranslationBaseUrl = "https://api.deepseek.com",
             TranslationApiKey = "translation-key",
@@ -39,6 +40,7 @@ public sealed class AppControllerTests
             EnableTranslationRefinement = true,
             TranslationRefinementPrompt = "Keep game terms concise.",
             AsrProvider = AsrProvider.Soniox,
+            UseCloudAsr = true,
             AsrProtocol = AsrProtocol.SonioxStreaming,
             AsrBaseUrl = "wss://stt-rt.soniox.com/transcribe-websocket",
             AsrApiKey = "asr-key",
@@ -126,6 +128,27 @@ public sealed class AppControllerTests
     }
 
     [Fact]
+    public void ToEngineJson_DisabledSwitchesForcePublicAndLocal()
+    {
+        var settings = new AppSettings
+        {
+            UseAiTranslation = false,
+            TranslationBackend = TranslationBackend.DeepSeek,
+            UseCloudAsr = false,
+            AsrProvider = AsrProvider.Soniox,
+            AsrProtocol = AsrProtocol.SonioxStreaming
+        };
+
+        var json = JsonSerializer.Serialize(settings.ToEngineJson(), EngineJsonOptions);
+        var engineSettings = JsonSerializer.Deserialize<EngineSettings>(json, EngineJsonOptions);
+
+        Assert.NotNull(engineSettings);
+        Assert.Equal(EngineTranslationProvider.GoogleWeb, engineSettings.TranslationProvider);
+        Assert.Equal(EngineAsrProvider.LocalWhisper, engineSettings.AsrProvider);
+        Assert.Equal(EngineAsrProtocol.LocalWhisper, engineSettings.AsrProtocol);
+    }
+
+    [Fact]
     public async Task InitializeAsync_LoadsSettingsAndAppliesBootstrap()
     {
         var gateway = new FakeEngineGateway();
@@ -137,7 +160,7 @@ public sealed class AppControllerTests
         Assert.True(controller.Initialized);
         Assert.True(controller.EngineConnected);
         Assert.Equal("ko", controller.Settings.MyLanguageCode);
-        Assert.Equal("就绪", controller.StatusMessage);
+        Assert.Equal("软件已就绪", controller.StatusMessage);
         Assert.Collection(controller.MicrophoneDevices,
             device => Assert.Equal("capture-default", device.Id));
         Assert.Collection(controller.RenderDevices,
@@ -243,6 +266,7 @@ public sealed class AppControllerTests
         Assert.Null(controller.ValidateSessionSettings());
 
         controller.Settings.ApplyAsrProviderDefaults(AsrProvider.MiMo);
+        controller.Settings.UseCloudAsr = true;
         Assert.Contains("允许上传", controller.ValidateSessionSettings(), StringComparison.Ordinal);
 
         controller.Settings.AllowCloudAudioUpload = true;
@@ -336,6 +360,69 @@ public sealed class AppControllerTests
         controller.Settings.VoiceOutputDeviceId = "cable";
         Assert.Null(controller.ValidateVoiceRouteSettings());
         Assert.True(controller.IsVoiceRouteReady);
+    }
+
+    [Fact]
+    public async Task ValidateTranslationSettings_RequiresConfiguredProviderOnlyWhenAiEnabled()
+    {
+        await using var controller = new AppController(
+            new FakeEngineGateway(),
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        controller.Settings.TranslationBackend = TranslationBackend.DeepSeek;
+        controller.Settings.TranslationBaseUrl = "invalid";
+        controller.Settings.TranslationModel = string.Empty;
+
+        Assert.Null(controller.ValidateTranslationSettings());
+
+        controller.Settings.UseAiTranslation = true;
+
+        Assert.Contains("翻译服务", controller.ValidateTranslationSettings(), StringComparison.Ordinal);
+
+        controller.Settings.TranslationBaseUrl = "https://api.deepseek.com";
+        controller.Settings.TranslationModel = "deepseek-chat";
+        controller.Settings.TranslationApiKey = "key";
+
+        Assert.Null(controller.ValidateTranslationSettings());
+    }
+
+    [Fact]
+    public async Task ValidateAsrSettings_RequiresCloudProviderOnlyWhenCloudEnabled()
+    {
+        await using var controller = new AppController(
+            new FakeEngineGateway(),
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        controller.Settings.ApplyAsrProviderDefaults(AsrProvider.Soniox);
+
+        Assert.Null(controller.ValidateAsrSettings());
+
+        controller.Settings.UseCloudAsr = true;
+        Assert.Contains("允许上传", controller.ValidateAsrSettings(), StringComparison.Ordinal);
+
+        controller.Settings.AllowCloudAudioUpload = true;
+        controller.Settings.AsrApiKey = "key";
+        Assert.Null(controller.ValidateAsrSettings());
+
+        controller.Settings.AsrProvider = AsrProvider.LocalWhisper;
+        Assert.Contains("云端语音识别提供方", controller.ValidateAsrSettings(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TestResultMessage_DoesNotReplaceSoftwareStatus()
+    {
+        var gateway = new FakeEngineGateway();
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+
+        await controller.TestVrChatOscAsync();
+
+        Assert.Equal("软件已就绪", controller.StatusMessage);
+        Assert.Equal("VRChat OSC 测试消息已发送。", controller.TestResultMessage);
+        Assert.Contains("testVrChatOsc", gateway.Requests);
     }
 
     [Fact]
