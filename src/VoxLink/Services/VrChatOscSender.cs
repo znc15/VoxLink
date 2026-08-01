@@ -103,13 +103,22 @@ internal sealed class VrChatOscSender : IAsyncDisposable
     internal static string ComposeTranslation(
         string translatedText,
         string sourceText,
-        bool includeSourceText)
+        bool includeSourceText,
+        string? secondaryText = null)
     {
-        var translated = translatedText.Trim();
-        var source = sourceText.Trim();
-        return NormalizeChatboxText(includeSourceText && source.Length > 0
-            ? $"{translated}\n{source}"
-            : translated);
+        var parts = new List<string> { translatedText.Trim() };
+        if (!string.IsNullOrWhiteSpace(secondaryText))
+        {
+            parts.Add(secondaryText.Trim());
+        }
+
+        if (includeSourceText && !string.IsNullOrWhiteSpace(sourceText))
+        {
+            parts.Add(sourceText.Trim());
+        }
+
+        return NormalizeChatboxText(string.Join("\n", parts));
+
     }
     internal static string NormalizeChatboxText(string text)
     {

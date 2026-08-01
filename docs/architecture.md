@@ -73,7 +73,7 @@ System loopback (inbound) -+          |
 - **TTS**：出站和入站由独立开关控制。最终 `Outbound` 与 `Typed` 可朗读识别原话及源语言，或主译文及目标语言；`Inbound` 始终朗读主译文，第二译文和 partial 永不朗读。默认回退顺序是 Edge、Google、Windows 已安装语音，实际播放设备通过 `VoiceOutputDeviceId` 传入。
 - **简体中文**：公开翻译 provider 对简体中文使用 `zh-CN`，LLM 提示明确要求简体；面向 `zh-CN` 的 ASR 原文、主次译文和润色结果再由 `ChineseTextNormalizer` 调用 Windows `LCMapStringEx` 做最终简体归一化。DashScope、Soniox 和 MiMo ASR 的协议语言码仍为 `zh`。
 - **字幕**：WinUI Live、桌面 Overlay 和 SteamVR Overlay 使用相同消息语义，显示 speaker、partial/final、主次译文和原文。仅转写不会重复显示“译文”行。
-- **Chatbox**：只发送 final、非仅转写的 `Outbound` 或 `Typed` 主译文，可按设置附加原文。`Inbound`、partial、第二译文和 speaker 标签永不发送。发送器使用有界队列、短时去重、1.5 秒节流和 144 文本元素截断。
+- **Chatbox**：只发送 final、非仅转写的 `Outbound` 或 `Typed` 主译文，可按设置附加原文；开启第二目标语言时附加一行第二译文（顺序：主译文/第二译文/原文，仍受 144 文本元素截断）。`Inbound`、partial 和 speaker 标签永不发送。发送器使用有界队列、短时去重、1.5 秒节流和 144 文本元素截断。
 
 ## 说话人标签
 

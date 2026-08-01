@@ -7,7 +7,8 @@
     xmlns:models="using:VoxLink.UI.Core.Models"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     Background="Transparent"
-    mc:Ignorable="d">
+    mc:Ignorable="d"
+    NavigationCacheMode="Required">
     <Grid Padding="24,20,24,24" RowSpacing="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -17,6 +18,11 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
@@ -102,7 +108,7 @@
                     Click="OscModeButton_Click">
                     <StackPanel Orientation="Horizontal" Spacing="7">
                         <FontIcon FontSize="13" Glyph="&#xE8C1;" />
-                        <TextBlock Text="OSC 文字" />
+                        <TextBlock Text="仅文字" />
                     </StackPanel>
                 </ToggleButton>
                 <ToggleButton
@@ -118,8 +124,9 @@
                 <Button
                     Grid.Column="4"
                     Click="Onboarding_Click"
+                    Style="{StaticResource HelpBadgeButtonStyle}"
                     ToolTipService.ToolTip="打开新手引导">
-                    <FontIcon Glyph="&#xE897;" />
+                    <FontIcon FontSize="14" Glyph="&#xE897;" />
                 </Button>
                 <FontIcon
                     x:Name="ModeStatusIcon"

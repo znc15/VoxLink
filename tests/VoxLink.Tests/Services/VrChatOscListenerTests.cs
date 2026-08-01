@@ -77,9 +77,9 @@ public sealed class VrChatOscListenerTests
             SecondaryTranslatedText = "secondary"
         };
 
-        Assert.Equal("primary\nsource", EngineHost.ComposeVrChatMessage(outbound, settings));
+        Assert.Equal("primary\nsecondary\nsource", EngineHost.ComposeVrChatMessage(outbound, settings));
         Assert.Equal(
-            "primary\nsource",
+            "primary\nsecondary\nsource",
             EngineHost.ComposeVrChatMessage(outbound with { Direction = TranslationDirection.Typed }, settings));
         Assert.Null(EngineHost.ComposeVrChatMessage(
             outbound with { Direction = TranslationDirection.Inbound },
@@ -89,6 +89,23 @@ public sealed class VrChatOscListenerTests
 
         settings.VrChatChatboxEnabled = false;
         Assert.Null(EngineHost.ComposeVrChatMessage(outbound, settings));
+    }
+
+    [Fact]
+    public void ComposeVrChatMessage_OmitsSecondaryWhenEmpty()
+    {
+        var settings = new AppSettings
+        {
+            VrChatChatboxEnabled = true,
+            VrChatIncludeSourceText = false
+        };
+        var message = new ConversationMessage(
+            TranslationDirection.Outbound,
+            "source",
+            "primary",
+            DateTimeOffset.UtcNow);
+
+        Assert.Equal("primary", EngineHost.ComposeVrChatMessage(message, settings));
     }
 
     private static byte[] OscMessage(string address, char type, object value)

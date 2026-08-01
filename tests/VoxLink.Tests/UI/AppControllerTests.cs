@@ -146,6 +146,27 @@ public sealed class AppControllerTests
     }
 
     [Fact]
+    public async Task RefreshDevices_PreservesSelectedDeviceIds()
+    {
+        var gateway = new FakeEngineGateway();
+        var repository = new FakeSettingsRepository(new AppSettings
+        {
+            MicrophoneDeviceId = "capture-default",
+            SystemAudioDeviceId = "render-default",
+            VoiceOutputDeviceId = "render-default"
+        });
+        await using var controller = new AppController(gateway, repository, new InlineSynchronizationContext());
+
+        await controller.InitializeAsync();
+        await controller.RefreshDevicesAsync();
+
+        Assert.Equal("capture-default", controller.Settings.MicrophoneDeviceId);
+        Assert.Equal("render-default", controller.Settings.SystemAudioDeviceId);
+        Assert.Equal("render-default", controller.Settings.VoiceOutputDeviceId);
+        Assert.Single(controller.MicrophoneDevices);
+        Assert.Single(controller.RenderDevices);
+    }
+    [Fact]
     public async Task ShutdownAsync_DuringConnectCompletesAndSavesOnce()
     {
         var gateway = new BlockingConnectGateway();
@@ -526,14 +547,13 @@ public sealed class AppControllerTests
                 parameters is null
                     ? null
                     : new Dictionary<string, object?>(parameters, StringComparer.Ordinal)));
-            if (method != "initialize")
+            if (method != "initialize" && method != "getBootstrap")
             {
                 return Task.FromResult<JsonElement?>(null);
             }
 
             var bootstrap = JsonSerializer.SerializeToElement(new
             {
-                running = false,
                 captureDevices = new[]
                 {
                     new { id = "capture-default", name = "默认麦克风", isDefault = true }

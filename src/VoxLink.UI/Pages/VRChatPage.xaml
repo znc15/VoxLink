@@ -6,7 +6,8 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     Background="Transparent"
-    mc:Ignorable="d">
+    mc:Ignorable="d"
+    NavigationCacheMode="Required">
     <ScrollViewer>
         <StackPanel Padding="24,20,24,28" Spacing="14">
             <StackPanel Spacing="3">
@@ -90,8 +91,8 @@
                             <TextBlock Style="{StaticResource SectionTitleStyle}" Text="VRChat 语音路由" />
                             <TextBlock Style="{StaticResource CaptionStyle}" Text="将识别原话或主译文经 TTS 输出到虚拟声卡，再由 VRChat 作为麦克风采集。" />
                         </StackPanel>
-                        <Button Grid.Column="1" Click="OpenOnboarding_Click" ToolTipService.ToolTip="打开新手引导">
-                            <FontIcon Glyph="&#xE897;" />
+                        <Button Grid.Column="1" Click="OpenOnboarding_Click" Style="{StaticResource HelpBadgeButtonStyle}" ToolTipService.ToolTip="打开新手引导">
+                            <FontIcon FontSize="14" Glyph="&#xE897;" />
                         </Button>
                     </Grid>
 

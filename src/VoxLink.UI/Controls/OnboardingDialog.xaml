@@ -3,8 +3,12 @@
     x:Class="VoxLink.UI.Controls.OnboardingDialog"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    x:Name="RootDialog"
     Title="VoxLink 新手引导"
     CloseButtonText="稍后"
+    CloseButtonStyle="{StaticResource RoundedButtonStyle}"
+    PrimaryButtonStyle="{StaticResource RoundedButtonStyle}"
+    SecondaryButtonStyle="{StaticResource RoundedButtonStyle}"
     DefaultButton="Primary"
     PrimaryButtonClick="Dialog_PrimaryButtonClick"
     SecondaryButtonClick="Dialog_SecondaryButtonClick">
@@ -41,7 +45,7 @@
                             </Grid.ColumnDefinitions>
                             <FontIcon VerticalAlignment="Top" FontSize="20" Foreground="{StaticResource VoxLinkAccentBrush}" Glyph="&#xE8C1;" />
                             <StackPanel Grid.Column="1" Spacing="3">
-                                <TextBlock FontWeight="SemiBold" Text="OSC 文字翻译" />
+                                <TextBlock FontWeight="SemiBold" Text="仅文字" />
                                 <TextBlock Style="{StaticResource CaptionStyle}" Text="麦克风 → 识别 → 翻译 → VRChat Chatbox。无需虚拟声卡。" />
                             </StackPanel>
                         </Grid>

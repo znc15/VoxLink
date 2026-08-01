@@ -13,6 +13,11 @@ namespace VoxLink.UI.Pages;
 
 public sealed partial class LivePage : Page
 {
+    private static readonly SolidColorBrush RunningDotBrush = new(ColorHelper.FromArgb(255, 15, 123, 63));
+    private static readonly SolidColorBrush StoppedDotBrush = new(ColorHelper.FromArgb(255, 96, 105, 114));
+    private long _lastScrollTicks;
+    private bool _trailingScrollScheduled;
+
     public LivePage()
     {
         InitializeComponent();
@@ -50,6 +55,10 @@ public sealed partial class LivePage : Page
         VoiceModeButton.IsEnabled = !Controller.IsRunning;
         OscModeButton.IsChecked = !Controller.IsVoiceMode;
         VoiceModeButton.IsChecked = Controller.IsVoiceMode;
+        var translateMode = Controller.ComposerMode == ComposerMode.Translate;
+        TranslateModeButton.IsChecked = translateMode;
+        GenerateModeButton.IsChecked = !translateMode;
+        SubmitButtonText.Text = translateMode ? "翻译并发送" : "生成并发送";
         var routeStatus = Controller.VoiceRouteStatus;
         ModeStatusText.Text = Controller.Settings.CaptureSystemAudio
             ? routeStatus + " 系统音频翻译已开启。"
@@ -60,9 +69,7 @@ public sealed partial class LivePage : Page
         ModelStatusText.Visibility = Controller.ModelStatus.Length == 0
             ? Visibility.Collapsed
             : Visibility.Visible;
-        SessionStatusDot.Fill = new SolidColorBrush(Controller.IsRunning
-            ? ColorHelper.FromArgb(255, 15, 123, 63)
-            : ColorHelper.FromArgb(255, 96, 105, 114));
+        SessionStatusDot.Fill = Controller.IsRunning ? RunningDotBrush : StoppedDotBrush;
         ErrorInfoBar.Message = Controller.ErrorMessage ?? string.Empty;
         ErrorInfoBar.IsOpen = !string.IsNullOrWhiteSpace(Controller.ErrorMessage);
         UpdateInfoBar.Message = Controller.UpdateStatusText ?? "发现新版本。";
@@ -71,13 +78,43 @@ public sealed partial class LivePage : Page
         RefreshMessages();
     }
 
+
     private void RefreshMessages()
     {
         MessageCountText.Text = Controller.Messages.Count.ToString();
         EmptyState.Visibility = Controller.Messages.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         ConversationList.Visibility = Controller.Messages.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        if (Controller.Messages.Count > 0 && ShouldAutoScroll())
+        {
+            ConversationList.ScrollIntoView(Controller.Messages[^1]);
+        }
+    }
+
+    private bool ShouldAutoScroll()
+    {
+        var now = Environment.TickCount64;
+        if (now - _lastScrollTicks >= 250)
+        {
+            _lastScrollTicks = now;
+            return true;
+        }
+
+        if (!_trailingScrollScheduled)
+        {
+            _trailingScrollScheduled = true;
+            _ = ScheduleTrailingScrollAsync();
+        }
+
+        return false;
+    }
+
+    private async Task ScheduleTrailingScrollAsync()
+    {
+        await Task.Delay(300);
+        _trailingScrollScheduled = false;
         if (Controller.Messages.Count > 0)
         {
+            _lastScrollTicks = Environment.TickCount64;
             ConversationList.ScrollIntoView(Controller.Messages[^1]);
         }
     }

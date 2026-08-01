@@ -53,6 +53,29 @@ public sealed class VrChatOscSenderTests
     }
 
     [Fact]
+    public void ComposeTranslation_AppendsSecondaryBeforeSource()
+    {
+        var result = VrChatOscSender.ComposeTranslation(
+            "primary",
+            "source",
+            includeSourceText: true,
+            secondaryText: "secondary");
+
+        Assert.Equal("primary\nsecondary\nsource", result);
+    }
+
+    [Fact]
+    public void ComposeTranslation_OmitsBlankSecondaryAndSource()
+    {
+        Assert.Equal(
+            "primary",
+            VrChatOscSender.ComposeTranslation(
+                "primary",
+                " ",
+                includeSourceText: true,
+                secondaryText: "   "));
+    }
+    [Fact]
     public async Task Configure_InvalidAddressThrows()
     {
         await using var sender = new VrChatOscSender();

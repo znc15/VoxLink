@@ -1036,14 +1036,37 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             .ToArray();
     }
 
-    private static void ReplaceDevices(
+    private bool _replacingDevices;
+
+    private void ReplaceDevices(
         ObservableCollection<AudioDeviceInfo> target,
         IEnumerable<AudioDeviceInfo> values)
     {
-        target.Clear();
-        foreach (var value in values)
+        var incoming = values.ToList();
+        var existingIds = target
+            .Select(device => device.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+
+        _replacingDevices = true;
+        try
         {
-            target.Add(value);
+            foreach (var removed in target
+                .Where(device => !incoming.Any(next =>
+                    string.Equals(next.Id, device.Id, StringComparison.OrdinalIgnoreCase)))
+                .ToList())
+            {
+                target.Remove(removed);
+            }
+
+            foreach (var added in incoming.Where(device => !existingIds.Contains(device.Id)))
+            {
+                target.Add(added);
+            }
+        }
+        finally
+        {
+            _replacingDevices = false;
         }
     }
 
@@ -1053,6 +1076,14 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     private void OnSettingsPropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
         if (_applyingQuickStartMode)
+        {
+            return;
+        }
+
+        if (_replacingDevices
+            && args.PropertyName is nameof(AppSettings.MicrophoneDeviceId)
+                or nameof(AppSettings.SystemAudioDeviceId)
+                or nameof(AppSettings.VoiceOutputDeviceId))
         {
             return;
         }

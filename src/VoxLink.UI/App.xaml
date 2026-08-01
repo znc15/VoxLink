@@ -21,6 +21,10 @@
             <CornerRadius x:Key="VoxLinkRadiusMedium">8</CornerRadius>
             <CornerRadius x:Key="VoxLinkRadiusLarge">14</CornerRadius>
 
+            <!-- 全局控件与对话框圆角（WinUI 默认 4/8，统一为 8/14） -->
+            <CornerRadius x:Key="ControlCornerRadius">8</CornerRadius>
+            <CornerRadius x:Key="OverlayCornerRadius">14</CornerRadius>
+
             <Style x:Key="PanelBorderStyle" TargetType="Border">
                 <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
                 <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
@@ -43,6 +47,20 @@
                 <Setter Property="FontSize" Value="13" />
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
                 <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
+
+            <Style x:Key="RoundedButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+                <Setter Property="CornerRadius" Value="{StaticResource VoxLinkRadiusMedium}" />
+                <Setter Property="Padding" Value="12,7" />
+            </Style>
+
+            <!-- 帮助问号圆形徽标按钮 -->
+            <Style x:Key="HelpBadgeButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+                <Setter Property="Width" Value="30" />
+                <Setter Property="Height" Value="30" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="CornerRadius" Value="15" />
+                <Setter Property="Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
             </Style>
         </ResourceDictionary>
     </Application.Resources>

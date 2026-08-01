@@ -390,7 +390,8 @@ internal sealed class EngineHost : IAsyncDisposable
                 ? VrChatOscSender.ComposeTranslation(
                     message.TranslatedText,
                     message.SourceText,
-                    settings.VrChatIncludeSourceText)
+                    settings.VrChatIncludeSourceText,
+                    message.SecondaryTranslatedText)
                 : null;
     }
 
