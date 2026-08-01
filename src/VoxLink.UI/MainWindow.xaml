@@ -65,7 +65,7 @@
             Grid.Row="1"
             AlwaysShowHeader="False"
             CompactModeThresholdWidth="680"
-            ExpandedModeThresholdWidth="1040"
+            ExpandedModeThresholdWidth="9999"
             IsBackButtonVisible="Collapsed"
             IsPaneToggleButtonVisible="False"
             IsSettingsVisible="False"

@@ -3,8 +3,8 @@ using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using VoxLink.UI.Controls;
 using Microsoft.UI.Xaml.Media;
+using VoxLink.UI.Controls;
 using VoxLink.UI.Pages;
 using Windows.Graphics;
 
@@ -31,7 +31,6 @@ public sealed partial class MainWindow : Window
             presenter.PreferredMinimumHeight = 620;
         }
 
-        RootLayout.SizeChanged += RootLayout_SizeChanged;
         AppWindow.Closing += AppWindow_Closing;
         RootLayout.Loaded += RootLayout_Loaded;
         App.Controller.PropertyChanged += Controller_PropertyChanged;
@@ -39,11 +38,6 @@ public sealed partial class MainWindow : Window
         ContentFrame.Navigate(typeof(LivePage));
         UpdateEngineStatus();
     }
-
-    private void RootLayout_SizeChanged(object sender, SizeChangedEventArgs args) =>
-        PaneToggleButton.Visibility = args.NewSize.Width < 1040
-            ? Visibility.Visible
-            : Visibility.Collapsed;
 
     private void PaneToggleButton_Click(object sender, RoutedEventArgs args) =>
         NavView.IsPaneOpen = !NavView.IsPaneOpen;
