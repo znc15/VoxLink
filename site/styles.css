@@ -115,7 +115,7 @@ h1,h2,h3{letter-spacing:-.02em}
 .hero-canvas{margin:2.6rem auto 0;max-width:880px;animation:fadeUp .9s var(--ease) .3s both}
 .app-mock{position:relative;background:var(--bg-soft);border:1px solid var(--line);border-radius:20px;padding:18px;box-shadow:0 20px 60px -24px rgba(0,0,0,.18)}
 .app-mock img{border-radius:12px;width:100%}
-.app-mock::before{content:"";position:absolute;inset:-1px;border-radius:21px;padding:1px;background:linear-gradient(120deg,rgba(0,121,255,.35),rgba(0,160,135,.25),transparent 70%);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
+.app-mock::before{content:"";position:absolute;inset:-1px;border-radius:21px;padding:1px;background:linear-gradient(120deg,rgba(0,121,255,.35),rgba(0,160,135,.25),transparent 70%);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
 .mock-status{position:absolute;top:26px;left:30px;display:flex;align-items:center;gap:.5rem;background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:999px;padding:.32rem .7rem;font-size:.78rem;font-weight:600;color:var(--ink-2);box-shadow:0 6px 18px -10px rgba(0,0,0,.25);z-index:3;animation:float 5.5s ease-in-out infinite}
 .mock-wave{display:flex;gap:2px;align-items:center;height:14px}
 .mock-wave span{display:inline-block;width:2px;height:6px;background:var(--brand);border-radius:2px;animation:wave 1.1s ease-in-out infinite}

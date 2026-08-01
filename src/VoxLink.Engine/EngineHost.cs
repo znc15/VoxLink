@@ -542,8 +542,7 @@ internal sealed class EngineHost : IAsyncDisposable
     private void OnWarningOccurred(object? sender, string message) =>
         _notify("warning", new
         {
-            message,
-            detail = ""
+            message
         });
 
 
