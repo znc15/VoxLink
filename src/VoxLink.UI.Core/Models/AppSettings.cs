@@ -116,6 +116,8 @@ public sealed class AppSettings : ObservableObject
     private int _vrChatOscListenPort = 9001;
     private string _toggleHotkey = "Ctrl+Alt+Space";
     private string _translateHotkey = "Ctrl+Alt+Enter";
+    private bool _useMicaBackdrop = true;
+    private bool _useSystemTitleBar;
 
     [JsonConverter(typeof(JsonStringEnumConverter<QuickStartMode>))]
     public QuickStartMode QuickStartMode { get => _quickStartMode; set => SetProperty(ref _quickStartMode, value); }
@@ -261,6 +263,8 @@ public sealed class AppSettings : ObservableObject
     public int VrChatOscListenPort { get => _vrChatOscListenPort; set => SetProperty(ref _vrChatOscListenPort, Math.Clamp(value, 1, 65_535)); }
     public string ToggleHotkey { get => _toggleHotkey; set => SetProperty(ref _toggleHotkey, value); }
     public string TranslateHotkey { get => _translateHotkey; set => SetProperty(ref _translateHotkey, value); }
+    public bool UseMicaBackdrop { get => _useMicaBackdrop; set => SetProperty(ref _useMicaBackdrop, value); }
+    public bool UseSystemTitleBar { get => _useSystemTitleBar; set => SetProperty(ref _useSystemTitleBar, value); }
 
     [JsonIgnore]
     public bool SupportsGeneration => TranslationBackend != TranslationBackend.PublicFree;

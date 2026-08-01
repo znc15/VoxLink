@@ -121,6 +121,29 @@
             <Border Style="{StaticResource PanelBorderStyle}">
                 <StackPanel Spacing="14">
                     <StackPanel Spacing="3">
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="外观与性能" />
+                        <TextBlock Style="{StaticResource CaptionStyle}" Text="若窗口拖动或拉伸感觉迟钝，可逐项关闭以排查原因；更改后即时生效。" />
+                    </StackPanel>
+                    <ToggleSwitch
+                        Header="Mica 透明背景"
+                        IsOn="{x:Bind Controller.Settings.UseMicaBackdrop, Mode=TwoWay}"
+                        OffContent="纯色背景"
+                        OnContent="Mica" />
+                    <ToggleSwitch
+                        Header="标题栏模式"
+                        IsOn="{x:Bind Controller.Settings.UseSystemTitleBar, Mode=TwoWay}"
+                        OffContent="自绘标题栏"
+                        OnContent="系统标题栏" />
+                    <TextBlock
+                        Style="{StaticResource CaptionStyle}"
+                        Text="系统标题栏由 Windows 原生绘制，拖拽完全走系统；如切换后显示异常请重启应用。"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource PanelBorderStyle}">
+                <StackPanel Spacing="14">
+                    <StackPanel Spacing="3">
                         <TextBlock Style="{StaticResource SectionTitleStyle}" Text="版本与更新" />
                         <TextBlock Style="{StaticResource CaptionStyle}" Text="从 GitHub Releases 检查 VoxLink 新版本。" />
                     </StackPanel>

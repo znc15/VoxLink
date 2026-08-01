@@ -2,7 +2,9 @@ using System.ComponentModel;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using VoxLink.UI.Controls;
+using VoxLink.UI.Core.Models;
 using VoxLink.UI.Core.Services;
 using VoxLink.UI.Pages;
 using Windows.Graphics;
@@ -15,12 +17,12 @@ public sealed partial class MainWindow : Window
     private bool _closeRequested;
     private bool _onboardingOpen;
     private bool _onboardingPending;
+    private AppSettings? _subscribedSettings;
+    private MicaBackdrop? _micaBackdrop;
 
     public MainWindow()
     {
         InitializeComponent();
-        ExtendsContentIntoTitleBar = true;
-        SetTitleBar(AppTitleBar);
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         AppWindow.Resize(new SizeInt32(1280, 800));
         if (AppWindow.Presenter is OverlappedPresenter presenter)
@@ -33,8 +35,69 @@ public sealed partial class MainWindow : Window
         RootLayout.Loaded += RootLayout_Loaded;
         App.Controller.PropertyChanged += Controller_PropertyChanged;
         App.Controller.OnboardingRequested += Controller_OnboardingRequested;
+        EnsureSettingsSubscribed();
+        LogService.Instance.Info(
+            "UI",
+            $"窗口已创建：ExtendsContentIntoTitleBar={ExtendsContentIntoTitleBar}，最小尺寸 {AppWindow.Size.Width}x{AppWindow.Size.Height}。");
         ContentFrame.Navigate(typeof(LivePage));
         UpdateEngineStatus();
+    }
+
+    private void EnsureSettingsSubscribed()
+    {
+        var settings = App.Controller.Settings;
+        if (ReferenceEquals(_subscribedSettings, settings))
+        {
+            return;
+        }
+
+        if (_subscribedSettings is not null)
+        {
+            _subscribedSettings.PropertyChanged -= Settings_PropertyChanged;
+        }
+
+        _subscribedSettings = settings;
+        settings.PropertyChanged += Settings_PropertyChanged;
+        ApplyWindowChrome();
+    }
+
+    /// <summary>
+    /// 应用窗口外观：Mica 透明背景 与 自定义/系统标题栏。两者都是排查「拖拽慢半拍」的开关——
+    /// Mica 影响移动/拉伸时的背景重采样，自定义标题栏影响拖拽命中区由谁计算。
+    /// </summary>
+    private void ApplyWindowChrome()
+    {
+        var settings = App.Controller.Settings;
+        if (settings.UseMicaBackdrop)
+        {
+            SystemBackdrop = _micaBackdrop ??= new MicaBackdrop();
+            RootLayout.Background = null;
+        }
+        else
+        {
+            SystemBackdrop = null;
+            RootLayout.Background = Application.Current.Resources["ApplicationPageBackgroundThemeBrush"] as Brush;
+        }
+
+        var useSystemTitleBar = settings.UseSystemTitleBar;
+        ExtendsContentIntoTitleBar = !useSystemTitleBar;
+        AppTitleBar.Visibility = useSystemTitleBar ? Visibility.Collapsed : Visibility.Visible;
+        NavView.IsPaneToggleButtonVisible = useSystemTitleBar;
+        if (!useSystemTitleBar)
+        {
+            SetTitleBar(AppTitleBar);
+        }
+    }
+
+    private void Settings_PropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName is nameof(AppSettings.UseMicaBackdrop) or nameof(AppSettings.UseSystemTitleBar))
+        {
+            ApplyWindowChrome();
+            LogService.Instance.Info(
+                "UI",
+                $"窗口外观已更新：Mica={App.Controller.Settings.UseMicaBackdrop}，系统标题栏={App.Controller.Settings.UseSystemTitleBar}（标题栏模式如显示异常请重启）。");
+        }
     }
 
     private void AppTitleBar_PaneToggleRequested(TitleBar sender, object args) =>
@@ -71,6 +134,11 @@ public sealed partial class MainWindow : Window
             or nameof(App.Controller.StatusMessage))
         {
             UpdateEngineStatus();
+        }
+
+        if (args.PropertyName == nameof(App.Controller.Settings))
+        {
+            EnsureSettingsSubscribed();
         }
     }
 
