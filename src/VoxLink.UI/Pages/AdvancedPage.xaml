@@ -120,8 +120,8 @@
             <Border Style="{StaticResource PanelBorderStyle}">
                 <StackPanel Spacing="14">
                     <StackPanel Spacing="3">
-                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="外观与性能" />
-                        <TextBlock Style="{StaticResource CaptionStyle}" Text="若窗口拖动或拉伸感觉迟钝，可逐项关闭以排查原因；更改后即时生效。" />
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="外观" />
+                        <TextBlock Style="{StaticResource CaptionStyle}" Text="Mica 透明背景与标题栏模式，更改后即时生效。" />
                     </StackPanel>
                     <ToggleSwitch
                         Header="Mica 透明背景"
@@ -133,24 +133,9 @@
                         IsOn="{x:Bind Controller.Settings.UseSystemTitleBar, Mode=TwoWay}"
                         OffContent="自绘标题栏"
                         OnContent="系统标题栏" />
-                    <ToggleSwitch
-                        Header="拖拽卡顿诊断"
-                        IsOn="{x:Bind Controller.Settings.DiagnoseDragPerformance, Mode=TwoWay}"
-                        OffContent="关闭"
-                        OnContent="采样中" />
                     <TextBlock
                         Style="{StaticResource CaptionStyle}"
-                        Text="开启后拖动窗口几秒，到「日志」页查看「拖拽采样」行的最大间隔。"
-                        TextWrapping="Wrap" />
-                    <Button Click="OpenDragProbe_Click" ToolTipService.ToolTip="打开一个空白 WinUI3 窗口，用于判定拖拽迟滞是否来自框架本身">
-                        <StackPanel Orientation="Horizontal" Spacing="7">
-                            <FontIcon FontSize="13" Glyph="&#xE8A7;" />
-                            <TextBlock Text="打开空白拖拽测试窗口" />
-                        </StackPanel>
-                    </Button>
-                    <TextBlock
-                        Style="{StaticResource CaptionStyle}"
-                        Text="系统标题栏由 Windows 原生绘制，拖拽完全走系统；如切换后显示异常请重启应用。"
+                        Text="系统标题栏由 Windows 原生绘制；如切换后显示异常请重启应用。"
                         TextWrapping="Wrap" />
                 </StackPanel>
             </Border>

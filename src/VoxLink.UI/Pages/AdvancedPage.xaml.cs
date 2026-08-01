@@ -144,7 +144,4 @@ public sealed partial class AdvancedPage : Page
 
     private void OpenRelease_Click(object sender, RoutedEventArgs args) =>
         Controller.OpenLatestReleasePage();
-
-    private void OpenDragProbe_Click(object sender, RoutedEventArgs args) =>
-        MainWindow.OpenDragProbe();
 }

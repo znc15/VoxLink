@@ -118,7 +118,6 @@ public sealed class AppSettings : ObservableObject
     private string _translateHotkey = "Ctrl+Alt+Enter";
     private bool _useMicaBackdrop = true;
     private bool _useSystemTitleBar;
-    private bool _diagnoseDragPerformance;
 
     [JsonConverter(typeof(JsonStringEnumConverter<QuickStartMode>))]
     public QuickStartMode QuickStartMode { get => _quickStartMode; set => SetProperty(ref _quickStartMode, value); }
@@ -266,7 +265,6 @@ public sealed class AppSettings : ObservableObject
     public string TranslateHotkey { get => _translateHotkey; set => SetProperty(ref _translateHotkey, value); }
     public bool UseMicaBackdrop { get => _useMicaBackdrop; set => SetProperty(ref _useMicaBackdrop, value); }
     public bool UseSystemTitleBar { get => _useSystemTitleBar; set => SetProperty(ref _useSystemTitleBar, value); }
-    public bool DiagnoseDragPerformance { get => _diagnoseDragPerformance; set => SetProperty(ref _diagnoseDragPerformance, value); }
 
     [JsonIgnore]
     public bool SupportsGeneration => TranslationBackend != TranslationBackend.PublicFree;
