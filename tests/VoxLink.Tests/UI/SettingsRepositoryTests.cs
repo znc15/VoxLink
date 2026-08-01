@@ -64,7 +64,9 @@ public sealed class SettingsRepositoryTests : IDisposable
             AsrHeaders = new Dictionary<string, string>
             {
                 ["X-ASR-Token"] = "asr-header-secret"
-            }
+            },
+            MinimizeToTray = false,
+            ConfirmOnClose = true
         };
 
         await repository.SaveAsync(settings);
@@ -114,11 +116,15 @@ public sealed class SettingsRepositoryTests : IDisposable
         Assert.True(loaded.VrChatMuteSelfEnabled);
         Assert.Equal("127.0.0.3", loaded.VrChatOscListenAddress);
         Assert.Equal(9012, loaded.VrChatOscListenPort);
+        Assert.False(loaded.MinimizeToTray);
+        Assert.True(loaded.ConfirmOnClose);
         Assert.Contains("vrChatOscAddress", publicJson, StringComparison.Ordinal);
         Assert.Contains("secondaryTargetLanguageCode", publicJson, StringComparison.Ordinal);
         Assert.Contains("speakerLabelMode", publicJson, StringComparison.Ordinal);
         Assert.Contains("quickStartMode", publicJson, StringComparison.Ordinal);
         Assert.Contains("outboundSpeechContent", publicJson, StringComparison.Ordinal);
+        Assert.Contains("minimizeToTray", publicJson, StringComparison.Ordinal);
+        Assert.Contains("confirmOnClose", publicJson, StringComparison.Ordinal);
     }
 
     [Fact]

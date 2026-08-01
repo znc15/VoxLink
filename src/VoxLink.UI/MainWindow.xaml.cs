@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -6,6 +7,7 @@ using Microsoft.UI.Xaml.Media;
 using VoxLink.UI.Controls;
 using VoxLink.UI.Core.Models;
 using VoxLink.UI.Core.Services;
+using VoxLink.UI.Infrastructure;
 using VoxLink.UI.Pages;
 using Windows.Graphics;
 
@@ -19,6 +21,8 @@ public sealed partial class MainWindow : Window
     private bool _onboardingPending;
     private AppSettings? _subscribedSettings;
     private MicaBackdrop? _micaBackdrop;
+    private TrayIconService? _trayIcon;
+    private bool _hiddenToTray;
 
     public MainWindow()
     {
@@ -32,6 +36,11 @@ public sealed partial class MainWindow : Window
         }
 
         AppWindow.Closing += AppWindow_Closing;
+        AppWindow.Changed += AppWindow_Changed;
+        _trayIcon = new TrayIconService(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
+        _trayIcon.RestoreRequested += TrayIcon_RestoreRequested;
+        _trayIcon.ExitRequested += TrayIcon_ExitRequested;
+        EnsureTrayIconVisibility();
         RootLayout.Loaded += RootLayout_Loaded;
         App.Controller.PropertyChanged += Controller_PropertyChanged;
         App.Controller.OnboardingRequested += Controller_OnboardingRequested;
@@ -91,6 +100,14 @@ public sealed partial class MainWindow : Window
             LogService.Instance.Info(
                 "UI",
                 $"窗口外观已更新：Mica={App.Controller.Settings.UseMicaBackdrop}，系统标题栏={App.Controller.Settings.UseSystemTitleBar}。");
+        }
+
+        if (args.PropertyName == nameof(AppSettings.MinimizeToTray))
+        {
+            EnsureTrayIconVisibility();
+            LogService.Instance.Info(
+                "UI",
+                $"最小化到托盘已更新：{App.Controller.Settings.MinimizeToTray}。");
         }
     }
 
@@ -190,7 +207,65 @@ public sealed partial class MainWindow : Window
         }
 
         args.Cancel = true;
-        if (_closeRequested)
+        await TryExitAsync();
+    }
+
+    private void AppWindow_Changed(AppWindow sender, AppWindowChangedEventArgs args)
+    {
+        if (!args.DidPresenterChange
+            || !App.Controller.Settings.MinimizeToTray
+            || sender.Presenter is not OverlappedPresenter presenter
+            || presenter.State != OverlappedPresenterState.Minimized)
+        {
+            return;
+        }
+
+        _hiddenToTray = true;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (App.Controller.Settings.MinimizeToTray && _hiddenToTray)
+            {
+                sender.Hide();
+            }
+        });
+    }
+
+    private void EnsureTrayIconVisibility()
+    {
+        if (_trayIcon is null)
+        {
+            return;
+        }
+
+        _trayIcon.Visible = App.Controller.Settings.MinimizeToTray;
+        if (!App.Controller.Settings.MinimizeToTray && _hiddenToTray)
+        {
+            RestoreFromTray();
+        }
+    }
+
+    private void RestoreFromTray()
+    {
+        _hiddenToTray = false;
+        AppWindow.Show();
+        if (AppWindow.Presenter is OverlappedPresenter presenter
+            && presenter.State == OverlappedPresenterState.Minimized)
+        {
+            presenter.Restore();
+        }
+
+        Activate();
+    }
+
+    private void TrayIcon_RestoreRequested() =>
+        DispatcherQueue.TryEnqueue(RestoreFromTray);
+
+    private async void TrayIcon_ExitRequested() =>
+        await TryExitAsync();
+
+    private async Task TryExitAsync()
+    {
+        if (_allowClose || _closeRequested)
         {
             return;
         }
@@ -198,7 +273,16 @@ public sealed partial class MainWindow : Window
         _closeRequested = true;
         try
         {
+            if (!await ConfirmExitIfNeededAsync())
+            {
+                return;
+            }
+
+            LogService.Instance.Info("UI", "VoxLink 即将退出。");
             await App.Controller.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(20));
+            _allowClose = true;
+            Cleanup();
+            Close();
         }
         catch (Exception exception)
         {
@@ -207,12 +291,54 @@ public sealed partial class MainWindow : Window
         }
         finally
         {
-            LogService.Instance.Info("UI", "VoxLink 即将退出。");
-            _allowClose = true;
-            RootLayout.Loaded -= RootLayout_Loaded;
-            App.Controller.PropertyChanged -= Controller_PropertyChanged;
-            App.Controller.OnboardingRequested -= Controller_OnboardingRequested;
-            Close();
+            if (!_allowClose)
+            {
+                _closeRequested = false;
+            }
+        }
+    }
+
+    private void Cleanup()
+    {
+        AppWindow.Closing -= AppWindow_Closing;
+        AppWindow.Changed -= AppWindow_Changed;
+        RootLayout.Loaded -= RootLayout_Loaded;
+        App.Controller.PropertyChanged -= Controller_PropertyChanged;
+        App.Controller.OnboardingRequested -= Controller_OnboardingRequested;
+        if (_trayIcon is not null)
+        {
+            _trayIcon.RestoreRequested -= TrayIcon_RestoreRequested;
+            _trayIcon.ExitRequested -= TrayIcon_ExitRequested;
+            _trayIcon.Dispose();
+            _trayIcon = null;
+        }
+    }
+
+    private async Task<bool> ConfirmExitIfNeededAsync()
+    {
+        if (!App.Controller.Settings.ConfirmOnClose || RootLayout.XamlRoot is null)
+        {
+            return true;
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = "退出 VoxLink？",
+            Content = "退出后实时翻译会话将停止。",
+            PrimaryButtonText = "退出",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = RootLayout.XamlRoot
+        };
+
+        try
+        {
+            return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        }
+        catch (Exception exception) when (exception is COMException or InvalidOperationException or ObjectDisposedException)
+        {
+            LogService.Instance.Warning("UI", $"退出确认对话框无法显示，已取消退出：{exception}");
+            return false;
         }
     }
 }

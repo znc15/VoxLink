@@ -120,6 +120,27 @@
             <Border Style="{StaticResource PanelBorderStyle}">
                 <StackPanel Spacing="14">
                     <StackPanel Spacing="3">
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="窗口与退出" />
+                        <TextBlock
+                            Style="{StaticResource CaptionStyle}"
+                            Text="最小化后可在系统托盘继续运行，退出时按需确认。" />
+                    </StackPanel>
+                    <ToggleSwitch
+                        Header="最小化到系统托盘"
+                        IsOn="{x:Bind Controller.Settings.MinimizeToTray, Mode=TwoWay}"
+                        OffContent="普通最小化"
+                        OnContent="后台运行" />
+                    <ToggleSwitch
+                        Header="关闭前确认退出"
+                        IsOn="{x:Bind Controller.Settings.ConfirmOnClose, Mode=TwoWay}"
+                        OffContent="直接退出"
+                        OnContent="询问确认" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource PanelBorderStyle}">
+                <StackPanel Spacing="14">
+                    <StackPanel Spacing="3">
                         <TextBlock Style="{StaticResource SectionTitleStyle}" Text="外观" />
                         <TextBlock Style="{StaticResource CaptionStyle}" Text="Mica 透明背景与标题栏模式，更改后即时生效。" />
                     </StackPanel>
