@@ -95,6 +95,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/publish.ps1
 
 输出到 `artifacts/release/`：自包含目录、`VoxLink-win-x64.zip`、`Setup-VoxLink-<版本>.exe` 安装包及各自的 `.sha256`。首次运行会通过 `scripts/fetch-inno.ps1` 自动下载官方便携版 Inno Setup 到 `scripts/tools/`。
 
+## 开发约定
+
+- 提交信息使用中文，并采用约定式提交格式：`类型(范围): 描述`，例如 `fix(ui): 修复标题栏按钮样式`、`feat: 支持第二目标语言`、`docs: 更新架构说明`。
+- 类型包括 `feat`（新功能）、`fix`（修复）、`docs`（文档）、`refactor`（重构）、`test`（测试）、`chore`（杂务）。
+- 每次推送前若功能或修复有实质变化，同步更新 `src/VoxLink.UI/VoxLink.UI.csproj` 中的 `<Version>`；需要发布时打对应 `vX.Y.Z` 标签，CI 会自动生成 Release。
+
 ## 更新检查与 CI
 
 - 应用启动后在后台查询 `https://api.github.com/repos/znc15/VoxLink/releases/latest`；高级设置页可手动检查并打开下载页
