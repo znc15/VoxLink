@@ -238,7 +238,7 @@ public sealed class AppControllerTests
 
         controller.Settings.SecondaryTargetLanguageCode = "fr";
         controller.NotifySettingsChanged();
-        await Task.Delay(TimeSpan.FromMilliseconds(800));
+        await repository.SaveCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Equal("fr", repository.LastSaved!.SecondaryTargetLanguageCode);
     }
@@ -734,6 +734,8 @@ public sealed class AppControllerTests
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource LoadRelease { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource SaveCompleted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public async Task<AppSettings> LoadAsync(CancellationToken cancellationToken = default)
         {
@@ -746,6 +748,7 @@ public sealed class AppControllerTests
         {
             SaveCount++;
             LastSaved = value;
+            SaveCompleted.TrySetResult();
             return Task.CompletedTask;
         }
     }
