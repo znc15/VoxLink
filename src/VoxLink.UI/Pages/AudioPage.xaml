@@ -53,11 +53,11 @@
                         OffContent="关闭"
                         OnContent="开启" />
                     <ComboBox
+                        x:Name="MicrophoneBox"
                         Header="麦克风输入"
                         DisplayMemberPath="Label"
                         IsEnabled="{x:Bind Controller.Settings.CaptureMicrophone, Mode=OneWay}"
                         ItemsSource="{x:Bind Controller.MicrophoneDevices}"
-                        SelectedValue="{x:Bind Controller.Settings.MicrophoneDeviceId, Mode=TwoWay}"
                         SelectedValuePath="Id"
                         SelectionChanged="Device_SelectionChanged" />
                     <ToggleSwitch
@@ -66,18 +66,18 @@
                         OffContent="关闭"
                         OnContent="开启" />
                     <ComboBox
+                        x:Name="LoopbackBox"
                         Header="系统音频回环"
                         DisplayMemberPath="Label"
                         IsEnabled="{x:Bind Controller.Settings.CaptureSystemAudio, Mode=OneWay}"
                         ItemsSource="{x:Bind Controller.RenderDevices}"
-                        SelectedValue="{x:Bind Controller.Settings.SystemAudioDeviceId, Mode=TwoWay}"
                         SelectedValuePath="Id"
                         SelectionChanged="Device_SelectionChanged" />
                     <ComboBox
+                        x:Name="VoiceOutputBox"
                         Header="语音输出"
                         DisplayMemberPath="Label"
                         ItemsSource="{x:Bind Controller.RenderDevices}"
-                        SelectedValue="{x:Bind Controller.Settings.VoiceOutputDeviceId, Mode=TwoWay}"
                         SelectedValuePath="Id"
                         SelectionChanged="Device_SelectionChanged" />
                 </StackPanel>

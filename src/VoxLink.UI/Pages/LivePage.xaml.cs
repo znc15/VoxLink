@@ -41,7 +41,7 @@ public sealed partial class LivePage : Page
     private void RefreshState()
     {
         SessionStatusText.Text = Controller.StatusMessage;
-        SessionButtonText.Text = Controller.IsRunning ? "停止软件" : "开始软件";
+        SessionButtonText.Text = Controller.IsRunning ? "停止翻译" : "开启翻译";
         SessionButtonIcon.Glyph = Controller.IsRunning ? "\uE71A" : "\uE768";
         SessionButton.IsEnabled = !Controller.IsBusy && Controller.EngineConnected;
         SubmitButton.IsEnabled = !Controller.IsBusy && Controller.EngineConnected;

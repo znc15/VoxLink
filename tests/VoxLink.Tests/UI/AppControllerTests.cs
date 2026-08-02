@@ -193,6 +193,75 @@ public sealed class AppControllerTests
     }
 
     [Fact]
+    public async Task SettingsChangeBeforeInitialization_DoesNotOverwritePersistedSettings()
+    {
+        // 复现“第一次打开应用不记录第二目标语言”：LivePage 的 x:Bind 初始化会在设置加载完成前
+        // 触发一次 SelectionChanged → NotifySettingsChanged，而慢速冷启动时读取可能超过防抖窗口。
+        var repository = new BlockingSettingsRepository(new AppSettings
+        {
+            SecondaryTargetLanguageCode = "ja"
+        });
+        await using var controller = new AppController(
+            new FakeEngineGateway(),
+            repository,
+            new InlineSynchronizationContext());
+
+        controller.NotifySettingsChanged();
+
+        // 加载被阻塞（模拟冷启动慢读），等待超过 650ms 防抖窗口。
+        await Task.Delay(TimeSpan.FromMilliseconds(800));
+        Assert.Equal(0, repository.SaveCount);
+
+        var initialize = controller.InitializeAsync();
+        await repository.LoadStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        repository.LoadRelease.TrySetResult();
+        await initialize.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Equal("ja", controller.Settings.SecondaryTargetLanguageCode);
+        await controller.SaveNowAsync();
+        Assert.Equal("ja", repository.LastSaved!.SecondaryTargetLanguageCode);
+    }
+
+    [Fact]
+    public async Task SettingsChangeAfterInitialization_SavesNormally()
+    {
+        var repository = new BlockingSettingsRepository(new AppSettings());
+        await using var controller = new AppController(
+            new FakeEngineGateway(),
+            repository,
+            new InlineSynchronizationContext());
+
+        var initialize = controller.InitializeAsync();
+        await repository.LoadStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        repository.LoadRelease.TrySetResult();
+        await initialize.WaitAsync(TimeSpan.FromSeconds(2));
+
+        controller.Settings.SecondaryTargetLanguageCode = "fr";
+        controller.NotifySettingsChanged();
+        await Task.Delay(TimeSpan.FromMilliseconds(800));
+
+        Assert.Equal("fr", repository.LastSaved!.SecondaryTargetLanguageCode);
+    }
+
+    [Fact]
+    public async Task ShutdownBeforeInitialization_DoesNotPersistDefaults()
+    {
+        var repository = new BlockingSettingsRepository(new AppSettings
+        {
+            SecondaryTargetLanguageCode = "ja"
+        });
+        await using var controller = new AppController(
+            new FakeEngineGateway(),
+            repository,
+            new InlineSynchronizationContext());
+
+        controller.NotifySettingsChanged();
+        await controller.ShutdownAsync();
+
+        Assert.Equal(0, repository.SaveCount);
+    }
+
+    [Fact]
     public async Task RefreshDevices_PreservesSelectedDeviceIds()
     {
         var gateway = new FakeEngineGateway();
@@ -652,6 +721,31 @@ public sealed class AppControllerTests
         public Task SaveAsync(AppSettings value, CancellationToken cancellationToken = default)
         {
             SaveCount++;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class BlockingSettingsRepository(AppSettings settings) : ISettingsRepository
+    {
+        public int SaveCount { get; private set; }
+        public AppSettings? LastSaved { get; private set; }
+
+        public TaskCompletionSource LoadStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource LoadRelease { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<AppSettings> LoadAsync(CancellationToken cancellationToken = default)
+        {
+            LoadStarted.TrySetResult();
+            await LoadRelease.Task.WaitAsync(cancellationToken);
+            return settings;
+        }
+
+        public Task SaveAsync(AppSettings value, CancellationToken cancellationToken = default)
+        {
+            SaveCount++;
+            LastSaved = value;
             return Task.CompletedTask;
         }
     }

@@ -22,6 +22,8 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly SemaphoreSlim _saveGate = new(1, 1);
     private CancellationTokenSource? _saveDebounce;
+    private bool _settingsLoaded;
+    private bool _savePending;
     private Task? _initializeTask;
     private Task? _shutdownTask;
     private AppSettings _settings = new();
@@ -599,6 +601,11 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     public async Task SaveNowAsync(CancellationToken cancellationToken = default)
     {
         _saveDebounce?.Cancel();
+        if (!_settingsLoaded)
+        {
+            _savePending = true;
+            return;
+        }
         await SaveAndConfigureAsync(cancellationToken);
     }
 
@@ -848,6 +855,12 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             var loadedSettings = await _settingsRepository.LoadAsync(cancellationToken);
             loadedSettings.NormalizeQuickStartSettings();
             Settings = loadedSettings;
+            _settingsLoaded = true;
+            if (!_closing && _savePending)
+            {
+                _savePending = false;
+                ScheduleSaveAndConfigure();
+            }
             if (_closing)
             {
                 return;
@@ -901,6 +914,11 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
 
     private void ScheduleSaveAndConfigure()
     {
+        if (!_settingsLoaded)
+        {
+            _savePending = true;
+            return;
+        }
         _saveDebounce?.Cancel();
         _saveDebounce?.Dispose();
         var cancellation = new CancellationTokenSource();
@@ -993,7 +1011,10 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             await _saveGate.WaitAsync();
             try
             {
-                await _settingsRepository.SaveAsync(Settings);
+                if (_settingsLoaded)
+                {
+                    await _settingsRepository.SaveAsync(Settings);
+                }
             }
             finally
             {

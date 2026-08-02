@@ -51,7 +51,7 @@
                     Glyph="&#xE8BD;" />
                 <StackPanel Spacing="2">
                     <TextBlock FontWeight="SemiBold" Text="暂无会话记录" />
-                    <TextBlock Style="{StaticResource CaptionStyle}" Text="开始软件或输入文字后会显示在这里" />
+                    <TextBlock Style="{StaticResource CaptionStyle}" Text="开启翻译或输入文字后会显示在这里" />
                 </StackPanel>
             </StackPanel>
 

@@ -1,3 +1,4 @@
+using System.Collections.Specialized;
 using System.ComponentModel;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -23,13 +24,17 @@ public sealed partial class VRChatPage : Page
 
     private void VRChatPage_Loaded(object sender, RoutedEventArgs args)
     {
+        Controller.RenderDevices.CollectionChanged += RenderDevices_CollectionChanged;
         LoadSettingsIntoControls();
         Controller.PropertyChanged += Controller_PropertyChanged;
         RefreshState();
     }
 
-    private void VRChatPage_Unloaded(object sender, RoutedEventArgs args) =>
+    private void VRChatPage_Unloaded(object sender, RoutedEventArgs args)
+    {
+        Controller.RenderDevices.CollectionChanged -= RenderDevices_CollectionChanged;
         Controller.PropertyChanged -= Controller_PropertyChanged;
+    }
 
     private void Controller_PropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
@@ -57,6 +62,20 @@ public sealed partial class VRChatPage : Page
             SpeechContentButtons.SelectedIndex = Controller.Settings.OutboundSpeechContent == OutboundSpeechContent.Original
                 ? 1
                 : 0;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void RenderDevices_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs args)
+    {
+        // 设备列表异步到达后重新套用已保存的语音输出选择，避免显示为空。
+        _loading = true;
+        try
+        {
+            VoiceOutputBox.SelectedValue = Controller.Settings.VoiceOutputDeviceId;
         }
         finally
         {

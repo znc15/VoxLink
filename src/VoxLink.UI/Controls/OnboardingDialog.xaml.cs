@@ -1,3 +1,4 @@
+using System.Collections.Specialized;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using VoxLink.UI.Core.Models;
@@ -19,6 +20,15 @@ public sealed partial class OnboardingDialog : ContentDialog
         LoadSettings();
         _loading = false;
         UpdateStep();
+        _controller.MicrophoneDevices.CollectionChanged += Devices_CollectionChanged;
+        _controller.RenderDevices.CollectionChanged += Devices_CollectionChanged;
+        Closed += OnboardingDialog_Closed;
+    }
+
+    private void OnboardingDialog_Closed(ContentDialog sender, ContentDialogClosedEventArgs args)
+    {
+        _controller.MicrophoneDevices.CollectionChanged -= Devices_CollectionChanged;
+        _controller.RenderDevices.CollectionChanged -= Devices_CollectionChanged;
     }
 
     private void LoadSettings()
@@ -41,21 +51,36 @@ public sealed partial class OnboardingDialog : ContentDialog
         VoiceOutputBox.ItemsSource = null;
         MicrophoneBox.ItemsSource = _controller.MicrophoneDevices;
         VoiceOutputBox.ItemsSource = _controller.RenderDevices;
+        ReapplyDeviceSelections();
+    }
 
-        var microphoneId = _controller.Settings.MicrophoneDeviceId;
-        if (string.IsNullOrWhiteSpace(microphoneId))
-        {
-            microphoneId = _controller.MicrophoneDevices.FirstOrDefault(device => device.IsDefault)?.Id;
-        }
-        MicrophoneBox.SelectedValue = microphoneId;
+    private void Devices_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs args) =>
+        ReapplyDeviceSelections();
 
-        var outputId = _controller.Settings.VoiceOutputDeviceId;
-        if (string.IsNullOrWhiteSpace(outputId))
+    private void ReapplyDeviceSelections()
+    {
+        _loading = true;
+        try
         {
-            outputId = _controller.FindVirtualCable()?.Id;
+            var microphoneId = _controller.Settings.MicrophoneDeviceId;
+            if (string.IsNullOrWhiteSpace(microphoneId))
+            {
+                microphoneId = _controller.MicrophoneDevices.FirstOrDefault(device => device.IsDefault)?.Id;
+            }
+            MicrophoneBox.SelectedValue = microphoneId;
+
+            var outputId = _controller.Settings.VoiceOutputDeviceId;
+            if (string.IsNullOrWhiteSpace(outputId))
+            {
+                outputId = _controller.FindVirtualCable()?.Id;
+            }
+            VoiceOutputBox.SelectedValue = outputId;
+            UpdateVirtualCableInfo();
         }
-        VoiceOutputBox.SelectedValue = outputId;
-        UpdateVirtualCableInfo();
+        finally
+        {
+            _loading = false;
+        }
     }
 
     private void ApplyModeState()

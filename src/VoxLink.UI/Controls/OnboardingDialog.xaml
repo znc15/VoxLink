@@ -177,7 +177,7 @@
                     </Button>
                     <ProgressRing x:Name="TestProgress" Grid.Column="2" Width="20" Height="20" HorizontalAlignment="Left" IsActive="False" Visibility="Collapsed" />
                 </Grid>
-                <TextBlock x:Name="TestStatusText" Style="{StaticResource CaptionStyle}" Text="测试完成后即可开始软件。" />
+                <TextBlock x:Name="TestStatusText" Style="{StaticResource CaptionStyle}" Text="测试完成后即可开启翻译。" />
             </StackPanel>
         </StackPanel>
     </ScrollViewer>
