@@ -153,7 +153,7 @@ internal sealed class TrayIconService : IDisposable
             uFlags = NifMessage | NifIcon | NifTip,
             uCallbackMessage = TrayCallbackMessage,
             hIcon = _icon,
-            szTip = "VoxLink",
+            szTip = "VoxLink 正在后台运行，双击打开窗口",
             szInfo = string.Empty,
             szInfoTitle = string.Empty
         };

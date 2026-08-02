@@ -13,63 +13,20 @@
         <StackPanel Style="{StaticResource PageStackStyle}">
             <StackPanel Spacing="3">
                 <TextBlock Style="{StaticResource PageTitleStyle}" Text="高级设置" />
-                <TextBlock Style="{StaticResource CaptionStyle}" Text="会话行为、说话人标签、快捷键与窗口外观" />
+                <TextBlock Style="{StaticResource CaptionStyle}" Text="转写模式、全局快捷键与窗口外观" />
             </StackPanel>
 
             <Border Style="{StaticResource PanelBorderStyle}">
                 <StackPanel Spacing="16">
                     <TextBlock Style="{StaticResource SectionTitleStyle}" Text="会话行为" />
                     <ToggleSwitch
-                        Header="桌面字幕悬浮窗"
-                        IsOn="{x:Bind Controller.Settings.ShowOverlay, Mode=TwoWay}"
-                        OffContent="关闭"
-                        OnContent="开启" />
-                    <ToggleSwitch
                         Header="仅转写"
                         IsOn="{x:Bind Controller.Settings.TranscriptionOnly, Mode=TwoWay}"
                         OffContent="识别并翻译"
                         OnContent="只显示原文" />
-                    <ToggleSwitch
-                        x:Name="SpeakMyTranslationSwitch"
-                        Header="启用 VRChat 语音翻译"
-                        IsOn="{x:Bind Controller.Settings.SpeakMyTranslation, Mode=OneWay}"
-                        OffContent="仅发送 Chatbox 文字"
-                        OnContent="文字与 TTS 语音"
-                        Toggled="SpeakMyTranslationSwitch_Toggled" />
-                    <RadioButtons
-                        x:Name="SpeechContentButtons"
-                        Header="我说话时朗读的内容"
-                        MaxColumns="2"
-                        SelectionChanged="SpeechContentButtons_SelectionChanged">
-                        <RadioButton Content="朗读译文" Tag="Translation" />
-                        <RadioButton Content="朗读原话" Tag="Original" />
-                    </RadioButtons>
-                    <ToggleSwitch
-                        Header="自动朗读他人语音译文"
-                        IsOn="{x:Bind Controller.Settings.SpeakInboundTranslation, Mode=TwoWay}"
-                        OffContent="关闭"
-                        OnContent="开启" />
                 </StackPanel>
             </Border>
-            <Border Style="{StaticResource PanelBorderStyle}">
-                <StackPanel Spacing="14">
-                    <TextBlock Style="{StaticResource SectionTitleStyle}" Text="说话人标签" />
-                    <ComboBox
-                        x:Name="SpeakerModeBox"
-                        Header="模式"
-                        SelectionChanged="SpeakerModeBox_SelectionChanged">
-                        <ComboBoxItem Content="关闭" Tag="Off" />
-                        <ComboBoxItem Content="本地匿名 A/B/C" Tag="Local" />
-                        <ComboBoxItem Content="云端 provider speaker ID" Tag="Cloud" />
-                    </ComboBox>
-                    <InfoBar
-                        x:Name="LocalSpeakerInfo"
-                        IsClosable="False"
-                        IsOpen="False"
-                        Message="首次启用本地标签时下载约 27 MB 的 Apache-2.0 sherpa-onnx CAMPPlus 模型并校验 SHA-256；模型仅保存在本机。"
-                        Severity="Informational" />
-                </StackPanel>
-            </Border>
+
             <Border Style="{StaticResource PanelBorderStyle}">
                 <StackPanel Spacing="14">
                     <TextBlock Style="{StaticResource SectionTitleStyle}" Text="全局快捷键" />
@@ -94,7 +51,7 @@
                         Header="关闭前询问"
                         IsOn="{x:Bind Controller.Settings.ConfirmOnClose, Mode=TwoWay}"
                         OffContent="直接关闭"
-                        OnContent="询问保留后台" />
+                        OnContent="询问隐藏到托盘" />
                 </StackPanel>
             </Border>
 

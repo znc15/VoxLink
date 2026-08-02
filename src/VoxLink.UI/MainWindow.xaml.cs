@@ -163,6 +163,8 @@ public sealed partial class MainWindow : Window
             "providers" => typeof(ProvidersPage),
             "audio" => typeof(AudioPage),
             "vrchat" => typeof(VRChatPage),
+            "overlay" => typeof(OverlayPage),
+            "speech" => typeof(SpeechPage),
             "models" => typeof(ModelProvidersPage),
             "advanced" => typeof(AdvancedPage),
             "logs" => typeof(LogsPage),
@@ -422,10 +424,9 @@ public sealed partial class MainWindow : Window
         var dialog = new ContentDialog
         {
             Title = "关闭 VoxLink？",
-            Content = "可以退出，也可以保留在后台继续运行。",
-            PrimaryButtonText = "退出",
-            SecondaryButtonText = "保留后台",
-            CloseButtonText = "取消",
+            Content = "「退出并停止」会停止翻译并关闭音频引擎；「隐藏到托盘」会继续在后台翻译，可从托盘图标恢复。",
+            PrimaryButtonText = "退出并停止",
+            SecondaryButtonText = "隐藏到托盘",
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = RootLayout.XamlRoot
         };

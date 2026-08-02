@@ -29,53 +29,7 @@
                 IsOpen="False"
                 Severity="Warning" />
 
-            <StackPanel x:Name="ModeStep" Spacing="14">
-                <TextBlock
-                    Style="{StaticResource CaptionStyle}"
-                    Text="选择首页的一键模式。两种模式都只识别你的麦克风并把译文发送到 VRChat Chatbox。" />
-                <RadioButtons
-                    x:Name="ModeButtons"
-                    MaxColumns="1"
-                    SelectionChanged="ModeButtons_SelectionChanged">
-                    <RadioButton
-                        Tag="OscText"
-                        VerticalContentAlignment="Center">
-                        <Grid Padding="4,8" ColumnSpacing="12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="36" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <FontIcon VerticalAlignment="Center" FontSize="20" Foreground="{ThemeResource VoxLinkAccentBrush}" Glyph="&#xE8C1;" />
-                            <StackPanel Grid.Column="1" Spacing="3">
-                                <TextBlock FontWeight="SemiBold" Text="仅文字" />
-                                <TextBlock Style="{StaticResource CaptionStyle}" Text="麦克风 → 识别 → 翻译 → VRChat Chatbox。无需虚拟声卡。" />
-                            </StackPanel>
-                        </Grid>
-                    </RadioButton>
-                    <RadioButton
-                        Tag="VrChatVoice"
-                        VerticalContentAlignment="Center">
-                        <Grid Padding="4,8" ColumnSpacing="12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="36" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <FontIcon VerticalAlignment="Center" FontSize="20" Foreground="{ThemeResource VoxLinkAccentBrush}" Glyph="&#xE767;" />
-                            <StackPanel Grid.Column="1" Spacing="3">
-                                <TextBlock FontWeight="SemiBold" Text="VRChat 语音翻译" />
-                                <TextBlock Style="{StaticResource CaptionStyle}" Text="在 Chatbox 文字基础上，把原话或译文通过 TTS 和虚拟声卡送入 VRChat。" />
-                            </StackPanel>
-                        </Grid>
-                    </RadioButton>
-                </RadioButtons>
-                <InfoBar
-                    IsClosable="False"
-                    IsOpen="True"
-                    Message="系统音频翻译是独立高级功能，本模式不会自动开启（以免 TTS 被回环再次识别）。需要翻译他人播放的系统语音时，请在「音频设备」页开启系统音频回环。"
-                    Severity="Informational" />
-            </StackPanel>
-
-            <StackPanel x:Name="DevicesStep" Spacing="14" Visibility="Collapsed">
+            <StackPanel x:Name="DevicesStep" Spacing="14">
                 <Grid ColumnSpacing="12">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -123,7 +77,7 @@
                     </Button>
                 </Grid>
 
-                <StackPanel x:Name="VoiceSettingsPanel" Spacing="12" Visibility="Collapsed">
+                <StackPanel x:Name="VoiceSettingsPanel" Spacing="12">
                     <InfoBar
                         x:Name="VirtualCableInfoBar"
                         IsClosable="False"
@@ -169,7 +123,7 @@
                             <TextBlock Text="测试 Chatbox" />
                         </StackPanel>
                     </Button>
-                    <Button x:Name="TestVoiceButton" Grid.Column="1" Click="TestVoice_Click" Visibility="Collapsed">
+                    <Button x:Name="TestVoiceButton" Grid.Column="1" Click="TestVoice_Click">
                         <StackPanel Orientation="Horizontal" Spacing="7">
                             <FontIcon FontSize="13" Glyph="&#xE767;" />
                             <TextBlock Text="测试语音路由" />

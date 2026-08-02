@@ -87,9 +87,10 @@ public sealed class AppSettings
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
     public bool EnableTranslationRefinement { get; set; }
-
     public string TranslationRefinementPrompt { get; set; } = string.Empty;
 
+    public bool SpeechRefinementEnabled { get; set; }
+    public string SpeechRefinementPrompt { get; set; } = string.Empty;
     public AsrProvider AsrProvider { get; set; } = AsrProvider.LocalWhisper;
 
     public AsrProtocol AsrProtocol { get; set; } = AsrProtocol.LocalWhisper;

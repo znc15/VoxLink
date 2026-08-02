@@ -58,47 +58,8 @@
             Visibility="Collapsed"
             Closed="ErrorInfoBar_Closed" />
 
-        <Border Grid.Row="4" Padding="14,12" Style="{StaticResource PanelBorderStyle}">
-            <Grid ColumnSpacing="10" RowSpacing="7">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="输出模式" />
-                <ToggleButton
-                    x:Name="OscModeButton"
-                    Grid.Column="1"
-                    MinWidth="126"
-                    Click="OscModeButton_Click">
-                    <StackPanel Orientation="Horizontal" Spacing="7">
-                        <FontIcon FontSize="13" Glyph="&#xE8C1;" />
-                        <TextBlock Text="仅文字" />
-                    </StackPanel>
-                </ToggleButton>
-                <ToggleButton
-                    x:Name="VoiceModeButton"
-                    Grid.Column="2"
-                    MinWidth="138"
-                    Click="VoiceModeButton_Click">
-                    <StackPanel Orientation="Horizontal" Spacing="7">
-                        <FontIcon FontSize="13" Glyph="&#xE767;" />
-                        <TextBlock Text="VRChat 语音" />
-                    </StackPanel>
-                </ToggleButton>
-                <Button
-                    Grid.Column="4"
-                    Click="Onboarding_Click"
-                    Style="{StaticResource HelpBadgeButtonStyle}"
-                    ToolTipService.ToolTip="打开新手引导">
-                    <FontIcon FontSize="14" Glyph="&#xE897;" />
-                </Button>
-            </Grid>
-        </Border>
 
-        <Border Grid.Row="5" Style="{StaticResource PanelBorderStyle}">
+        <Border Grid.Row="4" Style="{StaticResource PanelBorderStyle}">
             <Grid
                 x:Name="LanguageGrid"
                 ColumnSpacing="12"
@@ -160,7 +121,7 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="6" Padding="16,12" Style="{StaticResource PanelBorderStyle}">
+        <Border Grid.Row="5" Padding="16,12" Style="{StaticResource PanelBorderStyle}">
             <Grid ColumnSpacing="12">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -197,7 +158,7 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="7" Height="210" Padding="0" Style="{StaticResource PanelBorderStyle}">
+        <Border Grid.Row="6" Height="210" Padding="0" Style="{StaticResource PanelBorderStyle}">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="52" />
@@ -294,7 +255,7 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="8" Padding="12" Style="{StaticResource PanelBorderStyle}">
+        <Border Grid.Row="7" Padding="12" Style="{StaticResource PanelBorderStyle}">
             <Grid ColumnSpacing="10" RowSpacing="10">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />

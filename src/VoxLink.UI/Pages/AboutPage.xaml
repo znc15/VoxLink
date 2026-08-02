@@ -49,28 +49,34 @@
                 </StackPanel>
             </Border>
 
-            <Border Style="{StaticResource PanelBorderStyle}">
-                <StackPanel Spacing="14">
-                    <TextBlock Style="{StaticResource SectionTitleStyle}" Text="运行状态" />
-                    <Grid RowSpacing="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="170" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-                        <TextBlock Text="音频引擎" />
-                        <TextBlock x:Name="EngineStateText" Grid.Column="1" FontWeight="SemiBold" />
-                        <TextBlock Grid.Row="1" Text="翻译会话" />
-                        <TextBlock x:Name="SessionStateText" Grid.Row="1" Grid.Column="1" FontWeight="SemiBold" />
-                        <TextBlock Grid.Row="2" Text="当前活动" />
-                        <TextBlock x:Name="ActivityText" Grid.Row="2" Grid.Column="1" FontWeight="SemiBold" />
-                    </Grid>
-                </StackPanel>
-            </Border>
+        <Border Style="{StaticResource PanelBorderStyle}">
+            <StackPanel Spacing="14">
+                <TextBlock Style="{StaticResource SectionTitleStyle}" Text="运行状态" />
+                <Grid RowSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="170" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="音频引擎" />
+                    <TextBlock x:Name="EngineStateText" Grid.Column="1" FontWeight="SemiBold" />
+                    <TextBlock Grid.Row="1" Text="翻译会话" />
+                    <TextBlock x:Name="SessionStateText" Grid.Row="1" Grid.Column="1" FontWeight="SemiBold" />
+                    <TextBlock Grid.Row="2" Text="当前活动" />
+                    <TextBlock x:Name="ActivityText" Grid.Row="2" Grid.Column="1" FontWeight="SemiBold" />
+                </Grid>
+                <Button HorizontalAlignment="Left" Click="OpenOnboarding_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                        <FontIcon FontSize="13" Glyph="&#xE897;" />
+                        <TextBlock Text="重新打开新手引导" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </Border>
 
             <Border
                 Padding="18"

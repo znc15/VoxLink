@@ -55,4 +55,7 @@ public sealed partial class AboutPage : Page
 
     private void OpenRelease_Click(object sender, RoutedEventArgs args) =>
         Controller.OpenLatestReleasePage();
+
+    private void OpenOnboarding_Click(object sender, RoutedEventArgs args) =>
+        Controller.RequestOnboarding();
 }

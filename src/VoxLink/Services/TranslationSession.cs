@@ -27,9 +27,11 @@ public sealed class TranslationSession : IAsyncDisposable
     private AppSettings? _settings;
     private ITranslationService? _translator;
     private OpenAiTranslationService? _refinementService;
+    private OpenAiTranslationService? _speechRefinementService;
     private volatile bool _vrChatMuted;
     private volatile bool _isRunning;
     private int _refinementWarningRaised;
+    private int _speechRefinementWarningRaised;
     private string? _outboundStreamingUtteranceId;
     private string? _inboundStreamingUtteranceId;
     private int _disposeState;
@@ -158,6 +160,8 @@ public sealed class TranslationSession : IAsyncDisposable
         if (ShouldSpeakTranslation(message, settings))
         {
             var (speechText, speechLanguage) = ResolveSpeech(message, settings, source, target);
+            speechText = await PolishSpeechTextAsync(
+                speechText, speechLanguage, message.Direction, settings, cancellationToken).ConfigureAwait(false);
             RaiseStatus("正在输出语音", SessionActivity.Speaking);
             await _textToSpeech.SpeakAsync(
                 speechText,
@@ -188,6 +192,7 @@ public sealed class TranslationSession : IAsyncDisposable
     {
         _settings = settings.Clone();
         _refinementWarningRaised = 0;
+        _speechRefinementWarningRaised = 0;
         ResetStreamingUtteranceIds();
         _vrChatMuted = false;
         if (_textToSpeech is IConfigurableTextToSpeechService configurableSpeech)
@@ -199,6 +204,10 @@ public sealed class TranslationSession : IAsyncDisposable
             ? null
             : _translationFactory.Create(_settings);
         _refinementService = !_settings.TranscriptionOnly && _settings.EnableTranslationRefinement
+            ? _translationFactory.CreateChatService(_settings)
+            : null;
+        _speechRefinementService = !_settings.TranscriptionOnly && _settings.SpeechRefinementEnabled
+            && _settings.TranslationProvider != TranslationProvider.GoogleWeb
             ? _translationFactory.CreateChatService(_settings)
             : null;
         _sessionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -273,6 +282,7 @@ public sealed class TranslationSession : IAsyncDisposable
         _settings = null;
         _translator = null;
         _refinementService = null;
+        _speechRefinementService = null;
         _vrChatMuted = false;
         ResetStreamingUtteranceIds();
 
@@ -329,15 +339,9 @@ public sealed class TranslationSession : IAsyncDisposable
             return;
         }
 
-        if (settings.SpeakerLabelMode == SpeakerLabelMode.Cloud)
+        if (recognizer.Capabilities.SupportsCloudSpeakerLabels)
         {
-            if (!recognizer.Capabilities.SupportsCloudSpeakerLabels)
-            {
-                ErrorOccurred?.Invoke(this, new SessionErrorEventArgs(
-                    "当前 ASR 不支持云端说话人标签，已在本次会话中关闭标签。",
-                    new InvalidOperationException("只有 Soniox 流式协议支持云端 speaker ID。")));
-            }
-
+            // 云端 speaker ID 由识别结果直接提供（如 Soniox），无需本地标签。
             return;
         }
 
@@ -747,6 +751,8 @@ public sealed class TranslationSession : IAsyncDisposable
         if (ShouldSpeakTranslation(message, settings))
         {
             var (speechText, speechLanguage) = ResolveSpeech(message, settings, source, target);
+            speechText = await PolishSpeechTextAsync(
+                speechText, speechLanguage, message.Direction, settings, cancellationToken).ConfigureAwait(false);
             RaiseStatus("正在输出语音", SessionActivity.Speaking);
             await _textToSpeech.SpeakAsync(
                 speechText,
@@ -784,6 +790,52 @@ public sealed class TranslationSession : IAsyncDisposable
             ? (message.SourceText, source)
             : (message.TranslatedText, target);
 
+    /// <summary>朗读前用 LLM 把外发朗读内容改写成口语化表达（仅当开启口语化朗读且可用时）。</summary>
+    private async Task<string> PolishSpeechTextAsync(
+        string speechText,
+        LanguageOption language,
+        TranslationDirection direction,
+        AppSettings settings,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(speechText)
+            || _speechRefinementService is null
+            || direction is not (TranslationDirection.Outbound or TranslationDirection.Typed))
+        {
+            return speechText;
+        }
+
+        var instruction = string.IsNullOrWhiteSpace(settings.SpeechRefinementPrompt)
+            ? "Rewrite the text into natural, colloquial spoken language, as if chatting casually with friends. Keep the meaning, names, and numbers. Return only the rewritten text."
+            : settings.SpeechRefinementPrompt.Trim();
+        try
+        {
+            var chineseConstraint = language.Culture.Equals("zh-CN", StringComparison.OrdinalIgnoreCase)
+                ? "\nUse Simplified Chinese (简体中文) only; never use Traditional Chinese."
+                : string.Empty;
+            return await _speechRefinementService.GenerateAsync(
+                $"Rewrite this text so it sounds natural when spoken aloud.\n" +
+                $"Instruction: {instruction}{chineseConstraint}\n" +
+                $"Text: {speechText}\n" +
+                "Return only the rewritten text.",
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            if (Interlocked.Exchange(ref _speechRefinementWarningRaised, 1) == 0)
+            {
+                ErrorOccurred?.Invoke(this, new SessionErrorEventArgs(
+                    "朗读内容口语化失败，已按原内容朗读。",
+                    exception));
+            }
+
+            return speechText;
+        }
+    }
     private async Task<ConversationMessage> TranslateFinalTextAsync(
         TranslationDirection direction,
         string sourceText,
@@ -886,7 +938,7 @@ public sealed class TranslationSession : IAsyncDisposable
 
     private SpeakerIdentity? GetCloudSpeaker(string? speakerId)
     {
-        if (_settings?.SpeakerLabelMode != SpeakerLabelMode.Cloud
+        if (_settings?.SpeakerLabelMode == SpeakerLabelMode.Off
             || string.IsNullOrWhiteSpace(speakerId)
             || _recognizer?.Capabilities.SupportsCloudSpeakerLabels != true)
         {

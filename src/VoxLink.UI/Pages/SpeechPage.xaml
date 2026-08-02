@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="VoxLink.UI.Pages.SpeechPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Background="Transparent"
+    mc:Ignorable="d"
+    NavigationCacheMode="Required">
+    <ScrollViewer Style="{StaticResource PageScrollViewerStyle}">
+        <StackPanel Style="{StaticResource PageStackStyle}">
+            <StackPanel Spacing="3">
+                <TextBlock Style="{StaticResource PageTitleStyle}" Text="自动朗读" />
+                <TextBlock Style="{StaticResource CaptionStyle}" Text="把译文朗读出来" />
+            </StackPanel>
+
+            <InfoBar
+                x:Name="SpeechErrorBar"
+                Closed="SpeechErrorBar_Closed"
+                IsClosable="True"
+                IsOpen="False"
+                Severity="Error" />
+
+            <Border Style="{StaticResource PanelBorderStyle}">
+                <StackPanel Spacing="16">
+                    <StackPanel Spacing="3">
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="朗读我的语音" />
+                        <TextBlock Style="{StaticResource CaptionStyle}" Text="把我说话的内容翻译并朗读出来，经虚拟声卡送入 VRChat，作为我的游戏内语音。" />
+                    </StackPanel>
+
+                    <ToggleSwitch
+                        x:Name="SpeakMyTranslationSwitch"
+                        Header="朗读我的译文"
+                        IsOn="{x:Bind Controller.Settings.SpeakMyTranslation, Mode=TwoWay}"
+                        OffContent="关闭"
+                        OnContent="开启"
+                        Toggled="SpeakMyTranslationSwitch_Toggled" />
+
+                    <RadioButtons
+                        x:Name="SpeechContentButtons"
+                        Header="我说话时朗读的内容"
+                        MaxColumns="2"
+                        SelectionChanged="SpeechContentButtons_SelectionChanged">
+                        <RadioButton Content="朗读译文" Tag="Translation" />
+                        <RadioButton Content="朗读原话" Tag="Original" />
+                    </RadioButtons>
+
+                    <InfoBar
+                        x:Name="VoiceRouteInfoBar"
+                        IsClosable="False"
+                        IsOpen="True" />
+
+                    <Grid ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ComboBox
+                            x:Name="VoiceOutputBox"
+                            Header="语音输出设备（虚拟声卡播放端）"
+                            DisplayMemberPath="Label"
+                            ItemsSource="{x:Bind Controller.RenderDevices}"
+                            SelectedValuePath="Id"
+                            SelectionChanged="VoiceOutputBox_SelectionChanged" />
+                        <Button
+                            x:Name="RefreshVoiceDevicesButton"
+                            Grid.Column="1"
+                            Margin="0,18,0,0"
+                            Click="RefreshVoiceDevices_Click"
+                            ToolTipService.ToolTip="刷新音频设备">
+                            <FontIcon Glyph="&#xE72C;" />
+                        </Button>
+                    </Grid>
+
+                    <Grid ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="TestVoiceOutputButton" Click="TestVoiceOutput_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <FontIcon FontSize="13" Glyph="&#xE767;" />
+                                <TextBlock Text="测试语音路由" />
+                            </StackPanel>
+                        </Button>
+                        <HyperlinkButton Grid.Column="1" Click="OpenVirtualCableDownload_Click" Content="获取 VB-CABLE" />
+                        <TextBlock
+                            Grid.Column="2"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource CaptionStyle}"
+                            Text="VRChat 麦克风请选择配对录音端，例如 CABLE Output。" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource PanelBorderStyle}">
+                <StackPanel Spacing="14">
+                    <StackPanel Spacing="3">
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="朗读口语化" />
+                        <TextBlock Style="{StaticResource CaptionStyle}" Text="朗读前用 AI 把内容改写得更口语、更自然，避免生硬拗口。需要开启 AI 翻译并使用公共免密以外的模型服务。" />
+                    </StackPanel>
+
+                    <ToggleSwitch
+                        x:Name="SpeechRefinementSwitch"
+                        Header="朗读内容口语化"
+                        IsOn="{x:Bind Controller.Settings.SpeechRefinementEnabled, Mode=TwoWay}"
+                        OffContent="关闭"
+                        OnContent="开启"
+                        Toggled="SpeechRefinementSwitch_Toggled" />
+                    <InfoBar
+                        x:Name="SpeechRefinementHintBar"
+                        IsClosable="False"
+                        IsOpen="False"
+                        Message="朗读内容口语化需要开启「使用 AI 翻译」，并选择公共免密以外的模型服务。"
+                        Severity="Warning" />
+                    <TextBox
+                        x:Name="SpeechRefinementPromptBox"
+                        AcceptsReturn="True"
+                        Header="口语化要求"
+                        MaxHeight="120"
+                        PlaceholderText="例如：用朋友聊天的语气，简短自然，不要书面语"
+                        Text="{x:Bind Controller.Settings.SpeechRefinementPrompt, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource PanelBorderStyle}">
+                <StackPanel Spacing="14">
+                    <StackPanel Spacing="3">
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="朗读对方语音" />
+                        <TextBlock Style="{StaticResource CaptionStyle}" Text="把 VRChat 中对方语音的译文朗读出来（输出到上面的语音输出设备）。" />
+                    </StackPanel>
+
+                    <ToggleSwitch
+                        Header="朗读对方语音译文"
+                        IsOn="{x:Bind Controller.Settings.SpeakInboundTranslation, Mode=TwoWay}"
+                        OffContent="关闭"
+                        OnContent="开启" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

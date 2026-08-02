@@ -40,7 +40,6 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     private string? _warningMessage;
     private string? _testResultMessage;
     private bool _onboardingRequestPending;
-    private bool _applyingQuickStartMode;
     private bool _isCheckingForUpdates;
     private bool _isUpdateAvailable;
     private bool _updateBannerDismissed;
@@ -143,16 +142,15 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     public event EventHandler? ConversationHistoryRequested;
 
     public bool HasVirtualCable => FindVirtualCable() is not null;
-    public bool IsVoiceMode => Settings.QuickStartMode == QuickStartMode.VrChatVoice;
     public string? VirtualCableName => FindVirtualCable()?.Name;
-    public bool IsVoiceRouteReady => IsVoiceMode && ValidateVoiceRouteSettings() is null;
+    public bool IsVoiceRouteReady => Settings.SpeakMyTranslation && ValidateVoiceRouteSettings() is null;
     public string VoiceRouteStatus
     {
         get
         {
-            if (!IsVoiceMode)
+            if (!Settings.SpeakMyTranslation)
             {
-                return "麦克风译文将发送到 VRChat Chatbox，不播放语音。";
+                return "未开启朗读我的译文，不输出语音。";
             }
 
             var output = FindSelectedVoiceOutput();
@@ -203,39 +201,6 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         NotifySettingsChanged();
     }
 
-    public void ApplyQuickStartMode(QuickStartMode mode)
-    {
-        if (IsRunning)
-        {
-            ErrorMessage = "请先停止当前会话，再切换输出模式。";
-            return;
-        }
-
-        _applyingQuickStartMode = true;
-        try
-        {
-            Settings.QuickStartMode = mode;
-            Settings.TranscriptionOnly = false;
-            Settings.CaptureMicrophone = true;
-            Settings.CaptureSystemAudio = false;
-            Settings.VrChatChatboxEnabled = true;
-            Settings.SpeakMyTranslation = mode == QuickStartMode.VrChatVoice;
-            if (mode == QuickStartMode.VrChatVoice)
-            {
-                EnsureVirtualCableSelected();
-            }
-        }
-        finally
-        {
-            _applyingQuickStartMode = false;
-        }
-
-        NotifySettingsChanged();
-        if (mode == QuickStartMode.VrChatVoice && !IsVoiceRouteReady)
-        {
-            ErrorMessage = "VRChat 语音翻译需要虚拟声卡。请打开新手引导选择 Cable Input 或 Voicemeeter 输出。";
-        }
-    }
 
     public AudioDeviceInfo? FindVirtualCable() => RenderDevices.FirstOrDefault(device =>
         IsVirtualCableName(device.Name));
@@ -243,7 +208,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     private AudioDeviceInfo? FindSelectedVoiceOutput() => RenderDevices.FirstOrDefault(device =>
         device.Id.Equals(Settings.VoiceOutputDeviceId, StringComparison.OrdinalIgnoreCase));
 
-    private bool EnsureVirtualCableSelected()
+    public bool EnsureVirtualCableSelected()
     {
         var selected = FindSelectedVoiceOutput();
         if (selected is not null && IsVirtualCableName(selected.Name))
@@ -292,7 +257,6 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     private void RaiseQuickStartProperties()
     {
         OnPropertyChanged(nameof(HasVirtualCable));
-        OnPropertyChanged(nameof(IsVoiceMode));
         OnPropertyChanged(nameof(VirtualCableName));
         OnPropertyChanged(nameof(IsVoiceRouteReady));
         OnPropertyChanged(nameof(VoiceRouteStatus));
@@ -434,9 +398,9 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     public async Task TestVoiceOutputAsync()
     {
         TestResultMessage = null;
-        if (!IsVoiceMode)
+        if (!Settings.SpeakMyTranslation)
         {
-            ErrorMessage = "请先切换到 VRChat 语音模式，再测试虚拟声卡路由。";
+            ErrorMessage = "请先在「自动朗读」页开启朗读我的译文，再测试语音输出。";
             return;
         }
 
@@ -826,14 +790,9 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
 
     public string? ValidateVoiceRouteSettings()
     {
-        if (!IsVoiceMode)
-        {
-            return null;
-        }
-
         if (!Settings.SpeakMyTranslation)
         {
-            return "VRChat 语音翻译模式需要启用我的语音朗读。请重新选择该模式。";
+            return null;
         }
 
         var output = FindSelectedVoiceOutput();
@@ -853,7 +812,6 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         {
             LogService.Instance.Info(SourceApp, "正在加载设置并连接音频引擎…");
             var loadedSettings = await _settingsRepository.LoadAsync(cancellationToken);
-            loadedSettings.NormalizeQuickStartSettings();
             Settings = loadedSettings;
             _settingsLoaded = true;
             if (!_closing && _savePending)
@@ -1106,7 +1064,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     {
         ReplaceDevices(MicrophoneDevices, DecodeDevices(bootstrap, "captureDevices"));
         ReplaceDevices(RenderDevices, DecodeDevices(bootstrap, "renderDevices"));
-        if (IsVoiceMode)
+        if (Settings.SpeakMyTranslation)
         {
             EnsureVirtualCableSelected();
         }
@@ -1166,10 +1124,6 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
 
     private void OnSettingsPropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
-        if (_applyingQuickStartMode)
-        {
-            return;
-        }
 
         if (_replacingDevices
             && args.PropertyName is nameof(AppSettings.MicrophoneDeviceId)
@@ -1179,31 +1133,8 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             return;
         }
 
-        if (args.PropertyName is nameof(AppSettings.QuickStartMode)
-            or nameof(AppSettings.SpeakMyTranslation))
-        {
-            _applyingQuickStartMode = true;
-            try
-            {
-                if (args.PropertyName == nameof(AppSettings.QuickStartMode))
-                {
-                    Settings.SpeakMyTranslation = Settings.QuickStartMode == QuickStartMode.VrChatVoice;
-                }
-                else
-                {
-                    Settings.QuickStartMode = Settings.SpeakMyTranslation
-                        ? QuickStartMode.VrChatVoice
-                        : QuickStartMode.OscText;
-                }
-            }
-            finally
-            {
-                _applyingQuickStartMode = false;
-            }
-        }
 
-        if (args.PropertyName is nameof(AppSettings.QuickStartMode)
-            or nameof(AppSettings.VoiceOutputDeviceId)
+        if (args.PropertyName is nameof(AppSettings.VoiceOutputDeviceId)
             or nameof(AppSettings.SpeakMyTranslation)
             or nameof(AppSettings.OutboundSpeechContent))
         {

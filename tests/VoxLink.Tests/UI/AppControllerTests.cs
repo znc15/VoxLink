@@ -398,25 +398,21 @@ public sealed class AppControllerTests
         Assert.Null(controller.ValidateSessionSettings());
     }
     [Fact]
-    public async Task QuickStartMode_StaysSynchronizedAndAppliesSafeInputPreset()
+    public async Task SpeakMyTranslation_ControlsVoiceRouteValidation()
     {
         await using var controller = new AppController(
             new FakeEngineGateway(),
             new FakeSettingsRepository(new AppSettings()),
             new InlineSynchronizationContext());
 
-        controller.ApplyQuickStartMode(QuickStartMode.VrChatVoice);
-
-        Assert.Equal(QuickStartMode.VrChatVoice, controller.Settings.QuickStartMode);
-        Assert.True(controller.Settings.SpeakMyTranslation);
-        Assert.True(controller.Settings.CaptureMicrophone);
-        Assert.False(controller.Settings.CaptureSystemAudio);
-        Assert.True(controller.Settings.VrChatChatboxEnabled);
-
+        // 未开启朗读我的译文时，不校验语音路由。
         controller.Settings.SpeakMyTranslation = false;
+        Assert.Null(controller.ValidateVoiceRouteSettings());
 
-        Assert.Equal(QuickStartMode.OscText, controller.Settings.QuickStartMode);
-        Assert.False(controller.Settings.SpeakMyTranslation);
+        // 开启朗读后需要配置虚拟声卡播放端。
+        controller.Settings.SpeakMyTranslation = true;
+        Assert.NotNull(controller.ValidateVoiceRouteSettings());
+        Assert.False(controller.IsVoiceRouteReady);
     }
 
     [Fact]
@@ -431,7 +427,7 @@ public sealed class AppControllerTests
 
         Assert.Null(controller.ValidateSessionSettings());
 
-        controller.ApplyQuickStartMode(QuickStartMode.VrChatVoice);
+        controller.Settings.SpeakMyTranslation = true;
 
         Assert.Contains("语音服务", controller.ValidateSessionSettings(), StringComparison.Ordinal);
     }
@@ -445,7 +441,7 @@ public sealed class AppControllerTests
             new InlineSynchronizationContext());
         controller.RenderDevices.Add(new AudioDeviceInfo("speaker", "桌面扬声器", true));
         controller.RenderDevices.Add(new AudioDeviceInfo("cable", "CABLE Input (VB-Audio Virtual Cable)", false));
-        controller.ApplyQuickStartMode(QuickStartMode.VrChatVoice);
+        controller.Settings.SpeakMyTranslation = true;
 
         controller.Settings.VoiceOutputDeviceId = "speaker";
         Assert.Contains("虚拟声卡", controller.ValidateVoiceRouteSettings(), StringComparison.Ordinal);
@@ -566,7 +562,7 @@ public sealed class AppControllerTests
             new InlineSynchronizationContext());
         controller.RenderDevices.Add(new AudioDeviceInfo("speaker", "桌面扬声器", true));
         controller.RenderDevices.Add(new AudioDeviceInfo("cable", "Voicemeeter Input", false));
-        controller.ApplyQuickStartMode(QuickStartMode.VrChatVoice);
+        controller.Settings.SpeakMyTranslation = true;
 
         controller.Settings.VoiceOutputDeviceId = "speaker";
         await controller.TestVoiceOutputAsync();

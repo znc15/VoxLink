@@ -33,7 +33,6 @@ public sealed partial class OnboardingDialog : ContentDialog
 
     private void LoadSettings()
     {
-        ModeButtons.SelectedIndex = _controller.Settings.QuickStartMode == QuickStartMode.VrChatVoice ? 1 : 0;
         MyLanguageBox.ItemsSource = _controller.Languages;
         OtherLanguageBox.ItemsSource = _controller.Languages;
         MyLanguageBox.SelectedValue = _controller.Settings.MyLanguageCode;
@@ -42,7 +41,7 @@ public sealed partial class OnboardingDialog : ContentDialog
         SpeechContentButtons.SelectedIndex = _controller.Settings.OutboundSpeechContent == OutboundSpeechContent.Original
             ? 1
             : 0;
-        ApplyModeState();
+        UpdateVirtualCableInfo();
     }
 
     private void ReloadDevices()
@@ -83,15 +82,6 @@ public sealed partial class OnboardingDialog : ContentDialog
         }
     }
 
-    private void ApplyModeState()
-    {
-        var voiceMode = ModeButtons.SelectedIndex == 1;
-        VoiceSettingsPanel.Visibility = voiceMode ? Visibility.Visible : Visibility.Collapsed;
-        VoiceVrChatInstructions.Visibility = voiceMode ? Visibility.Visible : Visibility.Collapsed;
-        TestVoiceButton.Visibility = voiceMode ? Visibility.Visible : Visibility.Collapsed;
-        UpdateVirtualCableInfo();
-    }
-
     private void UpdateVirtualCableInfo()
     {
         if (_controller.HasVirtualCable)
@@ -104,39 +94,25 @@ public sealed partial class OnboardingDialog : ContentDialog
 
         VirtualCableInfoBar.Severity = InfoBarSeverity.Warning;
         VirtualCableInfoBar.Title = "未检测到虚拟声卡";
-        VirtualCableInfoBar.Message = "VRChat 不接受 OSC 音频。请安装 VB-CABLE 或 Voicemeeter，刷新设备后选择其播放端。";
+        VirtualCableInfoBar.Message = "朗读我的译文需要虚拟声卡。请安装 VB-CABLE 或 Voicemeeter，刷新设备后选择其播放端。";
     }
 
     private void UpdateStep()
     {
-        ModeStep.Visibility = _step == 0 ? Visibility.Visible : Visibility.Collapsed;
-        DevicesStep.Visibility = _step == 1 ? Visibility.Visible : Visibility.Collapsed;
-        TestStep.Visibility = _step == 2 ? Visibility.Visible : Visibility.Collapsed;
-        StepCounterText.Text = $"{_step + 1} / 3";
+        DevicesStep.Visibility = _step == 0 ? Visibility.Visible : Visibility.Collapsed;
+        TestStep.Visibility = _step == 1 ? Visibility.Visible : Visibility.Collapsed;
+        StepCounterText.Text = $"{_step + 1} / 2";
         StepTitleText.Text = _step switch
         {
-            0 => "选择使用方式",
-            1 => "配置语言与设备",
+            0 => "配置语言与设备",
             _ => "测试连接"
         };
-        PrimaryButtonText = _step == 2 ? "完成设置" : "下一步";
+        PrimaryButtonText = _step == 1 ? "完成设置" : "下一步";
         SecondaryButtonText = _step == 0 ? string.Empty : "上一步";
         GuideErrorBar.IsOpen = false;
-        ApplyModeState();
-    }
-
-    private void ModeButtons_SelectionChanged(object sender, SelectionChangedEventArgs args)
-    {
-        if (_loading || ModeButtons.SelectedIndex < 0)
-        {
-            return;
-        }
-
-        _controller.ApplyQuickStartMode(ModeButtons.SelectedIndex == 1
-            ? QuickStartMode.VrChatVoice
-            : QuickStartMode.OscText);
-        ReloadDevices();
-        ApplyModeState();
+        VoiceVrChatInstructions.Visibility = _controller.Settings.SpeakMyTranslation
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private void SwapLanguages_Click(object sender, RoutedEventArgs args)
@@ -176,10 +152,17 @@ public sealed partial class OnboardingDialog : ContentDialog
     private async Task RunTestAsync(Func<Task> test, string successMessage, bool requireVoiceRoute)
     {
         CommitSelections();
-        if (requireVoiceRoute && _controller.ValidateVoiceRouteSettings() is { } routeError)
+        if (requireVoiceRoute)
         {
-            ShowGuideError(routeError);
-            return;
+            if (!_controller.Settings.SpeakMyTranslation)
+            {
+                _controller.Settings.SpeakMyTranslation = true;
+            }
+            if (_controller.ValidateVoiceRouteSettings() is { } routeError)
+            {
+                ShowGuideError(routeError);
+                return;
+            }
         }
 
         TestProgress.IsActive = true;
@@ -248,14 +231,7 @@ public sealed partial class OnboardingDialog : ContentDialog
         args.Cancel = true;
         if (_step == 0)
         {
-            _step = 1;
-            UpdateStep();
-            return;
-        }
-
-        CommitSelections();
-        if (_step == 1)
-        {
+            CommitSelections();
             if (_controller.ValidateLanguageSettingsForOnboarding() is { } languageError)
             {
                 ShowGuideError(languageError);
@@ -266,12 +242,7 @@ public sealed partial class OnboardingDialog : ContentDialog
                 ShowGuideError(microphoneError);
                 return;
             }
-            if (_controller.ValidateVoiceRouteSettings() is { } routeError)
-            {
-                ShowGuideError(routeError);
-                return;
-            }
-            _step = 2;
+            _step = 1;
             UpdateStep();
             return;
         }

@@ -12,7 +12,7 @@
         <StackPanel Style="{StaticResource PageStackStyle}">
             <StackPanel Spacing="3">
                 <TextBlock Style="{StaticResource PageTitleStyle}" Text="VRChat" />
-                <TextBlock Style="{StaticResource CaptionStyle}" Text="OSC Chatbox 与 SteamVR 翻译字幕" />
+                <TextBlock Style="{StaticResource CaptionStyle}" Text="翻译对方语音、Chatbox 消息与静音联动" />
             </StackPanel>
 
             <InfoBar
@@ -28,6 +28,52 @@
                 IsClosable="True"
                 IsOpen="False"
                 Severity="Error" />
+
+            <Border Style="{StaticResource PanelBorderStyle}">
+                <StackPanel Spacing="14">
+                    <StackPanel Spacing="3">
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="翻译对方语音" />
+                        <TextBlock Style="{StaticResource CaptionStyle}" Text="识别 VRChat 中对方说的话并翻译，译文显示在「悬浮窗」页的悬浮窗中；不会发送到 Chatbox。" />
+                    </StackPanel>
+
+                    <ToggleSwitch
+                        x:Name="VoiceTranslationSwitch"
+                        Header="翻译对方语音"
+                        IsOn="{x:Bind Controller.Settings.CaptureSystemAudio, Mode=TwoWay}"
+                        OffContent="关闭"
+                        OnContent="开启" />
+
+                    <InfoBar
+                        x:Name="RestartHintBar"
+                        IsClosable="False"
+                        IsOpen="False"
+                        Message="采集来源已更改，重新开始会话后生效。"
+                        Severity="Warning" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource PanelBorderStyle}">
+                <StackPanel Spacing="14">
+                    <StackPanel Spacing="3">
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="说话人标签" />
+                        <TextBlock Style="{StaticResource CaptionStyle}" Text="在译文中标注这句话是谁说的（本地识别为 A / B / C）。" />
+                    </StackPanel>
+
+                    <ToggleSwitch
+                        x:Name="SpeakerLabelSwitch"
+                        Header="显示说话人标签"
+                        OffContent="关闭"
+                        OnContent="开启"
+                        Toggled="SpeakerLabelSwitch_Toggled" />
+
+                    <InfoBar
+                        x:Name="LocalSpeakerInfo"
+                        IsClosable="False"
+                        IsOpen="False"
+                        Message="首次启用时下载约 27 MB 的本地说话人模型（sherpa-onnx CAMPPlus），模型仅保存在本机；使用 Soniox 云端识别时自动改用云端说话人 ID。"
+                        Severity="Informational" />
+                </StackPanel>
+            </Border>
 
             <Border Style="{StaticResource PanelBorderStyle}">
                 <StackPanel Spacing="16">
@@ -82,86 +128,6 @@
 
             <Border Style="{StaticResource PanelBorderStyle}">
                 <StackPanel Spacing="16">
-                    <Grid ColumnSpacing="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Spacing="3">
-                            <TextBlock Style="{StaticResource SectionTitleStyle}" Text="VRChat 语音路由" />
-                            <TextBlock Style="{StaticResource CaptionStyle}" Text="将朗读译文或朗读原话经 TTS 输出到虚拟声卡，再由 VRChat 作为麦克风采集。" />
-                        </StackPanel>
-                        <Button Grid.Column="1" Click="OpenOnboarding_Click" Style="{StaticResource HelpBadgeButtonStyle}" ToolTipService.ToolTip="打开新手引导">
-                            <FontIcon FontSize="14" Glyph="&#xE897;" />
-                        </Button>
-                    </Grid>
-
-                    <ToggleSwitch
-                        x:Name="VoiceTranslationSwitch"
-                        Header="启用 VRChat 语音翻译"
-                        OffContent="仅发送 Chatbox 文字"
-                        OnContent="文字与 TTS 语音"
-                        Toggled="VoiceTranslationSwitch_Toggled" />
-
-                    <StackPanel x:Name="VoiceRoutePanel" Spacing="12">
-                        <InfoBar
-                            x:Name="VoiceRouteInfoBar"
-                            IsClosable="False"
-                            IsOpen="True" />
-                        <Grid ColumnSpacing="10">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <ComboBox
-                                x:Name="VoiceOutputBox"
-                                Header="语音输出（虚拟声卡播放端）"
-                                DisplayMemberPath="Label"
-                                ItemsSource="{x:Bind Controller.RenderDevices}"
-                                SelectedValuePath="Id"
-                                SelectionChanged="VoiceOutputBox_SelectionChanged" />
-                            <Button
-                                x:Name="RefreshVoiceDevicesButton"
-                                Grid.Column="1"
-                                Margin="0,18,0,0"
-                                Click="RefreshVoiceDevices_Click"
-                                ToolTipService.ToolTip="刷新音频设备">
-                                <FontIcon Glyph="&#xE72C;" />
-                            </Button>
-                        </Grid>
-                        <RadioButtons
-                            x:Name="SpeechContentButtons"
-                            Header="我说话时朗读的内容"
-                            MaxColumns="2"
-                            SelectionChanged="SpeechContentButtons_SelectionChanged">
-                            <RadioButton Content="朗读译文" Tag="Translation" />
-                            <RadioButton Content="朗读原话" Tag="Original" />
-                        </RadioButtons>
-                        <Grid ColumnSpacing="10">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <Button x:Name="TestVoiceOutputButton" Click="TestVoiceOutput_Click">
-                                <StackPanel Orientation="Horizontal" Spacing="7">
-                                    <FontIcon FontSize="13" Glyph="&#xE767;" />
-                                    <TextBlock Text="测试语音路由" />
-                                </StackPanel>
-                            </Button>
-                            <HyperlinkButton Grid.Column="1" Click="OpenVirtualCableDownload_Click" Content="获取 VB-CABLE" />
-                            <TextBlock
-                                Grid.Column="2"
-                                VerticalAlignment="Center"
-                                Style="{StaticResource CaptionStyle}"
-                                Text="VRChat 麦克风请选择配对录音端，例如 CABLE Output。" />
-                        </Grid>
-                    </StackPanel>
-                </StackPanel>
-            </Border>
-
-            <Border Style="{StaticResource PanelBorderStyle}">
-                <StackPanel Spacing="16">
                     <StackPanel Spacing="3">
                         <TextBlock Style="{StaticResource SectionTitleStyle}" Text="麦克风静音联动" />
                         <TextBlock Style="{StaticResource CaptionStyle}" Text="监听本机 VRChat OSC 的 /avatar/parameters/MuteSelf；静音时只暂停 VoxLink 麦克风，系统回环继续工作。" />
@@ -193,110 +159,6 @@
                             ValueChanged="OscListenPortNumberBox_ValueChanged" />
                     </Grid>
                     <TextBlock Style="{StaticResource CaptionStyle}" Text="VRChat OSC 入站端口通常为 9001。更改监听配置后请重新开始会话。" />
-                </StackPanel>
-            </Border>
-            <Border Style="{StaticResource PanelBorderStyle}">
-                <StackPanel Spacing="18">
-                    <StackPanel Spacing="3">
-                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="翻译字幕" />
-                        <TextBlock Style="{StaticResource CaptionStyle}" Text="SteamVR Overlay 需要 SteamVR 正在运行并检测到头显。桌面模式和原生 Oculus/OpenXR 不使用此输出。" />
-                    </StackPanel>
-
-                    <ToggleSwitch
-                        Header="桌面字幕悬浮窗"
-                        IsOn="{x:Bind Controller.Settings.ShowOverlay, Mode=TwoWay}"
-                        OffContent="关闭"
-                        OnContent="开启" />
-                    <ToggleSwitch
-                        Header="SteamVR 头显字幕"
-                        IsOn="{x:Bind Controller.Settings.ShowVrOverlay, Mode=TwoWay}"
-                        OffContent="关闭"
-                        OnContent="开启" />
-
-                    <Grid ColumnSpacing="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button
-                                Click="TestDesktopOverlay_Click"
-                                IsEnabled="{x:Bind Controller.EngineConnected, Mode=OneWay}">
-                                <StackPanel Orientation="Horizontal" Spacing="7">
-                                    <FontIcon FontSize="13" Glyph="&#xE7F4;" />
-                                    <TextBlock Text="测试桌面字幕" />
-                                </StackPanel>
-                            </Button>
-                            <Button
-                                Click="TestVrOverlay_Click"
-                                IsEnabled="{x:Bind Controller.EngineConnected, Mode=OneWay}">
-                                <StackPanel Orientation="Horizontal" Spacing="7">
-                                    <FontIcon FontSize="13" Glyph="&#xE7F4;" />
-                                    <TextBlock Text="测试头显字幕" />
-                                </StackPanel>
-                            </Button>
-                        </StackPanel>
-                        <TextBlock
-                            Grid.Column="1"
-                            VerticalAlignment="Center"
-                            Style="{StaticResource CaptionStyle}"
-                            Text="{x:Bind Controller.TestResultMessage, Mode=OneWay}" />
-                    </Grid>
-
-                    <StackPanel Spacing="6">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock FontWeight="SemiBold" Text="字幕宽度" />
-                            <TextBlock x:Name="WidthValueText" Grid.Column="1" Style="{StaticResource CaptionStyle}" />
-                        </Grid>
-                        <Slider
-                            x:Name="WidthSlider"
-                            Maximum="3"
-                            Minimum="0.6"
-                            SmallChange="0.1"
-                            StepFrequency="0.1"
-                            ValueChanged="OverlaySlider_ValueChanged" />
-                    </StackPanel>
-
-                    <StackPanel Spacing="6">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock FontWeight="SemiBold" Text="观看距离" />
-                            <TextBlock x:Name="DistanceValueText" Grid.Column="1" Style="{StaticResource CaptionStyle}" />
-                        </Grid>
-                        <Slider
-                            x:Name="DistanceSlider"
-                            Maximum="4"
-                            Minimum="0.6"
-                            SmallChange="0.1"
-                            StepFrequency="0.1"
-                            ValueChanged="OverlaySlider_ValueChanged" />
-                    </StackPanel>
-
-                    <StackPanel Spacing="6">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock FontWeight="SemiBold" Text="垂直位置" />
-                            <TextBlock x:Name="VerticalValueText" Grid.Column="1" Style="{StaticResource CaptionStyle}" />
-                        </Grid>
-                        <Slider
-                            x:Name="VerticalSlider"
-                            Maximum="0.5"
-                            Minimum="-1"
-                            SmallChange="0.05"
-                            StepFrequency="0.05"
-                            ValueChanged="OverlaySlider_ValueChanged" />
-                    </StackPanel>
-
                 </StackPanel>
             </Border>
         </StackPanel>

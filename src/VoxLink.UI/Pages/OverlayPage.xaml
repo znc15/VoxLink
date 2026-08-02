@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="VoxLink.UI.Pages.OverlayPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Background="Transparent"
+    mc:Ignorable="d"
+    NavigationCacheMode="Required">
+    <ScrollViewer Style="{StaticResource PageScrollViewerStyle}">
+        <StackPanel Style="{StaticResource PageStackStyle}">
+            <StackPanel Spacing="3">
+                <TextBlock Style="{StaticResource PageTitleStyle}" Text="悬浮窗" />
+                <TextBlock Style="{StaticResource CaptionStyle}" Text="翻译字幕的显示位置" />
+            </StackPanel>
+
+            <InfoBar
+                IsClosable="False"
+                IsOpen="True"
+                Message="在「VRChat」页开启「翻译对方语音」后，对方的译文会显示在这里；我自己的译文不会显示。"
+                Severity="Informational"
+                Title="显示内容" />
+
+            <InfoBar
+                x:Name="OverlayErrorBar"
+                Closed="OverlayErrorBar_Closed"
+                IsClosable="True"
+                IsOpen="False"
+                Severity="Error" />
+
+            <Border Style="{StaticResource PanelBorderStyle}">
+                <StackPanel Spacing="16">
+                    <StackPanel Spacing="3">
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="桌面字幕悬浮窗" />
+                        <TextBlock Style="{StaticResource CaptionStyle}" Text="在屏幕底部居中显示字幕。悬浮窗不抢焦点，也不会出现在任务栏和 Alt+Tab 中，完全在后台运行。" />
+                    </StackPanel>
+
+                    <ToggleSwitch
+                        Header="显示桌面字幕悬浮窗"
+                        IsOn="{x:Bind Controller.Settings.ShowOverlay, Mode=TwoWay}"
+                        OffContent="关闭"
+                        OnContent="开启" />
+
+                    <Grid ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button
+                            Click="TestDesktopOverlay_Click"
+                            IsEnabled="{x:Bind Controller.EngineConnected, Mode=OneWay}">
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <FontIcon FontSize="13" Glyph="&#xE7F4;" />
+                                <TextBlock Text="测试桌面字幕" />
+                            </StackPanel>
+                        </Button>
+                        <TextBlock
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource CaptionStyle}"
+                            Text="{x:Bind Controller.TestResultMessage, Mode=OneWay}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource PanelBorderStyle}">
+                <StackPanel Spacing="18">
+                    <StackPanel Spacing="3">
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="SteamVR 头显字幕" />
+                        <TextBlock Style="{StaticResource CaptionStyle}" Text="SteamVR Overlay 需要 SteamVR 正在运行并检测到头显。桌面模式和原生 Oculus/OpenXR 不使用此输出。" />
+                    </StackPanel>
+
+                    <ToggleSwitch
+                        Header="SteamVR 头显字幕"
+                        IsOn="{x:Bind Controller.Settings.ShowVrOverlay, Mode=TwoWay}"
+                        OffContent="关闭"
+                        OnContent="开启" />
+
+                    <Button
+                        HorizontalAlignment="Left"
+                        Click="TestVrOverlay_Click"
+                        IsEnabled="{x:Bind Controller.EngineConnected, Mode=OneWay}">
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                            <FontIcon FontSize="13" Glyph="&#xE7F4;" />
+                            <TextBlock Text="测试头显字幕" />
+                        </StackPanel>
+                    </Button>
+
+                    <StackPanel Spacing="6">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock FontWeight="SemiBold" Text="字幕宽度" />
+                            <TextBlock x:Name="WidthValueText" Grid.Column="1" Style="{StaticResource CaptionStyle}" />
+                        </Grid>
+                        <Slider
+                            x:Name="WidthSlider"
+                            Maximum="3"
+                            Minimum="0.6"
+                            SmallChange="0.1"
+                            StepFrequency="0.1"
+                            ValueChanged="OverlaySlider_ValueChanged" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="6">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock FontWeight="SemiBold" Text="观看距离" />
+                            <TextBlock x:Name="DistanceValueText" Grid.Column="1" Style="{StaticResource CaptionStyle}" />
+                        </Grid>
+                        <Slider
+                            x:Name="DistanceSlider"
+                            Maximum="4"
+                            Minimum="0.6"
+                            SmallChange="0.1"
+                            StepFrequency="0.1"
+                            ValueChanged="OverlaySlider_ValueChanged" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="6">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock FontWeight="SemiBold" Text="垂直位置" />
+                            <TextBlock x:Name="VerticalValueText" Grid.Column="1" Style="{StaticResource CaptionStyle}" />
+                        </Grid>
+                        <Slider
+                            x:Name="VerticalSlider"
+                            Maximum="0.5"
+                            Minimum="-1"
+                            SmallChange="0.05"
+                            StepFrequency="0.05"
+                            ValueChanged="OverlaySlider_ValueChanged" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

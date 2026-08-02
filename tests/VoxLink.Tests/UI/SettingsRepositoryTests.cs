@@ -18,7 +18,6 @@ public sealed class SettingsRepositoryTests : IDisposable
         var repository = CreateRepository();
         var settings = new AppSettings
         {
-            QuickStartMode = QuickStartMode.VrChatVoice,
             OnboardingCompleted = true,
             OutboundSpeechContent = OutboundSpeechContent.Original,
             SpeakMyTranslation = true,
@@ -104,7 +103,6 @@ public sealed class SettingsRepositoryTests : IDisposable
         Assert.False(loaded.SmartSentenceSegmentation);
         Assert.True(loaded.TranscriptionOnly);
         Assert.Equal(SpeakerLabelMode.Cloud, loaded.SpeakerLabelMode);
-        Assert.Equal(QuickStartMode.VrChatVoice, loaded.QuickStartMode);
         Assert.True(loaded.OnboardingCompleted);
         Assert.Equal(OutboundSpeechContent.Original, loaded.OutboundSpeechContent);
         Assert.True(loaded.SpeakMyTranslation);
@@ -125,7 +123,7 @@ public sealed class SettingsRepositoryTests : IDisposable
         Assert.Contains("vrChatOscAddress", publicJson, StringComparison.Ordinal);
         Assert.Contains("secondaryTargetLanguageCode", publicJson, StringComparison.Ordinal);
         Assert.Contains("speakerLabelMode", publicJson, StringComparison.Ordinal);
-        Assert.Contains("quickStartMode", publicJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("quickStartMode", publicJson, StringComparison.Ordinal);
         Assert.Contains("outboundSpeechContent", publicJson, StringComparison.Ordinal);
         Assert.Contains("minimizeToTray", publicJson, StringComparison.Ordinal);
         Assert.Contains("confirmOnClose", publicJson, StringComparison.Ordinal);
@@ -190,7 +188,6 @@ public sealed class SettingsRepositoryTests : IDisposable
         Assert.Equal(0.024, loaded.VoiceThreshold, precision: 3);
         Assert.Equal(900, loaded.SilenceDurationMs);
         Assert.False(loaded.SpeakMyTranslation);
-        Assert.Equal(QuickStartMode.OscText, loaded.QuickStartMode);
         Assert.False(loaded.ShowOverlay);
         Assert.True(File.Exists(PathFor("settings.json")));
         Assert.True(File.Exists(PathFor("secrets.dat")));
@@ -198,7 +195,6 @@ public sealed class SettingsRepositoryTests : IDisposable
         var migratedPublicJson = await File.ReadAllTextAsync(PathFor("settings.json"));
         Assert.DoesNotContain("legacy-translation-key", migratedPublicJson, StringComparison.Ordinal);
         Assert.DoesNotContain("legacy-header-value", migratedPublicJson, StringComparison.Ordinal);
-        Assert.Contains("\"quickStartMode\": \"OscText\"", migratedPublicJson, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -224,11 +220,10 @@ public sealed class SettingsRepositoryTests : IDisposable
     }
 
     [Theory]
-    [InlineData(false, QuickStartMode.OscText)]
-    [InlineData(true, QuickStartMode.VrChatVoice)]
-    public async Task LoadAsync_InfersQuickStartModeWhenLegacyFieldIsMissing(
-        bool speakMyTranslation,
-        QuickStartMode expectedMode)
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LoadAsync_KeepsPersistedSpeakMyTranslationWithoutInference(
+        bool speakMyTranslation)
     {
         Directory.CreateDirectory(_directory);
         await File.WriteAllTextAsync(
@@ -237,32 +232,9 @@ public sealed class SettingsRepositoryTests : IDisposable
 
         var loaded = await CreateRepository().LoadAsync();
 
-        Assert.Equal(expectedMode, loaded.QuickStartMode);
         Assert.Equal(speakMyTranslation, loaded.SpeakMyTranslation);
         var migratedJson = await File.ReadAllTextAsync(PathFor("settings.json"));
-        Assert.Contains("quickStartMode", migratedJson, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("oscText", true, QuickStartMode.OscText, false)]
-    [InlineData("vrChatVoice", false, QuickStartMode.VrChatVoice, true)]
-    public async Task LoadAsync_PersistedQuickStartModeOverridesConflictingSpeechFlag(
-        string quickStartMode,
-        bool speakMyTranslation,
-        QuickStartMode expectedMode,
-        bool expectedSpeech)
-    {
-        Directory.CreateDirectory(_directory);
-        await File.WriteAllTextAsync(
-            PathFor("settings.json"),
-            $$"""{"quickStartMode":"{{quickStartMode}}","speakMyTranslation":{{speakMyTranslation.ToString().ToLowerInvariant()}}}""");
-
-        var loaded = await CreateRepository().LoadAsync();
-
-        Assert.Equal(expectedMode, loaded.QuickStartMode);
-        Assert.Equal(expectedSpeech, loaded.SpeakMyTranslation);
-        var normalizedJson = await File.ReadAllTextAsync(PathFor("settings.json"));
-        Assert.Contains($"\"speakMyTranslation\": {expectedSpeech.ToString().ToLowerInvariant()}", normalizedJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("quickStartMode", migratedJson, StringComparison.Ordinal);
     }
 
     public void Dispose()

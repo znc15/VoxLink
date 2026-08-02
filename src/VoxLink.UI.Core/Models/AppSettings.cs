@@ -47,11 +47,6 @@ public enum SpeakerLabelMode
     Cloud
 }
 
-public enum QuickStartMode
-{
-    OscText,
-    VrChatVoice
-}
 
 public enum OutboundSpeechContent
 {
@@ -61,7 +56,8 @@ public enum OutboundSpeechContent
 
 public sealed class AppSettings : ObservableObject
 {
-    private QuickStartMode _quickStartMode = QuickStartMode.OscText;
+    private bool _enableSpeechRefinement;
+    private string _speechRefinementPrompt = "用口语化的方式改写这段话，像朋友聊天一样自然简洁，不要书面语和生硬的翻译腔。只返回改写后的内容。";
     private bool _onboardingCompleted;
     private string _myLanguageCode = "zh";
     private string _otherLanguageCode = "en";
@@ -123,11 +119,11 @@ public sealed class AppSettings : ObservableObject
     private bool _minimizeToTray = true;
     private bool _confirmOnClose = true;
 
-    [JsonConverter(typeof(JsonStringEnumConverter<QuickStartMode>))]
-    public QuickStartMode QuickStartMode { get => _quickStartMode; set => SetProperty(ref _quickStartMode, value); }
     public bool OnboardingCompleted { get => _onboardingCompleted; set => SetProperty(ref _onboardingCompleted, value); }
 
     public string MyLanguageCode { get => _myLanguageCode; set => SetProperty(ref _myLanguageCode, value); }
+    public bool SpeechRefinementEnabled { get => _enableSpeechRefinement; set => SetProperty(ref _enableSpeechRefinement, value && SupportsGeneration); }
+    public string SpeechRefinementPrompt { get => _speechRefinementPrompt; set => SetProperty(ref _speechRefinementPrompt, value); }
     public string OtherLanguageCode { get => _otherLanguageCode; set => SetProperty(ref _otherLanguageCode, value); }
     public string SecondaryTargetLanguageCode { get => _secondaryTargetLanguageCode; set => SetProperty(ref _secondaryTargetLanguageCode, value); }
     public bool CaptureMicrophone { get => _captureMicrophone; set => SetProperty(ref _captureMicrophone, value); }
@@ -288,17 +284,6 @@ public sealed class AppSettings : ObservableObject
     [JsonIgnore]
     public bool SupportsCloudSpeakerLabels => AsrProtocol == AsrProtocol.SonioxStreaming;
 
-    public bool NormalizeQuickStartSettings(bool quickStartModeWasPersisted = true)
-    {
-        var voiceMode = quickStartModeWasPersisted
-            ? QuickStartMode == QuickStartMode.VrChatVoice
-            : SpeakMyTranslation;
-        var normalizedMode = voiceMode ? QuickStartMode.VrChatVoice : QuickStartMode.OscText;
-        var changed = QuickStartMode != normalizedMode || SpeakMyTranslation != voiceMode;
-        QuickStartMode = normalizedMode;
-        SpeakMyTranslation = voiceMode;
-        return changed;
-    }
 
     public void ApplyTranslationBackendDefaults(TranslationBackend backend)
     {
@@ -412,6 +397,8 @@ public sealed class AppSettings : ObservableObject
         ["openAiHeaders"] = TranslationHeaders,
         ["enableTranslationRefinement"] = EnableTranslationRefinement,
         ["translationRefinementPrompt"] = TranslationRefinementPrompt,
+        ["speechRefinementEnabled"] = SpeechRefinementEnabled,
+        ["speechRefinementPrompt"] = SpeechRefinementPrompt,
         ["asrProvider"] = respectSwitches && !UseCloudAsr
             ? "localWhisper"
             : JsonNamingPolicy.CamelCase.ConvertName(AsrProvider.ToString()),

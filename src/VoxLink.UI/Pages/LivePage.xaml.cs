@@ -45,10 +45,6 @@ public sealed partial class LivePage : Page
         SessionButtonIcon.Glyph = Controller.IsRunning ? "\uE71A" : "\uE768";
         SessionButton.IsEnabled = !Controller.IsBusy && Controller.EngineConnected;
         SubmitButton.IsEnabled = !Controller.IsBusy && Controller.EngineConnected;
-        OscModeButton.IsEnabled = !Controller.IsRunning;
-        VoiceModeButton.IsEnabled = !Controller.IsRunning;
-        OscModeButton.IsChecked = !Controller.IsVoiceMode;
-        VoiceModeButton.IsChecked = Controller.IsVoiceMode;
         SubmitButtonText.Text = "翻译并发送";
         ModelStatusText.Text = Controller.ModelStatus.Length == 0
             ? string.Empty
@@ -161,13 +157,6 @@ public sealed partial class LivePage : Page
     private void Language_SelectionChanged(object sender, SelectionChangedEventArgs args) => Controller.NotifySettingsChanged();
     private void SwapButton_Click(object sender, RoutedEventArgs args) => Controller.SwapLanguages();
 
-    private void OscModeButton_Click(object sender, RoutedEventArgs args) =>
-        Controller.ApplyQuickStartMode(QuickStartMode.OscText);
-
-    private void VoiceModeButton_Click(object sender, RoutedEventArgs args) =>
-        Controller.ApplyQuickStartMode(QuickStartMode.VrChatVoice);
-
-    private void Onboarding_Click(object sender, RoutedEventArgs args) => Controller.RequestOnboarding();
     private async void SessionButton_Click(object sender, RoutedEventArgs args) => await Controller.ToggleSessionAsync();
     private void ClearMessages_Click(object sender, RoutedEventArgs args) => Controller.ClearMessages();
     private void ViewHistory_Click(object sender, RoutedEventArgs args) => Controller.RequestConversationHistory();
