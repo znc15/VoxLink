@@ -16,7 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+        with:
+          fetch-depth: 0  # full history so release-notes.ps1 can diff against previous tag
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -58,6 +59,9 @@ jobs:
           $assets = Get-ChildItem "artifacts/release" -File |
               Where-Object { $_.Name -match '\.(zip|sha256|exe)$' } |
               Select-Object -ExpandProperty FullName
+          $notes = (./scripts/release-notes.ps1) -join "`n"
+          $notesFile = Join-Path $env:RUNNER_TEMP "release-notes.md"
+          [System.IO.File]::WriteAllText($notesFile, $notes, (New-Object System.Text.UTF8Encoding($false)))
           gh release create "$env:GITHUB_REF_NAME" $assets `
               --title "VoxLink $env:GITHUB_REF_NAME" `
-              --notes "自动构建的便携包与安装包。"
+              --notes-file "$notesFile"
