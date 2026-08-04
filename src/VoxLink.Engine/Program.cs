@@ -22,6 +22,7 @@ internal static class Program
         Console.OutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
         EngineHost? host = null;
+        var backgroundRequests = new List<Task>();
         try
         {
             host = new EngineHost(WriteEvent);
@@ -44,7 +45,15 @@ internal static class Program
                     continue;
                 }
 
-                await HandleLineAsync(host, line);
+                if (IsBackgroundRequest(line))
+                {
+                    backgroundRequests.RemoveAll(static task => task.IsCompleted);
+                    backgroundRequests.Add(HandleLineAsync(host, line));
+                }
+                else
+                {
+                    await HandleLineAsync(host, line);
+                }
             }
 
             return 0;
@@ -64,6 +73,27 @@ internal static class Program
             {
                 await host.DisposeAsync();
             }
+
+            if (backgroundRequests.Count > 0)
+            {
+                await Task.WhenAll(backgroundRequests);
+            }
+        }
+    }
+
+    internal static bool IsBackgroundRequest(string line)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(line);
+            return document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.TryGetProperty("method", out var method)
+                && method.ValueKind == JsonValueKind.String
+                && method.GetString() == "installLocalModel";
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 

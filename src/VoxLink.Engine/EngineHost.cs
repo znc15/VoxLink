@@ -17,7 +17,15 @@ internal sealed class EngineHost : IAsyncDisposable
     private readonly TranslationSession _session;
     private readonly VrChatOscSender _vrChatOsc = new();
     private readonly UiHost? _uiHost;
-
+    private readonly ILocalModelManager _localModelManager;
+    private readonly bool _ownsLocalModelManager;
+    private readonly object _lifecycleSync = new();
+    private readonly CancellationTokenSource _shutdownCancellation = new();
+    private readonly TaskCompletionSource _disposeCompletion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private TaskCompletionSource? _requestsDrained;
+    private int _activeRequests;
+    private bool _disposeStarted;
     internal const double EchoSimilarityThreshold = 0.7;
     internal static readonly TimeSpan EchoWindow = TimeSpan.FromSeconds(10);
     private const int MaxRecentInbound = 3;
@@ -27,20 +35,32 @@ internal sealed class EngineHost : IAsyncDisposable
 
     private AppSettings _settings = new();
     private Exception? _vrChatOscConfigurationError;
-    private bool _disposed;
     public EngineHost(Action<string, object> notify)
         : this(notify, startUiHost: true)
     {
     }
 
     internal EngineHost(Action<string, object> notify, bool startUiHost)
+        : this(notify, startUiHost, localModelManager: null)
+    {
+    }
+
+    internal EngineHost(
+        Action<string, object> notify,
+        bool startUiHost,
+        ILocalModelManager? localModelManager)
     {
         _notify = notify;
+        _localModelManager = localModelManager ?? new LocalModelManager();
+        _ownsLocalModelManager = localModelManager is null;
         _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
         _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("VoxLink.Engine/1.0");
         _asrFactory = new AsrRecognizerFactory(_httpClient);
-        _translationFactory = new TranslationServiceFactory(_httpClient);
-        _textToSpeech = new HybridTextToSpeechService(_httpClient);
+        _translationFactory = new TranslationServiceFactory(_httpClient, _localModelManager);
+        _textToSpeech = new HybridTextToSpeechService(
+            _httpClient,
+            enableEdgeTts: true,
+            _localModelManager);
         _session = new TranslationSession(_asrFactory, _translationFactory, _textToSpeech);
         _vrChatOsc.SendFailed += OnVrChatOscSendFailed;
         if (startUiHost)
@@ -53,6 +73,7 @@ internal sealed class EngineHost : IAsyncDisposable
         _session.ErrorOccurred += OnErrorOccurred;
         _session.WarningOccurred += OnWarningOccurred;
         _session.ModelProgress += OnModelProgress;
+        _localModelManager.ModelProgress += OnLocalModelProgress;
     }
 
     public bool ShouldShutdown { get; private set; }
@@ -63,7 +84,23 @@ internal sealed class EngineHost : IAsyncDisposable
         JsonSerializerOptions serializerOptions,
         CancellationToken cancellationToken)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        using var request = EnterRequest();
+        using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _shutdownCancellation.Token);
+        return await HandleCoreAsync(
+            method,
+            parameters,
+            serializerOptions,
+            linkedCancellation.Token).ConfigureAwait(false);
+    }
+
+    private async Task<object?> HandleCoreAsync(
+        string method,
+        JsonElement parameters,
+        JsonSerializerOptions serializerOptions,
+        CancellationToken cancellationToken)
+    {
         switch (method)
         {
             case "initialize":
@@ -90,7 +127,15 @@ internal sealed class EngineHost : IAsyncDisposable
                 ApplyOptionalSettings(parameters, serializerOptions);
                 var prompt = ReadString(parameters, "prompt");
                 var chatService = _translationFactory.CreateChatService(_settings);
-                var generated = await chatService.GenerateAsync(prompt, cancellationToken);
+                string generated;
+                try
+                {
+                    generated = await chatService.GenerateAsync(prompt, cancellationToken);
+                }
+                finally
+                {
+                    (chatService as IDisposable)?.Dispose();
+                }
                 if (_settings.VrChatChatboxEnabled)
                 {
                     _vrChatOsc.TryQueue(VrChatOscSender.ComposeTranslation(
@@ -127,14 +172,46 @@ internal sealed class EngineHost : IAsyncDisposable
                 ApplyOptionalSettings(parameters, serializerOptions);
                 await _asrFactory.PrepareAsync(_settings, cancellationToken);
                 return new { ready = true };
+            case "listLocalModels":
+                return HandleListLocalModels();
+            case "installLocalModel":
+            {
+                var modelId = ReadString(parameters, "modelId");
+                _translationFactory.UnloadIdleLocalRuntimes();
+                _textToSpeech.UnloadIdleLocalRuntimes();
+                await _localModelManager.InstallAsync(modelId, cancellationToken);
+                return new
+                {
+                    installed = true,
+                    installState = _localModelManager.GetStatus(modelId)
+                        .ToString().ToLowerInvariant()
+                };
+            }
+            case "removeLocalModel":
+            {
+                var modelId = ReadString(parameters, "modelId");
+                _translationFactory.UnloadIdleLocalRuntimes();
+                _textToSpeech.UnloadIdleLocalRuntimes();
+                var removed = await _localModelManager.RemoveAsync(modelId, cancellationToken);
+                return new { removed };
+            }
             case "testTranslation":
             {
                 ApplyOptionalSettings(parameters, serializerOptions);
-                var translated = await _translationFactory.Create(_settings).TranslateAsync(
-                    "Connection test",
-                    LanguageCatalog.Get("en"),
-                    LanguageCatalog.Get("zh"),
-                    cancellationToken);
+                var translator = _translationFactory.Create(_settings);
+                string translated;
+                try
+                {
+                    translated = await translator.TranslateAsync(
+                        "Connection test",
+                        LanguageCatalog.Get("en"),
+                        LanguageCatalog.Get("zh"),
+                        cancellationToken);
+                }
+                finally
+                {
+                    (translator as IDisposable)?.Dispose();
+                }
                 return new { translated };
             }
             case "testSpeech":
@@ -202,23 +279,92 @@ internal sealed class EngineHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
+        Task drainTask;
+        var ownsDisposal = false;
+        lock (_lifecycleSync)
         {
+            if (_disposeStarted)
+            {
+                drainTask = _disposeCompletion.Task;
+            }
+            else
+            {
+                _disposeStarted = true;
+                ownsDisposal = true;
+                drainTask = _activeRequests == 0
+                    ? Task.CompletedTask
+                    : (_requestsDrained ??= new TaskCompletionSource(
+                        TaskCreationOptions.RunContinuationsAsynchronously)).Task;
+            }
+        }
+
+        if (!ownsDisposal)
+        {
+            await drainTask.ConfigureAwait(false);
             return;
         }
 
-        _disposed = true;
-        _session.StatusChanged -= OnStatusChanged;
-        _session.MessageReceived -= OnMessageReceived;
-        _session.PartialMessageReceived -= OnPartialMessageReceived;
-        _session.ErrorOccurred -= OnErrorOccurred;
-        _session.WarningOccurred -= OnWarningOccurred;
-        _session.ModelProgress -= OnModelProgress;
-        _vrChatOsc.SendFailed -= OnVrChatOscSendFailed;
-        await _session.DisposeAsync();
-        await _vrChatOsc.DisposeAsync();
-        _uiHost?.Dispose();
-        _httpClient.Dispose();
+        try
+        {
+            _shutdownCancellation.Cancel();
+            await drainTask.ConfigureAwait(false);
+            _session.StatusChanged -= OnStatusChanged;
+            _session.MessageReceived -= OnMessageReceived;
+            _session.PartialMessageReceived -= OnPartialMessageReceived;
+            _session.ErrorOccurred -= OnErrorOccurred;
+            _session.WarningOccurred -= OnWarningOccurred;
+            _session.ModelProgress -= OnModelProgress;
+            _localModelManager.ModelProgress -= OnLocalModelProgress;
+            _vrChatOsc.SendFailed -= OnVrChatOscSendFailed;
+            await _session.DisposeAsync().ConfigureAwait(false);
+            _translationFactory.Dispose();
+            await _vrChatOsc.DisposeAsync().ConfigureAwait(false);
+            _uiHost?.Dispose();
+            _httpClient.Dispose();
+            if (_ownsLocalModelManager)
+            {
+                if (_localModelManager is IAsyncDisposable asyncManager)
+                {
+                    await asyncManager.DisposeAsync().ConfigureAwait(false);
+                }
+                else if (_localModelManager is IDisposable disposableManager)
+                {
+                    disposableManager.Dispose();
+                }
+            }
+            _shutdownCancellation.Dispose();
+            _disposeCompletion.TrySetResult();
+        }
+        catch (Exception exception)
+        {
+            _disposeCompletion.TrySetException(exception);
+            throw;
+        }
+    }
+
+    private RequestLease EnterRequest()
+    {
+        lock (_lifecycleSync)
+        {
+            ObjectDisposedException.ThrowIf(_disposeStarted, this);
+            _activeRequests = checked(_activeRequests + 1);
+            return new RequestLease(this);
+        }
+    }
+
+    private void ExitRequest()
+    {
+        TaskCompletionSource? drained = null;
+        lock (_lifecycleSync)
+        {
+            _activeRequests = Math.Max(0, _activeRequests - 1);
+            if (_disposeStarted && _activeRequests == 0)
+            {
+                drained = _requestsDrained;
+            }
+        }
+
+        drained?.TrySetResult();
     }
 
     private void ApplySettings(AppSettings settings)
@@ -266,6 +412,14 @@ internal sealed class EngineHost : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(settings);
         settings.VoiceThreshold = Math.Clamp(settings.VoiceThreshold, 0.005, 0.08);
         settings.SilenceDurationMs = Math.Clamp(settings.SilenceDurationMs, 300, 1_800);
+        settings.KokoroSpeakerId = Math.Clamp(
+            settings.KokoroSpeakerId,
+            LocalKokoroTtsRuntime.MinimumSpeakerId,
+            LocalKokoroTtsRuntime.MaximumSpeakerId);
+        settings.KokoroSpeed = Math.Clamp(
+            double.IsFinite(settings.KokoroSpeed) ? settings.KokoroSpeed : 1.0,
+            LocalKokoroTtsRuntime.MinimumSpeed,
+            LocalKokoroTtsRuntime.MaximumSpeed);
     }
 
     private static string VoiceOutputTestText(LanguageOption language) => language.Code switch
@@ -546,10 +700,78 @@ internal sealed class EngineHost : IAsyncDisposable
         });
 
 
+    /// <summary>
+    /// 本地模型目录列表：只下发展示与状态字段，不含下载 URL、SHA-256 或真实路径。
+    /// </summary>
+    private object HandleListLocalModels() => new
+    {
+        models = _localModelManager.List()
+            .Select(definition =>
+            {
+                var status = _localModelManager.GetStatus(definition.Id);
+                return new
+                {
+                    id = definition.Id,
+                    name = definition.Name,
+                    category = definition.Category.ToString().ToLowerInvariant(),
+                    supportLevel = definition.SupportLevel.ToString().ToLowerInvariant(),
+                    runtime = definition.Runtime.ToString().ToLowerInvariant(),
+                    parameters = definition.Parameters,
+                    numericParameterBillions = definition.NumericParameterBillions,
+                    license = definition.License,
+                    languages = definition.Languages,
+                    requirements = definition.Requirements,
+                    sourceUrl = definition.SourceUrl,
+                    description = definition.Description,
+                    unavailableReason = definition.UnavailableReason,
+                    downloadBytes = definition.DownloadBytes,
+                    installed = status == LocalModelInstallState.Installed,
+                    installState = status.ToString().ToLowerInvariant(),
+                    isInstallable = definition.IsInstallable
+                };
+            })
+            .ToArray()
+    };
+
     private void OnModelProgress(object? sender, ModelProgressEventArgs eventArgs) =>
-        _notify("modelProgress", new
+        _notify("modelProgress", CreateModelProgressPayload(
+            modelId: null,
+            category: null,
+            eventArgs.Status,
+            eventArgs.Progress));
+
+    private void OnLocalModelProgress(object? sender, LocalModelProgressEventArgs eventArgs) =>
+        _notify("modelProgress", CreateModelProgressPayload(
+            eventArgs.ModelId,
+            eventArgs.Category.ToString().ToLowerInvariant(),
+            eventArgs.Status,
+            eventArgs.Progress));
+
+    /// <summary>
+    /// modelProgress 事件 payload。新增 modelId/category 字段；旧 ASR/说话人
+    /// 模型进度保持 modelId 为 null 的兼容语义。
+    /// </summary>
+    internal static object CreateModelProgressPayload(
+        string? modelId,
+        string? category,
+        string status,
+        double? progress) => new
+    {
+        modelId,
+        category,
+        status,
+        progress
+    };
+    private sealed class RequestLease(EngineHost owner) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
         {
-            status = eventArgs.Status,
-            progress = eventArgs.Progress
-        });
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            {
+                owner.ExitRequest();
+            }
+        }
+    }
 }

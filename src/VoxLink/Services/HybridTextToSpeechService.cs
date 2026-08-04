@@ -16,6 +16,7 @@ public sealed class HybridTextToSpeechService :
 {
     private readonly HttpClient _httpClient;
     private readonly RemoteTextToSpeechClient _remoteClient;
+    private readonly LocalKokoroTtsRuntime? _localKokoroRuntime;
     private readonly bool _enableEdgeTts;
     private readonly SemaphoreSlim _speechGate = new(1, 1);
     private readonly TaskCompletionSource _disposeCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -27,18 +28,29 @@ public sealed class HybridTextToSpeechService :
     private AppSettings _settings = new();
     private int _disposeState;
     public HybridTextToSpeechService(HttpClient httpClient)
-        : this(httpClient, enableEdgeTts: true)
+        : this(httpClient, enableEdgeTts: true, localModelManager: null)
     {
     }
 
     internal HybridTextToSpeechService(HttpClient httpClient, bool enableEdgeTts)
+        : this(httpClient, enableEdgeTts, localModelManager: null)
+    {
+    }
+
+    internal HybridTextToSpeechService(
+        HttpClient httpClient,
+        bool enableEdgeTts,
+        ILocalModelManager? localModelManager)
     {
         _httpClient = httpClient;
         _remoteClient = new RemoteTextToSpeechClient(httpClient);
+        _localKokoroRuntime = localModelManager is null ? null : new LocalKokoroTtsRuntime(localModelManager);
         _enableEdgeTts = enableEdgeTts;
     }
 
     public bool IsSpeaking => _isSpeaking;
+
+    internal bool UnloadIdleLocalRuntimes() => _localKokoroRuntime?.UnloadWhenIdle() ?? false;
 
     public void Configure(AppSettings settings)
     {
@@ -54,6 +66,11 @@ public sealed class HybridTextToSpeechService :
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
             _settings = snapshot;
+        }
+
+        if (!snapshot.UseLocalKokoroTextToSpeech)
+        {
+            _localKokoroRuntime?.UnloadWhenIdle();
         }
     }
 
@@ -119,6 +136,29 @@ public sealed class HybridTextToSpeechService :
 
             try
             {
+                if (settings.UseLocalKokoroTextToSpeech)
+                {
+                    var localRuntime = _localKokoroRuntime
+                        ?? throw new InvalidOperationException("本地 Kokoro 运行时未配置。");
+                    if (!language.Code.Equals("zh", StringComparison.OrdinalIgnoreCase)
+                        && !language.Code.Equals("en", StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new NotSupportedException($"本地 Kokoro 暂不支持语言代码 {language.Code}。");
+                    }
+
+                    var generated = await localRuntime.GenerateAsync(
+                        text,
+                        settings.KokoroSpeakerId,
+                        settings.KokoroSpeed,
+                        linkedCancellation.Token);
+                    await PlayFloatAudioAsync(
+                        generated.Samples,
+                        generated.SampleRate,
+                        outputDeviceId,
+                        linkedCancellation.Token);
+                    return;
+                }
+
                 if (settings.UseRemoteTextToSpeech)
                 {
                     try
@@ -203,6 +243,7 @@ public sealed class HybridTextToSpeechService :
             _activeSpeech?.Cancel();
             _activeOutput?.Stop();
             _activeSynthesizer?.SpeakAsyncCancelAll();
+            _localKokoroRuntime?.UnloadWhenIdle();
         }
     }
 
@@ -228,6 +269,7 @@ public sealed class HybridTextToSpeechService :
                     _activeSynthesizer = null;
                     _activeSpeech?.Dispose();
                     _activeSpeech = null;
+                    _localKokoroRuntime?.Dispose();
                     _isSpeaking = false;
                 }
             }
@@ -393,6 +435,26 @@ public sealed class HybridTextToSpeechService :
         using var mp3Reader = new Mp3FileReader(stream);
         await PlayAsync(mp3Reader, outputDeviceId, cancellationToken);
     }
+    private async Task PlayFloatAudioAsync(
+        float[] samples,
+        int sampleRate,
+        string? outputDeviceId,
+        CancellationToken cancellationToken)
+    {
+        if (samples.Length == 0 || sampleRate is < 8_000 or > 192_000)
+        {
+            throw new InvalidDataException("Kokoro 生成的 PCM 音频格式无效。");
+        }
+
+        var bytes = new byte[checked(samples.Length * sizeof(float))];
+        Buffer.BlockCopy(samples, 0, bytes, 0, bytes.Length);
+        using var stream = new MemoryStream(bytes, writable: false);
+        using var provider = new RawSourceWaveStream(
+            stream,
+            WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels: 1));
+        await PlayAsync(provider, outputDeviceId, cancellationToken);
+    }
+
     private async Task PlayAsync(
         IWaveProvider provider,
         string? outputDeviceId,

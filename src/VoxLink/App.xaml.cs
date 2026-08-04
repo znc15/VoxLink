@@ -8,11 +8,16 @@ namespace VoxLink;
 
 public partial class App : Application
 {
-    private const string InstanceMutexName = @"Local\VoxLink.Desktop.Instance";
+    // This legacy debug entry shares the production frontend mutex and therefore cannot
+    // start a second engine/model owner alongside the WinUI application.
+    private const string InstanceMutexName = @"Local\VoxLink.Frontend.Singleton";
+    private static readonly TimeSpan LegacyShutdownTimeout = TimeSpan.FromSeconds(10);
     private HttpClient? _httpClient;
+    private TranslationSession? _session;
+    private TranslationServiceFactory? _translationFactory;
+    private LocalModelManager? _localModelManager;
     private Mutex? _instanceMutex;
     private bool _ownsInstanceMutex;
-
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -38,10 +43,16 @@ public partial class App : Application
         var settingsStore = new SettingsStore();
         var audioDevices = new AudioDeviceService();
         var recognizer = new WhisperSpeechRecognizer();
-        var translationFactory = new TranslationServiceFactory(_httpClient);
-        var textToSpeech = new HybridTextToSpeechService(_httpClient);
-        var session = new TranslationSession(recognizer, translationFactory, textToSpeech);
-        var viewModel = new MainViewModel(settingsStore, audioDevices, session, recognizer);
+        // Keep the legacy process-internal pipeline functional for debugging, but use one
+        // manager instance for translation and TTS just like EngineHost.
+        _localModelManager = new LocalModelManager();
+        _translationFactory = new TranslationServiceFactory(_httpClient, _localModelManager);
+        var textToSpeech = new HybridTextToSpeechService(
+            _httpClient,
+            enableEdgeTts: true,
+            _localModelManager);
+        _session = new TranslationSession(recognizer, _translationFactory, textToSpeech);
+        var viewModel = new MainViewModel(settingsStore, audioDevices, _session, recognizer);
 
         var mainWindow = new MainWindow(viewModel);
         MainWindow = mainWindow;
@@ -50,8 +61,69 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        _httpClient?.Dispose();
-        _httpClient = null;
+        var pipelineDrained = true;
+        var session = _session;
+        if (session is not null)
+        {
+            try
+            {
+                Task.Run(() => session.DisposeAsync().AsTask())
+                    .WaitAsync(LegacyShutdownTimeout)
+                    .GetAwaiter()
+                    .GetResult();
+            }
+            catch (Exception exception)
+            {
+                pipelineDrained = false;
+                System.Diagnostics.Debug.WriteLine(exception);
+            }
+
+            _session = null;
+        }
+
+        var translationFactory = _translationFactory;
+        if (pipelineDrained && translationFactory is not null)
+        {
+            try
+            {
+                Task.Run(translationFactory.Dispose)
+                    .WaitAsync(LegacyShutdownTimeout)
+                    .GetAwaiter()
+                    .GetResult();
+            }
+            catch (Exception exception)
+            {
+                pipelineDrained = false;
+                System.Diagnostics.Debug.WriteLine(exception);
+            }
+
+            _translationFactory = null;
+        }
+
+        var localModelManager = _localModelManager;
+        if (pipelineDrained && localModelManager is not null)
+        {
+            try
+            {
+                Task.Run(() => localModelManager.DisposeAsync().AsTask())
+                    .WaitAsync(LegacyShutdownTimeout)
+                    .GetAwaiter()
+                    .GetResult();
+            }
+            catch (Exception exception)
+            {
+                pipelineDrained = false;
+                System.Diagnostics.Debug.WriteLine(exception);
+            }
+
+            _localModelManager = null;
+        }
+
+        if (pipelineDrained)
+        {
+            _httpClient?.Dispose();
+            _httpClient = null;
+        }
         if (_instanceMutex is not null)
         {
             if (_ownsInstanceMutex)

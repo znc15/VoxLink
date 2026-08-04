@@ -230,6 +230,8 @@ $requiredFiles = @(
     (Join-Path $engineDir "VoxLink.Engine.deps.json"),
     (Join-Path $engineDir "VoxLink.Engine.runtimeconfig.json"),
     (Join-Path $engineDir "VoxLink.dll"),
+    (Join-Path $engineDir "LLamaSharp.dll"),
+    (Join-Path $engineDir "SharpCompress.dll"),
     (Join-Path $engineDir "openvr_api.dll"),
     (Join-Path $engineDir "sherpa-onnx.dll"),
     (Join-Path $engineDir "sherpa-onnx-c-api.dll"),
@@ -248,6 +250,12 @@ foreach ($requiredFile in $requiredFiles) {
 
 $whisperRuntime = Join-Path $engineDir "runtimes\win-x64\whisper.dll"
 Assert-FileExists $whisperRuntime
+foreach ($cpuVariant in @("avx", "avx2", "avx512", "noavx")) {
+    $nativeDirectory = Join-Path $engineDir "runtimes\win-x64\native\$cpuVariant"
+    foreach ($nativeLibrary in @("llama.dll", "ggml.dll", "ggml-base.dll", "ggml-cpu.dll")) {
+        Assert-FileExists (Join-Path $nativeDirectory $nativeLibrary)
+    }
+}
 
 $forbiddenPaths = @(
     (Join-Path $publishDir "data\flutter_assets"),

@@ -26,14 +26,16 @@ public sealed class TranslationSession : IAsyncDisposable
     private IAsrRecognizer? _recognizer;
     private AppSettings? _settings;
     private ITranslationService? _translator;
-    private OpenAiTranslationService? _refinementService;
-    private OpenAiTranslationService? _speechRefinementService;
+    private ITextGenerationService? _refinementService;
+    private ITextGenerationService? _speechRefinementService;
     private volatile bool _vrChatMuted;
     private volatile bool _isRunning;
     private int _refinementWarningRaised;
     private int _speechRefinementWarningRaised;
     private string? _outboundStreamingUtteranceId;
     private string? _inboundStreamingUtteranceId;
+    private readonly TaskCompletionSource _disposeCompletion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int _disposeState;
 
     public TranslationSession(
@@ -138,8 +140,10 @@ public sealed class TranslationSession : IAsyncDisposable
         var source = LanguageCatalog.Get(settings.MyLanguageCode);
         var target = LanguageCatalog.Get(settings.OtherLanguageCode);
         var translator = _translationFactory.Create(settings);
-        OpenAiTranslationService? refinementService = null;
-        if (settings.EnableTranslationRefinement)
+        ITextGenerationService? refinementService = null;
+        try
+        {
+            if (settings.EnableTranslationRefinement)
         {
             refinementService = _translationFactory.CreateChatService(settings);
         }
@@ -171,21 +175,60 @@ public sealed class TranslationSession : IAsyncDisposable
         }
 
         RaiseReadyStatus();
-        return message;
+            return message;
+        }
+        finally
+        {
+            if (!ReferenceEquals(refinementService, translator))
+            {
+                (refinementService as IDisposable)?.Dispose();
+            }
+
+            (translator as IDisposable)?.Dispose();
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.CompareExchange(ref _disposeState, 1, 0) != 0)
         {
+            await _disposeCompletion.Task.ConfigureAwait(false);
             return;
         }
 
-        await StopAsync().ConfigureAwait(false);
-        _asrFactory.ModelProgress -= OnModelProgress;
-        await _asrFactory.DisposeAsync().ConfigureAwait(false);
-        await _textToSpeech.DisposeAsync().ConfigureAwait(false);
-        _lifecycleGate.Dispose();
+        try
+        {
+            try
+            {
+                await StopAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                _asrFactory.ModelProgress -= OnModelProgress;
+                try
+                {
+                    await _asrFactory.DisposeAsync().ConfigureAwait(false);
+                }
+                finally
+                {
+                    try
+                    {
+                        await _textToSpeech.DisposeAsync().ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        _lifecycleGate.Dispose();
+                    }
+                }
+            }
+
+            _disposeCompletion.TrySetResult();
+        }
+        catch (Exception exception)
+        {
+            _disposeCompletion.TrySetException(exception);
+            throw;
+        }
     }
 
     private async Task StartCoreAsync(AppSettings settings, CancellationToken cancellationToken)
@@ -265,6 +308,9 @@ public sealed class TranslationSession : IAsyncDisposable
         var muteSelfListener = _muteSelfListener;
         var recognizer = _recognizer;
         var speakerLabeler = _speakerLabeler;
+        var translator = _translator;
+        var refinementService = _refinementService;
+        var speechRefinementService = _speechRefinementService;
         var workItems = _workItems;
         var externalRegistration = _externalCancellationRegistration;
 
@@ -324,6 +370,9 @@ public sealed class TranslationSession : IAsyncDisposable
             speakerLabeler.ModelProgress -= OnModelProgress;
             await speakerLabeler.DisposeAsync().ConfigureAwait(false);
         }
+
+        DisposeDistinctServices(translator, refinementService, speechRefinementService);
+        _translationFactory.UnloadIdleLocalRuntimes();
 
         cancellation?.Dispose();
         RaiseStatus("翻译已停止", SessionActivity.Idle);
@@ -843,7 +892,7 @@ public sealed class TranslationSession : IAsyncDisposable
         LanguageOption primaryTarget,
         AppSettings settings,
         ITranslationService translator,
-        OpenAiTranslationService? refinementService,
+        ITextGenerationService? refinementService,
         SpeakerIdentity? speaker,
         CancellationToken cancellationToken)
     {
@@ -895,7 +944,7 @@ public sealed class TranslationSession : IAsyncDisposable
     }
 
     private async Task<string> RefineTranslationAsync(
-        OpenAiTranslationService service,
+        ITextGenerationService service,
         string sourceText,
         string translation,
         LanguageOption source,
@@ -933,6 +982,18 @@ public sealed class TranslationSession : IAsyncDisposable
             }
 
             return translation;
+        }
+    }
+
+    private static void DisposeDistinctServices(params object?[] services)
+    {
+        var disposed = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        foreach (var service in services)
+        {
+            if (service is IDisposable disposable && disposed.Add(service))
+            {
+                disposable.Dispose();
+            }
         }
     }
 

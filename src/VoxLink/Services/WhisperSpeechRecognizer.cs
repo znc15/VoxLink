@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO;
 using System.Net.Http;
 using System.Security.Cryptography;
@@ -12,6 +13,8 @@ namespace VoxLink.Services;
 public sealed class WhisperSpeechRecognizer : ISpeechRecognizer
 {
     private static readonly HttpClient ModelHttpClient = CreateModelHttpClient();
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> ModelPreparationGates =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _recognitionGate = new(1, 1);
     private readonly TaskCompletionSource _disposeCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private WhisperFactory? _factory;
@@ -28,6 +31,9 @@ public sealed class WhisperSpeechRecognizer : ISpeechRecognizer
         await _recognitionGate.WaitAsync(cancellationToken);
         try
         {
+            using var modelPreparation = await AcquireModelPreparationAsync(
+                modelPath,
+                cancellationToken).ConfigureAwait(false);
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
             if (_loadedModelPath == modelPath && _factory is not null)
             {
@@ -124,6 +130,18 @@ public sealed class WhisperSpeechRecognizer : ISpeechRecognizer
         }
     }
 
+    internal static async Task<IDisposable> AcquireModelPreparationAsync(
+        string modelPath,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelPath);
+        var normalizedPath = Path.GetFullPath(modelPath);
+        var gate = ModelPreparationGates.GetOrAdd(
+            normalizedPath,
+            static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        return new GateLease(gate);
+    }
     internal static string GetModelPath(string modelName)
     {
         var safeName = NormalizeModelName(modelName);
@@ -283,7 +301,7 @@ public sealed class WhisperSpeechRecognizer : ISpeechRecognizer
         }
     }
 
-    private static ModelInfo GetModelInfo(string? modelName) => modelName?.ToLowerInvariant() switch
+    internal static ModelInfo GetModelInfo(string? modelName) => modelName?.ToLowerInvariant() switch
     {
         "base" => new(
             "base",
@@ -304,5 +322,11 @@ public sealed class WhisperSpeechRecognizer : ISpeechRecognizer
 
     private static string NormalizeModelName(string? modelName) => GetModelInfo(modelName).Name;
 
-    private sealed record ModelInfo(string Name, GgmlType Type, long Size, string Sha256);
+    private sealed class GateLease(SemaphoreSlim gate) : IDisposable
+    {
+        private SemaphoreSlim? _gate = gate;
+
+        public void Dispose() => Interlocked.Exchange(ref _gate, null)?.Release();
+    }
+    internal sealed record ModelInfo(string Name, GgmlType Type, long Size, string Sha256);
 }

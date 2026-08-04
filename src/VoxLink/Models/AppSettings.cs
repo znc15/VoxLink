@@ -3,6 +3,7 @@ namespace VoxLink.Models;
 public enum TranslationProvider
 {
     GoogleWeb,
+    LocalMiniCpm,
     OpenAiCompatible,
     DashScope,
     DeepSeek,
@@ -107,6 +108,12 @@ public sealed class AppSettings
     public bool AllowCloudAudioUpload { get; set; }
 
     public bool UseRemoteTextToSpeech { get; set; }
+
+    public bool UseLocalKokoroTextToSpeech { get; set; }
+
+    public int KokoroSpeakerId { get; set; } = 3;
+
+    public double KokoroSpeed { get; set; } = 1.0;
 
     public string TextToSpeechBaseUrl { get; set; } =
         "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation";

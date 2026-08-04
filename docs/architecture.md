@@ -75,6 +75,18 @@ System loopback (inbound) -+          |
 - **字幕**：WinUI Live、桌面 Overlay 和 SteamVR Overlay 使用相同消息语义，显示 speaker、partial/final、主次译文和原文。仅转写不会重复显示“译文”行。
 - **Chatbox**：只发送 final、非仅转写的 `Outbound` 或 `Typed` 主译文，可按设置附加原文；开启第二目标语言时附加一行第二译文（顺序：主译文/第二译文/原文，仍受 144 文本元素截断）。`Inbound`、partial 和 speaker 标签永不发送。发送器使用有界队列、短时去重、1.5 秒节流和 144 文本元素截断。
 
+## 本地模型目录与运行时
+
+`LocalModelCatalog` 只收录显式参数规模不超过 2B 且已核验来源、许可证与 Windows 可行性的模型。支持级别分为：`Stable`（可安装并进入现有管线）、`Experimental`（运行时可用但带明确限制）和 `CatalogOnly`（仅展示，不提供安装按钮）。当前稳定路径为 Whisper tiny/base/small、`openbmb/MiniCPM5-1B-GGUF` 和 Kokoro-82M；`dots.tts`、HY-MT1.5-1.8B、MOSS-Transcribe-Diarize 等依赖 Python/GPU 或受许可证地域限制的候选保持 `CatalogOnly`。
+
+`LocalModelManager` 以 `%LOCALAPPDATA%\VoxLink\models\local` 下的真实工件为状态来源。下载仅接受固定 HTTPS 主机和安全重定向；每个响应体读取使用滑动无进度超时，每个工件限制大小并校验 SHA-256。单文件通过 `.download` 后原子替换；tar.bz2 归档先在隔离 staging 目录拒绝路径穿越、链接和展开体积超限，再逐项校验关键工件，最后以 backup/staging 原子切换，失败保留旧安装。每个模型有独立操作 gate，取消、失败和关闭都会清理临时文件。
+
+MiniCPM/Kokoro 运行时通过 `ILocalModelLease` 持有已验证模型目录。获取租约会预留使用计数，再在全局锁外校验大文件散列；安装/删除期间拒绝新租约，持有租约的模型不能删除。Whisper 使用独立安装器和模型生命周期，不属于该目录租约协议。关闭时管理器先拒绝新操作，取消安装/删除并等待操作和目录租约全部归还，之后才释放 semaphore、HTTP 客户端和取消源。
+
+MiniCPM 使用 LLamaSharp/llama.cpp CPU 后端：`LocalMiniCpmRuntimePool` 共享 `LLamaWeights`、每个客户端使用独立 context，并以单并发 gate 限制推理。它是通用指令模型，VoxLink 仅通过受控提示词将其用于本地翻译、译文润色和口语化改写。最后一个客户端归还后可卸载权重。Kokoro 使用 sherpa-onnx Windows x64 原生运行时，生成 24 kHz 单声道浮点 PCM，再复用 NAudio/WASAPI 设备路由；speaker 限制为 0–102，速度为 0.5–2.0。选择本地 Kokoro 后，模型加载或生成失败直接返回错误，禁止静默回退到远程、Edge、Google 或 Windows TTS。
+
+Engine RPC 增加 `listLocalModels`、`installLocalModel` 和 `removeLocalModel`。列表返回展示元数据、安装状态和安全的项目主页 `sourceUrl`，但不暴露实际下载 URL、SHA-256 或磁盘路径。`modelProgress` 事件新增可空 `modelId`/`category`；采用 `WhenWritingNull`，因此旧 Whisper/说话人下载会省略这两个字段并保持全局进度语义，本地目录进度则按模型更新。`installLocalModel` 可在 Engine stdin 读循环外后台执行，避免大文件下载阻塞 configure/stop/shutdown；stdout 仍由统一锁串行写入，EngineHost 关闭会取消并排空后台请求。
+
 ## 说话人标签
 
 `SpeakerLabelMode` 引擎侧有三种状态，UI 已简化为「显示说话人标签」开关（Off ↔ Local）：
@@ -98,7 +110,7 @@ Chatbox 通过 UDP OSC `/chatbox/input` 输出。可选 MuteSelf 监听器在独
 - **协议决定传输形态**：DashScope/Soniox 使用持续 WebSocket；OpenAI/SiliconFlow 使用断句后 multipart；MiMo 使用 `input_audio`。Custom provider 必须明确选择协议。
 - **两级有界队列**：流式音频队列按音源隔离并丢弃最旧块，final 工作队列单读者串行处理，避免阻塞 WASAPI 回调和无限积压。
 - **能力驱动降级**：本地 speaker 只处理完整分段音频；云 speaker 只接受 Soniox 能力。SteamVR、说话人标签和 MuteSelf 失败均隔离为可选功能错误。
-- **自动故障转移**：默认翻译使用免密端点故障转移；TTS 依次尝试 Edge、Google 和 Windows；Whisper 模型下载使用镜像和官方源。
+- **自动故障转移**：默认翻译使用免密端点故障转移；未选择本地 Kokoro 时，TTS 依次尝试远程、Edge、Google 和 Windows；本地 Kokoro 失败不参与回退；Whisper 模型下载使用镜像和官方源。
 - **敏感数据隔离**：普通配置和 DPAPI secrets 分离；PasswordBox 与请求头编辑器不把秘密写入 XAML Key 或普通可绑定对象。
 - **字段存在性感知迁移**：新仓库缺失时，`SettingsRepository` 只读迁移旧 Flutter 普通设置和 DPAPI 安全存储；缺失 `useAiTranslation`/`useCloudAsr` 时按已选 provider 一次性推断开关并重写设置。
 - **显式关闭协调**：关闭先阻止新操作，停止并释放 capture、stream、recognizer 和 sidecar，再等待设置保存收敛。
@@ -112,7 +124,7 @@ Chatbox 通过 UDP OSC `/chatbox/input` 输出。可选 MuteSelf 监听器在独
 - `src/VoxLink.UI/MainWindow.xaml`：Mica 标题栏、NavigationView 和响应式导航壳
 - `src/VoxLink.UI/Controls/OnboardingDialog.xaml`：首次启动语言、设备与 VRChat 路由测试
 - `src/VoxLink.UI/Pages/LivePage.xaml`：输入、会话控制、partial/final 与双目标消息显示
-- `src/VoxLink.UI/Pages/ProvidersPage.xaml`：翻译、润色、ASR provider/protocol、云上传许可和 TTS 配置
+- `src/VoxLink.UI/Pages/ModelProvidersPage.xaml`：翻译/ASR/TTS 提供方、本地 MiniCPM/Kokoro 配置和统一模型目录
 - `src/VoxLink.UI/Pages/AudioPage.xaml`：独立音源、设备、语音活动检测与智能断句
 - `src/VoxLink.UI/Pages/AdvancedPage.xaml`：仅转写、全局快捷键、窗口退出与外观
 - `src/VoxLink.UI/Pages/VRChatPage.xaml`：翻译对方语音（系统回环）、说话人标签、Chatbox 与 MuteSelf 联动
@@ -127,8 +139,8 @@ Chatbox 通过 UDP OSC `/chatbox/input` 输出。可选 MuteSelf 监听器在独
 
 ### .NET Engine
 
-- `src/VoxLink.Engine/Program.cs`：JSON Lines 协议循环与错误出口
-- `src/VoxLink.Engine/EngineHost.cs`：命令分派、事件 payload、Chatbox 门禁和秘密脱敏
+- `src/VoxLink.Engine/Program.cs`：JSON Lines 协议循环、后台模型安装请求和串行响应/事件写入
+- `src/VoxLink.Engine/EngineHost.cs`：命令分派、请求关闭排空、模型 RPC、事件 payload、Chatbox 门禁和秘密脱敏
 - `src/VoxLink.Engine/UiHost.cs`：STA WPF 桌面字幕、SteamVR 字幕和全局快捷键宿主
 - `src/VoxLink/Audio/WasapiSpeechCapture.cs`：麦克风/回环捕获、VAD utterance 和非阻塞 PCM chunk 事件
 - `src/VoxLink/Audio/VoiceActivitySegmenter.cs`：预滚、RMS 门限、智能静音和最大时长断句
@@ -136,7 +148,10 @@ Chatbox 通过 UDP OSC `/chatbox/input` 输出。可选 MuteSelf 监听器在独
 - `src/VoxLink/Services/SegmentedCloudSpeechRecognizer.cs`：multipart 与 MiMo `input_audio` 请求
 - `src/VoxLink/Services/StreamingCloudSpeechRecognizer.cs`：DashScope/Soniox WebSocket、partial/final 和停止握手
 - `src/VoxLink/Services/LocalSpeakerLabeler.cs`：模型下载校验、embedding 提取和会话内匿名聚类
-- `src/VoxLink/Services/TranslationSession.cs`：双音源、两级队列、重连、翻译/润色、出站原话或译文 TTS 和生命周期
+- `src/VoxLink/Services/TranslationSession.cs`：双音源、两级队列、重连、翻译/润色、出站原话或译文 TTS 和并发释放协调
+- `src/VoxLink/Services/LocalModelManager.cs`：模型目录、受限下载、事务安装、磁盘校验和租约/关闭排空
+- `src/VoxLink/Services/LocalMiniCpmTextService.cs`：共享 GGUF 权重、本地翻译/润色和单并发推理
+- `src/VoxLink/Services/LocalKokoroTtsRuntime.cs`：sherpa-onnx Kokoro 加载、生成和模型租约
 - `src/VoxLink/Services/VrChatOscSender.cs`：Chatbox 编码、队列、节流与 UDP 输出
 - `src/VoxLink/Services/VrChatOscListener.cs`：MuteSelf OSC message/bundle 解码
 - `src/VoxLink/Services/SteamVrOverlayHost.cs`：OpenVR Overlay 生命周期、字幕纹理和故障隔离

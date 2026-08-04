@@ -98,6 +98,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     public ObservableCollection<AudioDeviceInfo> MicrophoneDevices { get; } = [];
     public ObservableCollection<AudioDeviceInfo> RenderDevices { get; } = [];
     public ObservableCollection<ConversationMessage> Messages { get; } = [];
+    public ObservableCollection<LocalModelItem> LocalModels { get; } = [];
 
     public bool Initialized { get => _initialized; private set => SetProperty(ref _initialized, value); }
     public bool EngineConnected { get => _engineConnected; private set => SetProperty(ref _engineConnected, value); }
@@ -504,6 +505,105 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         });
     }
 
+    public Task RefreshLocalModelsAsync() => RunOperationAsync(RefreshLocalModelsCoreAsync);
+
+    public Task InstallLocalModelAsync(string modelId) =>
+        RunLocalModelOperationAsync(modelId, install: true);
+
+    public Task RetryLocalModelAsync(string modelId) => InstallLocalModelAsync(modelId);
+
+    public Task RemoveLocalModelAsync(string modelId) =>
+        RunLocalModelOperationAsync(modelId, install: false);
+
+    private async Task RunLocalModelOperationAsync(string modelId, bool install)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
+        var item = LocalModels.FirstOrDefault(model =>
+            model.Id.Equals(modelId, StringComparison.Ordinal));
+        if (item is null || item.IsBusy)
+        {
+            return;
+        }
+
+        ErrorMessage = null;
+        item.BeginOperation(install ? "正在准备安装…" : "正在删除…");
+        try
+        {
+            var result = await _engine.RequestAsync(
+                install ? "installLocalModel" : "removeLocalModel",
+                new Dictionary<string, object?> { ["modelId"] = item.Id },
+                install ? TimeSpan.FromMinutes(20) : TimeSpan.FromMinutes(2));
+            if (result is not { ValueKind: JsonValueKind.Object } response)
+            {
+                throw new EngineException("引擎返回了无效的本地模型操作结果。");
+            }
+
+            if (install)
+            {
+                var installState = ReadString(response, "installState");
+                if (string.IsNullOrWhiteSpace(installState))
+                {
+                    throw new EngineException("引擎未返回模型安装状态。");
+                }
+
+                item.CompleteOperation(installState, "模型已安装并通过校验");
+            }
+            else
+            {
+                var removed = response.TryGetProperty("removed", out var removedValue)
+                    && removedValue.ValueKind is JsonValueKind.True or JsonValueKind.False
+                    && removedValue.GetBoolean();
+                item.CompleteOperation(
+                    "notinstalled",
+                    removed ? "模型已删除" : "未删除模型（可能已不存在或正在使用）");
+            }
+
+            try
+            {
+                await RefreshLocalModelsCoreAsync();
+            }
+            catch (Exception refreshError) when (refreshError is EngineException or IOException)
+            {
+                LogService.Instance.Warning(
+                    SourceEngine,
+                    "模型操作已完成，但刷新目录失败：" + FriendlyError(refreshError));
+            }
+        }
+        catch (Exception exception) when (exception is
+            EngineException or IOException or UnauthorizedAccessException or CryptographicException)
+        {
+            try
+            {
+                await RefreshLocalModelsCoreAsync();
+                var refreshed = LocalModels.FirstOrDefault(model =>
+                    model.Id.Equals(modelId, StringComparison.Ordinal));
+                if (refreshed is not null)
+                {
+                    refreshed.FailOperation(install ? "安装失败，可重试" : "删除失败");
+                }
+            }
+            catch (Exception refreshError) when (refreshError is EngineException or IOException)
+            {
+                if (install)
+                {
+                    item.CompleteOperation("partial", "安装失败，可重试");
+                }
+                else
+                {
+                    item.FailOperation("删除失败");
+                }
+
+                LogService.Instance.Warning(
+                    SourceEngine,
+                    "模型操作失败后刷新目录失败：" + FriendlyError(refreshError));
+            }
+
+            ErrorMessage = FriendlyError(exception);
+            Activity = "error";
+            LogService.Instance.Error(SourceApp, exception, "本地模型操作失败");
+        }
+    }
+
     public async Task CheckForUpdatesAsync()
     {
         if (IsCheckingForUpdates)
@@ -558,8 +658,38 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         TestResultMessage = "设备列表已刷新。";
     });
 
+    private async Task RefreshLocalModelsCoreAsync()
+    {
+        var result = await _engine.RequestAsync(
+            "listLocalModels",
+            timeout: TimeSpan.FromSeconds(30));
+        if (result is not { ValueKind: JsonValueKind.Object } response
+            || !response.TryGetProperty("models", out var models)
+            || models.ValueKind != JsonValueKind.Array)
+        {
+            throw new EngineException("引擎返回了无效的本地模型目录。");
+        }
+
+        var parsedModels = new List<LocalModelItem>();
+        var seenIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var model in models.EnumerateArray())
+        {
+            var item = LocalModelItem.FromJson(model);
+            if (!string.IsNullOrWhiteSpace(item.Id) && seenIds.Add(item.Id))
+            {
+                parsedModels.Add(item);
+            }
+        }
+
+        LocalModels.Clear();
+        foreach (var item in parsedModels)
+        {
+            LocalModels.Add(item);
+        }
+    }
     public void ClearMessages() => Messages.Clear();
     public void DismissError() => ErrorMessage = null;
+
 
     public void DismissWarning() => WarningMessage = null;
     public async Task SaveNowAsync(CancellationToken cancellationToken = default)
@@ -730,7 +860,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
 
     public string? ValidateTranslationSettingsForTest()
     {
-        if (Settings.TranslationBackend == TranslationBackend.PublicFree)
+        if (Settings.TranslationBackend is TranslationBackend.PublicFree or TranslationBackend.LocalMiniCpm)
         {
             return null;
         }
@@ -762,7 +892,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
 
     public string? ValidateSpeechSettings()
     {
-        if (!Settings.UseRemoteSpeech)
+        if (Settings.UseLocalKokoroTextToSpeech || !Settings.UseRemoteSpeech)
         {
             return null;
         }
@@ -839,6 +969,17 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             if (result is { ValueKind: JsonValueKind.Object } bootstrap)
             {
                 ApplyBootstrap(bootstrap);
+            }
+
+            try
+            {
+                await RefreshLocalModelsCoreAsync();
+            }
+            catch (Exception exception) when (exception is EngineException or IOException)
+            {
+                LogService.Instance.Warning(
+                    SourceEngine,
+                    "读取本地模型目录失败：" + FriendlyError(exception));
             }
 
             StatusMessage = "软件已就绪";
@@ -1021,9 +1162,28 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 UpsertConversationMessage(ConversationMessage.FromJson(engineEvent.Data));
                 break;
             case "modelProgress":
-                ModelStatus = ReadString(engineEvent.Data, "status");
-                ModelProgress = ReadDouble(engineEvent.Data, "progress");
-                LogService.Instance.Debug(SourceEngine, $"模型进度：{ModelStatus} {ModelProgress:P0}");
+                var progressStatus = ReadString(engineEvent.Data, "status");
+                var modelProgress = ReadNullableDouble(engineEvent.Data, "progress");
+                var modelId = ReadString(engineEvent.Data, "modelId");
+                var modelCategory = ReadString(engineEvent.Data, "category");
+                if (string.IsNullOrWhiteSpace(modelId))
+                {
+                    ModelStatus = progressStatus;
+                    ModelProgress = modelProgress ?? 0;
+                }
+                else
+                {
+                    LocalModels.FirstOrDefault(model =>
+                            model.Id.Equals(modelId, StringComparison.Ordinal)
+                            && (string.IsNullOrWhiteSpace(modelCategory)
+                                || model.Category.Equals(modelCategory, StringComparison.OrdinalIgnoreCase)))
+                        ?.UpdateProgress(progressStatus, modelProgress);
+                }
+
+                LogService.Instance.Debug(
+                    SourceEngine,
+                    $"模型进度：{progressStatus} {(modelProgress ?? 0):P0}"
+                    + (string.IsNullOrWhiteSpace(modelId) ? "" : $"（{modelId}）"));
                 break;
             case "error":
                 ErrorMessage = ReadString(engineEvent.Data, "message", "引擎处理失败。");
@@ -1143,7 +1303,8 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
 
         if (args.PropertyName is nameof(AppSettings.UseAiTranslation)
             or nameof(AppSettings.UseCloudAsr)
-            or nameof(AppSettings.UseRemoteSpeech))
+            or nameof(AppSettings.UseRemoteSpeech)
+            or nameof(AppSettings.UseLocalKokoroTextToSpeech))
         {
             OnPropertyChanged(nameof(Settings));
         }
@@ -1369,9 +1530,13 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             : fallback;
 
     private static double ReadDouble(JsonElement json, string name) =>
+        ReadNullableDouble(json, name) ?? 0;
+
+    private static double? ReadNullableDouble(JsonElement json, string name) =>
         json.ValueKind == JsonValueKind.Object
         && json.TryGetProperty(name, out var value)
+        && value.ValueKind == JsonValueKind.Number
         && value.TryGetDouble(out var number)
             ? number
-            : 0;
+            : null;
 }

@@ -13,7 +13,7 @@ public sealed class OpenAiTranslationService(
     string baseUrl,
     string apiKey,
     string model,
-    IReadOnlyDictionary<string, string>? customHeaders = null) : ITranslationService
+    IReadOnlyDictionary<string, string>? customHeaders = null) : ITextGenerationService
 {
     private const int MaxResponseBytes = 2 * 1024 * 1024;
     private const int MaxErrorBytes = 64 * 1024;

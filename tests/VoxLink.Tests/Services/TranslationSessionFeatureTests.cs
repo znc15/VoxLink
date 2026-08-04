@@ -231,6 +231,51 @@ public sealed class TranslationSessionFeatureTests
         Assert.Equal("virtual-cable", call.OutputDeviceId);
     }
 
+    [Fact]
+    public async Task DisposeAsync_ConcurrentCallersWaitForTheSameTextToSpeechShutdown()
+    {
+        using var httpClient = new HttpClient(new DelegateHandler((_, _) =>
+            Task.FromResult(JsonResponse("unused"))));
+        var tts = new BlockingDisposeTextToSpeech();
+        var session = new TranslationSession(
+            new StubSpeechRecognizer(),
+            new TranslationServiceFactory(httpClient),
+            tts);
+
+        var first = session.DisposeAsync().AsTask();
+        await tts.DisposeStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var second = session.DisposeAsync().AsTask();
+        await Task.Yield();
+
+        Assert.False(first.IsCompleted);
+        Assert.False(second.IsCompleted);
+        tts.DisposeRelease.TrySetResult();
+        await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(1, tts.DisposeCount);
+    }
+
+    [Fact]
+    public async Task DisposeAsync_AsrDisposalFails_StillDisposesTextToSpeechForAllCallers()
+    {
+        using var httpClient = new HttpClient(new DelegateHandler((_, _) =>
+            Task.FromResult(JsonResponse("unused"))));
+        var tts = new BlockingDisposeTextToSpeech();
+        var session = new TranslationSession(
+            new ThrowingDisposeSpeechRecognizer(),
+            new TranslationServiceFactory(httpClient),
+            tts);
+
+        var first = session.DisposeAsync().AsTask();
+        await tts.DisposeStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var second = session.DisposeAsync().AsTask();
+        tts.DisposeRelease.TrySetResult();
+
+        var firstError = await Assert.ThrowsAsync<InvalidOperationException>(() => first);
+        var secondError = await Assert.ThrowsAsync<InvalidOperationException>(() => second);
+        Assert.Equal("ASR dispose failed.", firstError.Message);
+        Assert.Equal(firstError.Message, secondError.Message);
+        Assert.Equal(1, tts.DisposeCount);
+    }
     private static ConversationMessage Message(TranslationDirection direction) => new(
         direction,
         "source",
@@ -278,6 +323,53 @@ public sealed class TranslationSessionFeatureTests
             Task.FromResult("unused");
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class ThrowingDisposeSpeechRecognizer : ISpeechRecognizer
+    {
+        public event EventHandler<ModelProgressEventArgs>? ModelProgress
+        {
+            add { }
+            remove { }
+        }
+
+        public Task PrepareAsync(string modelName, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task<string> TranscribeAsync(
+            AudioUtterance utterance,
+            LanguageOption language,
+            string modelName,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult("unused");
+
+        public ValueTask DisposeAsync() =>
+            ValueTask.FromException(new InvalidOperationException("ASR dispose failed."));
+    }
+
+    private sealed class BlockingDisposeTextToSpeech : ITextToSpeechService
+    {
+        public bool IsSpeaking => false;
+        public int DisposeCount { get; private set; }
+        public TaskCompletionSource DisposeStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource DisposeRelease { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public IReadOnlyList<string> GetInstalledVoices(LanguageOption language) => [];
+        public Task SpeakAsync(
+            string text,
+            LanguageOption language,
+            string? outputDeviceId,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public void Stop() { }
+
+        public async ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            DisposeStarted.TrySetResult();
+            await DisposeRelease.Task;
+        }
     }
 
     private sealed class RecordingTextToSpeech : ITextToSpeechService

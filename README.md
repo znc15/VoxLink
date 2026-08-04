@@ -29,7 +29,9 @@
 - **双向翻译**：麦克风与系统回环分路识别
 - **运行模式**：`仅文字`（Chatbox）；`VRChat 语音`（TTS 经虚拟声卡输出）
 - **识别**：本地 Whisper（tiny/base/small）或 DashScope、Soniox、SiliconFlow、MiMo、OpenAI 兼容接口
-- **翻译**：免密翻译链路与可选 LLM 润色；支持第二目标语言（Chatbox 并列显示）
+- **本地模型**：软件内安装/删除/重试 Whisper、MiniCPM5-1B GGUF 与 Kokoro-82M；下载均校验大小和 SHA-256
+- **翻译**：免密翻译、云端 LLM 或本地 MiniCPM5-1B；支持可选润色和第二目标语言
+- **语音合成**：Kokoro-82M 可通过 sherpa-onnx 完全离线生成中英文 24 kHz 语音
 - **字幕**：桌面 overlay、可选 SteamVR；简体中文输出统一字形
 - **说话人**：关 / 本地聚类 / 云端 speaker ID
 - **VRChat**：Chatbox、MuteSelf 联动、启动时检查更新
@@ -66,12 +68,18 @@ VRChat OSC 不承载音频，语音模式需第三方虚拟声卡：
 | AI 与语音 | 翻译 / 语音识别 / 语音输出开关与测试 |
 | 音频设备 | 采集源、设备路由、断句 |
 | VRChat | Chatbox、语音路由、MuteSelf、字幕 |
-| 模型服务 | 翻译 / ASR / TTS 提供方、模型、凭据、本地 Whisper |
+| 模型服务 | 本地 MiniCPM 翻译、Whisper、本地 Kokoro 音色/语速、云端提供方与统一模型目录 |
 | 高级设置 | 会话、仅转写、出站朗读内容、说话人标签、快捷键、窗口外观 |
 | 关于 | 版本、更新、运行状态 |
 | 日志 | 运行日志 |
 
 快捷键：`Ctrl+Alt+Space` 开始/停止，`Ctrl+Alt+Enter` 翻译当前输入。变更采集设备后需重新开始会话。
+
+### 本地模型支持
+
+“稳定支持”条目可直接安装并从现有翻译/ASR/TTS 配置调用：Whisper tiny/base/small、MiniCPM5-1B GGUF 和 Kokoro-82M。模型保存到 `%LOCALAPPDATA%\VoxLink\models`；下载只允许固定 HTTPS 主机，使用滑动无进度超时、临时文件、大小/SHA-256 校验和原子替换。MiniCPM/Kokoro 运行时通过目录租约阻止删除正在使用的工件；Whisper 由其独立安装器管理，不宣称同等的运行时租约保护。
+
+`dots.tts`、`HY-MT1.5-1.8B`、`MOSS-Transcribe-Diarize` 等候选仅展示许可证、依赖和 Windows 兼容性，不提供虚假的安装按钮。其中 HY-MT 使用带地域限制的 Tencent HY Community License；dots.tts 与 MOSS 的官方运行路径依赖 Python/GPU 服务栈。Kokoro 本地生成失败会直接报错，不会静默上传文字或切换到在线/系统 TTS。
 
 ## 构建
 

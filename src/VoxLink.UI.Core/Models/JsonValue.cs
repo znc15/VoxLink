@@ -17,4 +17,20 @@ internal static class JsonValue
         && property.ValueKind is JsonValueKind.True or JsonValueKind.False
             ? property.GetBoolean()
             : fallback;
+
+    public static double Double(JsonElement element, string name, double fallback = 0) =>
+        element.ValueKind == JsonValueKind.Object
+        && element.TryGetProperty(name, out var property)
+        && property.ValueKind == JsonValueKind.Number
+        && property.TryGetDouble(out var value)
+            ? value
+            : fallback;
+
+    public static long Int64(JsonElement element, string name, long fallback = 0) =>
+        element.ValueKind == JsonValueKind.Object
+        && element.TryGetProperty(name, out var property)
+        && property.ValueKind == JsonValueKind.Number
+        && property.TryGetInt64(out var value)
+            ? value
+            : fallback;
 }

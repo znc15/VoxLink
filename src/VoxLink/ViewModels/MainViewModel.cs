@@ -425,8 +425,14 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await SaveAsync();
-        await _session.DisposeAsync();
+        try
+        {
+            await SaveAsync();
+        }
+        finally
+        {
+            await _session.DisposeAsync();
+        }
     }
 
     private async Task ToggleSessionAsync()

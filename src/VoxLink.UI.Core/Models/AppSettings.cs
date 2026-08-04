@@ -10,7 +10,8 @@ public enum TranslationBackend
     DashScope,
     DeepSeek,
     OpenAiCompatible,
-    Custom
+    Custom,
+    LocalMiniCpm
 }
 
 public enum SpeechProtocol
@@ -84,6 +85,9 @@ public sealed class AppSettings : ObservableObject
     private Dictionary<string, string> _asrHeaders = new(StringComparer.OrdinalIgnoreCase);
     private bool _allowCloudAudioUpload;
     private bool _useRemoteSpeech;
+    private bool _useLocalKokoroTextToSpeech;
+    private int _kokoroSpeakerId = 3;
+    private double _kokoroSpeed = 1.0;
     private SpeechProtocol _speechProtocol = SpeechProtocol.DashScope;
     private string _speechBaseUrl = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation";
     private string _speechApiKey = string.Empty;
@@ -219,6 +223,23 @@ public sealed class AppSettings : ObservableObject
 
     public bool AllowCloudAudioUpload { get => _allowCloudAudioUpload; set => SetProperty(ref _allowCloudAudioUpload, value); }
     public bool UseRemoteSpeech { get => _useRemoteSpeech; set => SetProperty(ref _useRemoteSpeech, value); }
+    public bool UseLocalKokoroTextToSpeech
+    {
+        get => _useLocalKokoroTextToSpeech;
+        set => SetProperty(ref _useLocalKokoroTextToSpeech, value);
+    }
+    public int KokoroSpeakerId
+    {
+        get => _kokoroSpeakerId;
+        set => SetProperty(ref _kokoroSpeakerId, Math.Clamp(value, 0, 102));
+    }
+    public double KokoroSpeed
+    {
+        get => _kokoroSpeed;
+        set => SetProperty(
+            ref _kokoroSpeed,
+            Math.Clamp(double.IsFinite(value) ? value : 1.0, 0.5, 2.0));
+    }
 
     [JsonConverter(typeof(JsonStringEnumConverter<SpeechProtocol>))]
     public SpeechProtocol SpeechProtocol { get => _speechProtocol; set => SetProperty(ref _speechProtocol, value); }
@@ -301,6 +322,8 @@ public sealed class AppSettings : ObservableObject
             case TranslationBackend.OpenAiCompatible:
                 TranslationBaseUrl = "http://localhost:11434/v1";
                 TranslationModel = "qwen2.5:7b";
+                break;
+            case TranslationBackend.LocalMiniCpm:
                 break;
         }
     }
@@ -389,6 +412,7 @@ public sealed class AppSettings : ObservableObject
             TranslationBackend.DashScope => "dashScope",
             TranslationBackend.DeepSeek => "deepSeek",
             TranslationBackend.OpenAiCompatible => "openAiCompatible",
+            TranslationBackend.LocalMiniCpm => "localMiniCpm",
             _ => "custom"
         },
         ["openAiBaseUrl"] = TranslationBaseUrl,
@@ -413,6 +437,9 @@ public sealed class AppSettings : ObservableObject
         ["useRemoteTextToSpeech"] = respectSwitches
             ? UseRemoteSpeech
             : UseRemoteSpeech || !string.IsNullOrWhiteSpace(SpeechApiKey),
+        ["useLocalKokoroTextToSpeech"] = UseLocalKokoroTextToSpeech,
+        ["kokoroSpeakerId"] = KokoroSpeakerId,
+        ["kokoroSpeed"] = KokoroSpeed,
         ["textToSpeechBaseUrl"] = SpeechBaseUrl,
         ["textToSpeechApiKey"] = SpeechApiKey,
         ["textToSpeechModel"] = SpeechModel,

@@ -237,6 +237,44 @@ public sealed class SettingsRepositoryTests : IDisposable
         Assert.DoesNotContain("quickStartMode", migratedJson, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task SaveAsync_RoundTripsLocalModelSettingsAsPublicSettings()
+    {
+        var repository = CreateRepository();
+        var settings = new AppSettings
+        {
+            UseAiTranslation = true,
+            TranslationBackend = TranslationBackend.LocalMiniCpm,
+            UseLocalKokoroTextToSpeech = true,
+            KokoroSpeakerId = 42,
+            KokoroSpeed = 1.25
+        };
+
+        await repository.SaveAsync(settings);
+
+        var publicJson = await File.ReadAllTextAsync(PathFor("settings.json"));
+        var loaded = await repository.LoadAsync();
+
+        Assert.Equal(TranslationBackend.LocalMiniCpm, loaded.TranslationBackend);
+        Assert.True(loaded.UseAiTranslation);
+        Assert.True(loaded.UseLocalKokoroTextToSpeech);
+        Assert.Equal(42, loaded.KokoroSpeakerId);
+        Assert.Equal(1.25, loaded.KokoroSpeed, precision: 3);
+        Assert.Contains("\"translationBackend\": \"LocalMiniCpm\"", publicJson, StringComparison.Ordinal);
+        Assert.Contains("\"useLocalKokoroTextToSpeech\": true", publicJson, StringComparison.Ordinal);
+        Assert.Contains("\"kokoroSpeakerId\": 42", publicJson, StringComparison.Ordinal);
+        Assert.Contains("\"kokoroSpeed\": 1.25", publicJson, StringComparison.Ordinal);
+
+        // 本地模型字段属于公开设置：secrets.dat 解密后不应包含它们。
+        var protectedBytes = await File.ReadAllBytesAsync(PathFor("secrets.dat"));
+        var secretJson = Encoding.UTF8.GetString(ProtectedData.Unprotect(
+            protectedBytes,
+            Encoding.UTF8.GetBytes("VoxLink.UI.Secrets.v1"),
+            DataProtectionScope.CurrentUser));
+        Assert.DoesNotContain("kokoro", secretJson, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("localMiniCpm", secretJson, StringComparison.OrdinalIgnoreCase);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_directory))

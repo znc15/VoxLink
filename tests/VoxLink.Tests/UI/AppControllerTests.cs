@@ -689,6 +689,375 @@ public sealed class AppControllerTests
         Assert.False(controller.NeedsSessionRestart);
     }
 
+    [Fact]
+    public void ToEngineJson_MapsLocalMiniCpmAndLocalKokoroIntoEngineSettings()
+    {
+        var settings = new AppSettings
+        {
+            UseAiTranslation = true,
+            TranslationBackend = TranslationBackend.LocalMiniCpm,
+            UseRemoteSpeech = false,
+            UseLocalKokoroTextToSpeech = true,
+            KokoroSpeakerId = 42,
+            KokoroSpeed = 1.25
+        };
+
+        var json = JsonSerializer.Serialize(settings.ToEngineJson(), EngineJsonOptions);
+        var engineSettings = JsonSerializer.Deserialize<EngineSettings>(json, EngineJsonOptions);
+
+        Assert.NotNull(engineSettings);
+        Assert.Equal(EngineTranslationProvider.LocalMiniCpm, engineSettings.TranslationProvider);
+        Assert.True(engineSettings.UseLocalKokoroTextToSpeech);
+        Assert.Equal(42, engineSettings.KokoroSpeakerId);
+        Assert.Equal(1.25, engineSettings.KokoroSpeed, precision: 3);
+        Assert.False(engineSettings.UseRemoteTextToSpeech);
+
+        // 关闭 AI 翻译开关后仍然回退到公共免费翻译。
+        settings.UseAiTranslation = false;
+        json = JsonSerializer.Serialize(settings.ToEngineJson(), EngineJsonOptions);
+        engineSettings = JsonSerializer.Deserialize<EngineSettings>(json, EngineJsonOptions);
+
+        Assert.NotNull(engineSettings);
+        Assert.Equal(EngineTranslationProvider.GoogleWeb, engineSettings.TranslationProvider);
+        Assert.True(engineSettings.UseLocalKokoroTextToSpeech);
+    }
+
+    [Fact]
+    public void KokoroSettings_ClampSpeakerIdAndSpeedToSupportedRanges()
+    {
+        var settings = new AppSettings();
+
+        settings.KokoroSpeakerId = 500;
+        Assert.Equal(102, settings.KokoroSpeakerId);
+
+        settings.KokoroSpeakerId = -3;
+        Assert.Equal(0, settings.KokoroSpeakerId);
+
+        settings.KokoroSpeakerId = 42;
+        Assert.Equal(42, settings.KokoroSpeakerId);
+
+        settings.KokoroSpeed = 3.5;
+        Assert.Equal(2.0, settings.KokoroSpeed);
+
+        settings.KokoroSpeed = 0.1;
+        Assert.Equal(0.5, settings.KokoroSpeed);
+
+        settings.KokoroSpeed = double.NaN;
+        Assert.Equal(1.0, settings.KokoroSpeed);
+
+        settings.KokoroSpeed = double.PositiveInfinity;
+        Assert.Equal(1.0, settings.KokoroSpeed);
+
+        settings.KokoroSpeed = 1.25;
+        Assert.Equal(1.25, settings.KokoroSpeed);
+    }
+
+    [Fact]
+    public void ApplyTranslationBackendDefaults_LocalMiniCpmKeepsConfiguredCloudEndpoint()
+    {
+        var settings = new AppSettings();
+        settings.ApplyTranslationBackendDefaults(TranslationBackend.DeepSeek);
+
+        settings.ApplyTranslationBackendDefaults(TranslationBackend.LocalMiniCpm);
+
+        Assert.Equal(TranslationBackend.LocalMiniCpm, settings.TranslationBackend);
+        Assert.Equal("https://api.deepseek.com", settings.TranslationBaseUrl);
+        Assert.Equal("deepseek-v4-flash", settings.TranslationModel);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_LoadsLocalModelCatalogFromEngine()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson("minicpm5-1b", category: "translation", installState: "installed"),
+                LocalModelJson("kokoro-82m", category: "tts"))
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+
+        await controller.InitializeAsync();
+
+        Assert.Contains("listLocalModels", gateway.Requests);
+        Assert.Collection(
+            controller.LocalModels,
+            model =>
+            {
+                Assert.Equal("minicpm5-1b", model.Id);
+                Assert.True(model.Installed);
+                Assert.True(model.CanRemove);
+                Assert.False(model.CanInstall);
+            },
+            model =>
+            {
+                Assert.Equal("kokoro-82m", model.Id);
+                Assert.False(model.Installed);
+                Assert.True(model.CanInstall);
+            });
+    }
+
+    [Fact]
+    public async Task ModelProgressEvent_WithModelId_OnlyUpdatesMatchingItem()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson("minicpm5-1b", category: "translation"),
+                LocalModelJson("kokoro-82m", category: "tts"))
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+
+        gateway.Raise("modelProgress", JsonSerializer.SerializeToElement(new
+        {
+            status = "正在下载",
+            progress = 0.4,
+            modelId = "kokoro-82m"
+        }));
+
+        var translation = controller.LocalModels.Single(model => model.Id == "minicpm5-1b");
+        var speech = controller.LocalModels.Single(model => model.Id == "kokoro-82m");
+        Assert.Equal("正在下载", speech.OperationStatus);
+        Assert.Equal(0.4, speech.Progress, precision: 3);
+        Assert.True(speech.IsBusy);
+        Assert.Equal(string.Empty, translation.OperationStatus);
+        Assert.Equal(0, translation.Progress);
+        Assert.False(translation.IsBusy);
+        // 带 modelId 的进度不更新全局旧进度字段。
+        Assert.Equal(string.Empty, controller.ModelStatus);
+        Assert.Equal(0, controller.ModelProgress);
+
+        // 分类不匹配的进度事件不会误更新同名模型。
+        gateway.Raise("modelProgress", JsonSerializer.SerializeToElement(new
+        {
+            status = "错误分类",
+            progress = 0.9,
+            modelId = "kokoro-82m",
+            category = "asr"
+        }));
+        Assert.Equal("正在下载", speech.OperationStatus);
+        Assert.Equal(0.4, speech.Progress, precision: 3);
+
+        // 未知模型不抛异常，也不更新任何项。
+        gateway.Raise("modelProgress", JsonSerializer.SerializeToElement(new
+        {
+            status = "未知模型",
+            progress = 0.5,
+            modelId = "missing-model"
+        }));
+        Assert.Equal("正在下载", speech.OperationStatus);
+        Assert.Equal(string.Empty, translation.OperationStatus);
+
+        // 本地管理器只在校验和原子替换全部完成后报告 1；即使 UI 的 RPC 等待已超时，
+        // 最终事件也能恢复真实安装状态并解除忙碌。
+        gateway.Raise("modelProgress", JsonSerializer.SerializeToElement(new
+        {
+            status = "安装完成",
+            progress = 1.0,
+            modelId = "kokoro-82m",
+            category = "tts"
+        }));
+        Assert.Equal("安装完成", speech.OperationStatus);
+        Assert.Equal(1.0, speech.Progress, precision: 3);
+        Assert.True(speech.Installed);
+        Assert.False(speech.IsBusy);
+    }
+
+    [Fact]
+    public async Task ModelProgressEvent_WithoutModelId_UpdatesLegacyGlobalProgress()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(LocalModelJson("kokoro-82m", category: "tts"))
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+
+        gateway.Raise("modelProgress", JsonSerializer.SerializeToElement(new
+        {
+            status = "正在下载模型",
+            progress = 0.62
+        }));
+
+        Assert.Equal("正在下载模型", controller.ModelStatus);
+        Assert.Equal(0.62, controller.ModelProgress, precision: 3);
+        var model = Assert.Single(controller.LocalModels);
+        Assert.False(model.IsBusy);
+        Assert.Equal(string.Empty, model.OperationStatus);
+
+        // 空字符串 modelId 同样走全局进度。
+        gateway.Raise("modelProgress", JsonSerializer.SerializeToElement(new
+        {
+            status = "模型就绪",
+            progress = 1.0,
+            modelId = ""
+        }));
+        Assert.Equal("模型就绪", controller.ModelStatus);
+        Assert.Equal(1.0, controller.ModelProgress, precision: 3);
+        Assert.Equal(string.Empty, model.OperationStatus);
+    }
+
+    [Fact]
+    public async Task InstallLocalModelAsync_Success_MarksInstalledAndRefreshesCatalog()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(LocalModelJson("minicpm5-1b", category: "translation"))
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+
+        gateway.ModelsResponse = ModelsPayload(
+            LocalModelJson("minicpm5-1b", category: "translation", installState: "installed"));
+        await controller.InstallLocalModelAsync("minicpm5-1b");
+
+        var installCall = Assert.Single(gateway.Calls, call => call.Method == "installLocalModel");
+        Assert.Equal("minicpm5-1b", installCall.Parameters!["modelId"]);
+        Assert.Null(controller.ErrorMessage);
+        var model = Assert.Single(controller.LocalModels);
+        Assert.True(model.Installed);
+        Assert.True(model.CanRemove);
+        Assert.False(model.IsBusy);
+        // 安装成功后会重新拉取模型目录。
+        Assert.Equal(2, gateway.Requests.Count(request => request == "listLocalModels"));
+    }
+
+    [Fact]
+    public async Task RemoveLocalModelAsync_Success_MarksNotInstalled()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson("minicpm5-1b", category: "translation", installState: "installed"))
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+
+        gateway.ModelsResponse = ModelsPayload(LocalModelJson("minicpm5-1b", category: "translation"));
+        await controller.RemoveLocalModelAsync("minicpm5-1b");
+
+        var removeCall = Assert.Single(gateway.Calls, call => call.Method == "removeLocalModel");
+        Assert.Equal("minicpm5-1b", removeCall.Parameters!["modelId"]);
+        Assert.Null(controller.ErrorMessage);
+        var model = Assert.Single(controller.LocalModels);
+        Assert.False(model.Installed);
+        Assert.True(model.CanInstall);
+        Assert.False(model.IsBusy);
+    }
+
+    [Fact]
+    public async Task InstallLocalModelAsync_Failure_RestoresRetryableState()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(LocalModelJson("minicpm5-1b", category: "translation")),
+            InstallResponse = null
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+
+        // 失败后控制器会重新拉取目录；引擎此时将模型报告为 partial。
+        gateway.ModelsResponse = ModelsPayload(
+            LocalModelJson("minicpm5-1b", category: "translation", installState: "partial"));
+        await controller.InstallLocalModelAsync("minicpm5-1b");
+
+        Assert.NotNull(controller.ErrorMessage);
+        Assert.Equal("error", controller.Activity);
+        Assert.Equal(2, gateway.Requests.Count(request => request == "listLocalModels"));
+        var model = Assert.Single(controller.LocalModels);
+        Assert.True(model.IsPartial);
+        Assert.False(model.IsBusy);
+        Assert.True(model.CanInstall);
+        Assert.Equal("重试", model.InstallActionLabel);
+        Assert.Equal("安装失败，可重试", model.OperationStatus);
+
+        // 重试成功后恢复正常状态。
+        gateway.InstallResponse = JsonSerializer.SerializeToElement(new { installState = "installed" });
+        gateway.ModelsResponse = ModelsPayload(
+            LocalModelJson("minicpm5-1b", category: "translation", installState: "installed"));
+        await controller.RetryLocalModelAsync("minicpm5-1b");
+
+        Assert.Null(controller.ErrorMessage);
+        model = Assert.Single(controller.LocalModels);
+        Assert.True(model.Installed);
+        Assert.False(model.IsBusy);
+    }
+
+    [Fact]
+    public async Task InstallLocalModelAsync_FailureWithUnavailableCatalog_MarksOriginalItemPartial()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(LocalModelJson("minicpm5-1b", category: "translation")),
+            InstallResponse = null
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+
+        // 安装失败且失败后的目录刷新也失败时，回退为标记原条目 partial。
+        gateway.ModelsResponse = null;
+        await controller.InstallLocalModelAsync("minicpm5-1b");
+
+        Assert.NotNull(controller.ErrorMessage);
+        var model = Assert.Single(controller.LocalModels);
+        Assert.True(model.IsPartial);
+        Assert.False(model.IsBusy);
+        Assert.True(model.CanInstall);
+        Assert.Equal("重试", model.InstallActionLabel);
+        Assert.Equal("安装失败，可重试", model.OperationStatus);
+    }
+
+    [Fact]
+    public async Task InstallLocalModelAsync_DoesNotBlockSessionOperations()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(LocalModelJson("minicpm5-1b", category: "translation")),
+            BlockInstall = true
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+
+        var install = controller.InstallLocalModelAsync("minicpm5-1b");
+        await gateway.InstallStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        await controller.ToggleSessionAsync().WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Contains("startSession", gateway.Requests);
+        Assert.True(controller.IsRunning);
+        Assert.False(install.IsCompleted);
+
+        gateway.ModelsResponse = ModelsPayload(
+            LocalModelJson("minicpm5-1b", category: "translation", installState: "installed"));
+        gateway.InstallRelease.TrySetResult();
+        await install.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(Assert.Single(controller.LocalModels).Installed);
+    }
+
     private static JsonElement MessagePayload(string text, bool isFinal, string utteranceId) =>
         JsonSerializer.SerializeToElement(new
         {
@@ -701,6 +1070,31 @@ public sealed class AppControllerTests
             transcriptionOnly = !isFinal,
             timestamp = DateTimeOffset.UtcNow
         });
+
+    private static JsonElement ModelsPayload(params object[] models) =>
+        JsonSerializer.SerializeToElement(new { models });
+
+    private static object LocalModelJson(
+        string id,
+        string category,
+        string installState = "notinstalled") => new
+        {
+            id,
+            name = id,
+            category,
+            supportLevel = "stable",
+            runtime = "llamaCpp",
+            parameters = "1B",
+            numericParameterBillions = 1.0,
+            license = "Apache-2.0",
+            languages = "zh,en",
+            requirements = "4GB 内存",
+            sourceUrl = "https://example.test/model",
+            description = "测试模型",
+            downloadBytes = 1024,
+            isInstallable = true,
+            installState
+        };
 
     private sealed class InlineSynchronizationContext : SynchronizationContext
     {
@@ -768,6 +1162,16 @@ public sealed class AppControllerTests
         public bool IsConnected { get; private set; }
         public List<string> Requests { get; } = [];
         public List<(string Method, IReadOnlyDictionary<string, object?>? Parameters)> Calls { get; } = [];
+        public JsonElement? ModelsResponse { get; set; }
+        public JsonElement? InstallResponse { get; set; } =
+            JsonSerializer.SerializeToElement(new { installState = "installed" });
+        public JsonElement? RemoveResponse { get; set; } =
+            JsonSerializer.SerializeToElement(new { removed = true });
+        public bool BlockInstall { get; init; }
+        public TaskCompletionSource InstallStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource InstallRelease { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
         public void Raise(string name, JsonElement data) =>
             EventReceived?.Invoke(this, new EngineEvent(name, data));
 
@@ -777,7 +1181,7 @@ public sealed class AppControllerTests
             return Task.CompletedTask;
         }
 
-        public Task<JsonElement?> RequestAsync(
+        public async Task<JsonElement?> RequestAsync(
             string method,
             IReadOnlyDictionary<string, object?>? parameters = null,
             TimeSpan? timeout = null,
@@ -789,12 +1193,28 @@ public sealed class AppControllerTests
                 parameters is null
                     ? null
                     : new Dictionary<string, object?>(parameters, StringComparer.Ordinal)));
-            if (method != "initialize" && method != "getBootstrap")
+            if (method == "installLocalModel" && BlockInstall)
             {
-                return Task.FromResult<JsonElement?>(null);
+                InstallStarted.TrySetResult();
+                await InstallRelease.Task.WaitAsync(cancellationToken);
             }
 
-            var bootstrap = JsonSerializer.SerializeToElement(new
+            if (method is "listLocalModels" or "installLocalModel" or "removeLocalModel")
+            {
+                return method switch
+                {
+                    "listLocalModels" => ModelsResponse,
+                    "installLocalModel" => InstallResponse,
+                    _ => RemoveResponse
+                };
+            }
+
+            if (method != "initialize" && method != "getBootstrap")
+            {
+                return null;
+            }
+
+            return JsonSerializer.SerializeToElement(new
             {
                 captureDevices = new[]
                 {
@@ -805,7 +1225,6 @@ public sealed class AppControllerTests
                     new { id = "render-default", name = "默认扬声器", isDefault = true }
                 }
             });
-            return Task.FromResult<JsonElement?>(bootstrap);
         }
 
         public Task CloseAsync()

@@ -9,6 +9,7 @@ namespace VoxLink;
 
 public partial class MainWindow : Window
 {
+    private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(10);
     private readonly MainViewModel _viewModel;
     private readonly OverlayWindow _overlayWindow = new();
     private GlobalHotkeyService? _hotkeys;
@@ -58,7 +59,7 @@ public partial class MainWindow : Window
             _hotkeys?.Dispose();
             _hotkeys = null;
             _overlayWindow.Close();
-            await _viewModel.DisposeAsync();
+            await _viewModel.DisposeAsync().AsTask().WaitAsync(ShutdownTimeout);
         }
         catch (Exception exception)
         {

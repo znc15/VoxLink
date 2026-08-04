@@ -8,7 +8,8 @@ namespace VoxLink.UI;
 
 public partial class App : Application
 {
-    private const string MutexName = "Local\\VoxLink.WinUI.Singleton";
+    // Shared with the retired WPF debug entry so only one frontend can own local model files.
+    private const string MutexName = "Local\\VoxLink.Frontend.Singleton";
     private Mutex? _singleInstanceMutex;
     private Window? _window;
 

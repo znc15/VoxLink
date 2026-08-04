@@ -28,6 +28,8 @@ The retired Flutter frontend under `src/voxlink_app` is not built into or distri
 - EdgeTTS.DotNet, MIT License: <https://github.com/twn39/EdgeTTS.DotNet>
 - Whisper.net, MIT License: <https://github.com/sandrohanea/whisper.net>
 - Whisper.net.Runtime / whisper.cpp runtime, MIT License: <https://github.com/ggml-org/whisper.cpp>
+- LLamaSharp `0.27.0` managed API and CPU backend (llama.cpp), MIT License: <https://github.com/SciSharp/LLamaSharp>
+- SharpCompress `0.50.3`, MIT License: <https://github.com/adamhathcock/sharpcompress>
 - System.Speech, MIT License: <https://github.com/dotnet/runtime>
 - sherpa-onnx `1.13.4` managed API and Windows x64 runtime, Apache License 2.0: <https://github.com/k2-fsa/sherpa-onnx/tree/v1.13.4>
 - Microsoft ONNX Runtime `1.27.0`, MIT License: <https://github.com/microsoft/onnxruntime/tree/v1.27.0>
@@ -41,8 +43,13 @@ Source versions, upstream commits, and imported-file SHA-256 values are recorded
 The OpenVR runtime is loaded only when SteamVR subtitles are enabled or tested. It does not provide VRChat voice or chat input; VoxLink continues to capture other-player audio through local WASAPI loopback. The complete Valve license is distributed as `engine/OPENVR-LICENSE.txt`.
 ## Models and Online Services
 
-Whisper model files are downloaded on demand from the `ggerganov/whisper.cpp` Hugging Face repository or a mirror. They are not bundled in the release package; see the upstream model card and provenance.
+Whisper tiny/base/small model files are downloaded on demand from the `ggerganov/whisper.cpp` Hugging Face repository or a mirror. They are not bundled in the release package; see the upstream model card and provenance.
 
+MiniCPM5-1B GGUF is downloaded on demand from `openbmb/MiniCPM5-1B-GGUF` at the revision pinned in source. The repository and weights are Apache License 2.0. VoxLink uses the Q4_K_M file through LLamaSharp/llama.cpp as a general instruction model prompted for translation and refinement; it is not represented as a translation-specialized checkpoint.
+
+Kokoro-82M model files are downloaded on demand from the sherpa-onnx `tts-models` release, with the archive and critical extracted artifacts pinned by byte length and SHA-256. Kokoro-82M and sherpa-onnx are Apache License 2.0; the archive includes linguistic data used by the upstream Kokoro configuration. Model weights are not bundled in the VoxLink release.
+
+Catalog-only entries such as dots.tts, HY-MT1.5-1.8B, and MOSS-Transcribe-Diarize are not downloaded or distributed by VoxLink. The UI links to their upstream terms and runtime requirements. In particular, HY-MT1.5-1.8B uses the Tencent HY Community License, which excludes the European Union, United Kingdom, and South Korea; it must not be treated as Apache-2.0 or as an unrestricted open-source dependency.
 The optional CAMPPlus Chinese-English 16 kHz speaker-embedding model is not bundled. When local anonymous speaker labels are first enabled, VoxLink downloads `3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx` from the sherpa-onnx speaker-model release and accepts it only when its size and SHA-256 match the values pinned in the source. The sherpa-onnx release states that each model has its own license and refers users to the corresponding model repository; the 3D-Speaker code repository is Apache-2.0, but users remain responsible for the model-weight terms that apply in their jurisdiction.
 
 Default no-key translation and online text-to-speech rely on third-party public services, including MyMemory, Google Translate, and Microsoft Edge Read Aloud. Optional DashScope, DeepSeek, MiMo, OpenAI-compatible, SiliconFlow, Soniox, and custom services are not bundled with VoxLink and may apply their own terms, quotas, data-retention policies, and regional restrictions. Cloud ASR is disabled until the user explicitly enables raw-audio upload.
