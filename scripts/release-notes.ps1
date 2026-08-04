@@ -10,13 +10,15 @@ $OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 
 # 1. Resolve the commit range: previous tag..HEAD
+$tags = @(git tag --sort=-version:refname 2>$null)
 $current = $env:GITHUB_REF_NAME
 if ([string]::IsNullOrEmpty($current)) {
-    $current = git tag --sort=-version:refname 2>$null | Select-Object -First 1
+    $current = $tags | Select-Object -First 1
 }
-$prev = git tag --sort=-version:refname 2>$null |
-    Where-Object { $_ -ne $current } |
-    Select-Object -First 1
+# Neighbouring older tag in version order (works for historical tags too).
+$idx = [array]::IndexOf($tags, $current)
+$prev = $null
+if ($idx -ge 0 -and $idx + 1 -lt $tags.Count) { $prev = $tags[$idx + 1] }
 
 $logLines = @()
 if (-not [string]::IsNullOrEmpty($prev)) {
