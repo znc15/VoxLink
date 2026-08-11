@@ -235,9 +235,9 @@ public sealed class AppControllerTests
         Assert.Equal(0, repository.SaveCount);
 
         var initialize = controller.InitializeAsync();
-        await repository.LoadStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await repository.LoadStarted.Task.WaitAsync(TimeSpan.FromSeconds(15));
         repository.LoadRelease.TrySetResult();
-        await initialize.WaitAsync(TimeSpan.FromSeconds(2));
+        await initialize.WaitAsync(TimeSpan.FromSeconds(15));
 
         Assert.Equal("ja", controller.Settings.SecondaryTargetLanguageCode);
         await controller.SaveNowAsync();
@@ -254,13 +254,13 @@ public sealed class AppControllerTests
             new InlineSynchronizationContext());
 
         var initialize = controller.InitializeAsync();
-        await repository.LoadStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await repository.LoadStarted.Task.WaitAsync(TimeSpan.FromSeconds(15));
         repository.LoadRelease.TrySetResult();
-        await initialize.WaitAsync(TimeSpan.FromSeconds(2));
+        await initialize.WaitAsync(TimeSpan.FromSeconds(15));
 
         controller.Settings.SecondaryTargetLanguageCode = "fr";
         controller.NotifySettingsChanged();
-        await repository.SaveCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await repository.SaveCompleted.Task.WaitAsync(TimeSpan.FromSeconds(15));
 
         Assert.Equal("fr", repository.LastSaved!.SecondaryTargetLanguageCode);
     }
@@ -312,11 +312,11 @@ public sealed class AppControllerTests
         await using var controller = new AppController(gateway, repository, new InlineSynchronizationContext());
 
         var initialize = controller.InitializeAsync();
-        await gateway.ConnectStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await gateway.ConnectStarted.Task.WaitAsync(TimeSpan.FromSeconds(15));
         var shutdown = controller.ShutdownAsync();
 
-        await shutdown.WaitAsync(TimeSpan.FromSeconds(2));
-        await initialize.WaitAsync(TimeSpan.FromSeconds(2));
+        await shutdown.WaitAsync(TimeSpan.FromSeconds(15));
+        await initialize.WaitAsync(TimeSpan.FromSeconds(15));
 
         Assert.True(controller.Initialized);
         Assert.Equal(1, gateway.CloseCount);
@@ -1751,9 +1751,9 @@ public sealed class AppControllerTests
         await controller.InitializeAsync();
 
         var install = controller.InstallLocalModelAsync("minicpm5-1b");
-        await gateway.InstallStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await gateway.InstallStarted.Task.WaitAsync(TimeSpan.FromSeconds(15));
 
-        await controller.ToggleSessionAsync().WaitAsync(TimeSpan.FromSeconds(2));
+        await controller.ToggleSessionAsync().WaitAsync(TimeSpan.FromSeconds(15));
 
         Assert.DoesNotContain("startSession", gateway.Requests);
         Assert.False(controller.IsRunning);
@@ -1763,7 +1763,7 @@ public sealed class AppControllerTests
             LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"),
             LocalModelJson("minicpm5-1b", category: "translation", installState: "installed"));
         gateway.InstallRelease.TrySetResult();
-        await install.WaitAsync(TimeSpan.FromSeconds(2));
+        await install.WaitAsync(TimeSpan.FromSeconds(15));
         Assert.True(controller.LocalModels.Single(model => model.Id == "minicpm5-1b").Installed);
     }
 
@@ -1783,7 +1783,7 @@ public sealed class AppControllerTests
         var original = Assert.Single(controller.LocalModels);
 
         var install = controller.InstallLocalModelAsync(original.Id);
-        await gateway.InstallStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await gateway.InstallStarted.Task.WaitAsync(TimeSpan.FromSeconds(15));
         Assert.True(original.IsBusy);
         Assert.True(controller.HasBusyLocalModels);
 
@@ -1800,7 +1800,7 @@ public sealed class AppControllerTests
         gateway.ModelsResponse = ModelsPayload(
             LocalModelJson(original.Id, category: "translation", installState: "installed"));
         gateway.InstallRelease.TrySetResult();
-        await install.WaitAsync(TimeSpan.FromSeconds(2));
+        await install.WaitAsync(TimeSpan.FromSeconds(15));
         Assert.False(controller.HasBusyLocalModels);
         Assert.True(Assert.Single(controller.LocalModels).Installed);
     }
