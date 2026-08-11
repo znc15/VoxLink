@@ -66,7 +66,7 @@ public sealed class ManagedModelHostTranslationService : ITranslationService, IA
                                          or InvalidOperationException
                                          or ObjectDisposedException)
         {
-            if (exception is InvalidOperationException fixedError)
+            if (exception is InvalidOperationException)
             {
                 throw;
             }

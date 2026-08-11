@@ -1,5 +1,4 @@
 using System.IO;
-using System.Linq;
 using VoxLink.Audio;
 using VoxLink.Models;
 
@@ -76,7 +75,7 @@ public sealed class ManagedModelHostAsrRecognizer : IAsrRecognizer
                                          or InvalidOperationException
                                          or ObjectDisposedException)
         {
-            if (exception is InvalidOperationException fixedError)
+            if (exception is InvalidOperationException)
             {
                 throw;
             }
