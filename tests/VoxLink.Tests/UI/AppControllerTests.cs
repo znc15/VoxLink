@@ -4,6 +4,7 @@ using EngineSettings = VoxLink.Models.AppSettings;
 using EngineTranslationProvider = VoxLink.Models.TranslationProvider;
 using EngineAsrProvider = VoxLink.Models.AsrProvider;
 using EngineAsrProtocol = VoxLink.Models.AsrProtocol;
+using EngineManagedTtsModel = VoxLink.Models.ManagedTtsModel;
 using EngineSpeakerLabelMode = VoxLink.Models.SpeakerLabelMode;
 using VoxLink.UI.Core.Models;
 using VoxLink.UI.Core.Services;
@@ -192,6 +193,27 @@ public sealed class AppControllerTests
         Assert.Contains("initialize", gateway.Requests);
     }
 
+    [Fact]
+    public async Task InitializeAsync_CorruptSettingsShowsErrorWithoutConnectingOrOnboarding()
+    {
+        var gateway = new FakeEngineGateway();
+        await using var controller = new AppController(
+            gateway,
+            new ThrowingSettingsRepository(new JsonException("settings are corrupt")),
+            new InlineSynchronizationContext());
+        var onboardingRequested = false;
+        controller.OnboardingRequested += (_, _) => onboardingRequested = true;
+
+        await controller.InitializeAsync();
+
+        Assert.True(controller.Initialized);
+        Assert.False(controller.EngineConnected);
+        Assert.Equal("软件启动失败", controller.StatusMessage);
+        Assert.Equal("error", controller.Activity);
+        Assert.Equal("settings are corrupt", controller.ErrorMessage);
+        Assert.Empty(gateway.Requests);
+        Assert.False(onboardingRequested);
+    }
     [Fact]
     public async Task SettingsChangeBeforeInitialization_DoesNotOverwritePersistedSettings()
     {
@@ -578,6 +600,70 @@ public sealed class AppControllerTests
         Assert.Equal("cable", engineSettings["voiceOutputDeviceId"]);
     }
 
+    [Fact]
+    public async Task TestSpeechAsync_UsesCurrentlySelectedSpeechService()
+    {
+        var gateway = new FakeEngineGateway();
+        var settings = new AppSettings
+        {
+            UseRemoteSpeech = false,
+            UseLocalKokoroTextToSpeech = false,
+            SpeechApiKey = "stale-remote-key"
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(settings),
+            new InlineSynchronizationContext());
+
+        await controller.TestSpeechAsync();
+
+        var call = Assert.Single(gateway.Calls, item => item.Method == "testSpeech");
+        var engineSettings = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(
+            call.Parameters!["settings"]);
+        Assert.Equal(false, engineSettings["useRemoteTextToSpeech"]);
+        Assert.Equal(false, engineSettings["useLocalKokoroTextToSpeech"]);
+    }
+
+    [Fact]
+    public async Task PrepareWhisperModelAsync_DoesNotChangeSelectedCloudAsr()
+    {
+        var gateway = new FakeEngineGateway();
+        var settings = new AppSettings
+        {
+            UseCloudAsr = true,
+            AsrProvider = AsrProvider.Soniox,
+            AsrProtocol = AsrProtocol.SonioxStreaming,
+            AsrBaseUrl = "wss://stt-rt.soniox.com/transcribe-websocket",
+            AsrApiKey = "key",
+            AsrModel = "stt-rt-v5",
+            AllowCloudAudioUpload = true,
+            WhisperModel = "base"
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(settings),
+            new InlineSynchronizationContext());
+
+        await controller.InitializeAsync();
+        await controller.PrepareWhisperModelAsync();
+
+        var call = Assert.Single(gateway.Calls, item => item.Method == "prepareModel");
+        var engineSettings = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(
+            call.Parameters!["settings"]);
+        Assert.Equal("localWhisper", engineSettings["asrProvider"]);
+        Assert.Equal("localWhisper", engineSettings["asrProtocol"]);
+        Assert.Equal(false, engineSettings["allowCloudAudioUpload"]);
+        var restoreCall = gateway.Calls.Last(item => item.Method == "configure");
+        var restoredSettings = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(
+            restoreCall.Parameters!["settings"]);
+        Assert.Equal("soniox", restoredSettings["asrProvider"]);
+        Assert.Equal("sonioxStreaming", restoredSettings["asrProtocol"]);
+        Assert.Equal(true, restoredSettings["allowCloudAudioUpload"]);
+        Assert.True(settings.UseCloudAsr);
+        Assert.Equal(AsrProvider.Soniox, settings.AsrProvider);
+        Assert.Equal(AsrProtocol.SonioxStreaming, settings.AsrProtocol);
+        Assert.True(settings.AllowCloudAudioUpload);
+    }
     [Theory]
     [InlineData(ConversationDirection.Outbound, OutboundSpeechContent.Original, "识别原话", "zh")]
     [InlineData(ConversationDirection.Outbound, OutboundSpeechContent.Translation, "translated text", "en")]
@@ -665,7 +751,11 @@ public sealed class AppControllerTests
     [Fact]
     public async Task ChangingCaptureSources_WhileRunning_RequiresSessionRestart()
     {
-        var gateway = new FakeEngineGateway();
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"))
+        };
         await using var controller = new AppController(
             gateway,
             new FakeSettingsRepository(new AppSettings()),
@@ -720,6 +810,34 @@ public sealed class AppControllerTests
         Assert.NotNull(engineSettings);
         Assert.Equal(EngineTranslationProvider.GoogleWeb, engineSettings.TranslationProvider);
         Assert.True(engineSettings.UseLocalKokoroTextToSpeech);
+    }
+
+    [Fact]
+    public void ToEngineJson_MapsManagedModelsIntoEngineSettings()
+    {
+        var settings = new AppSettings
+        {
+            UseAiTranslation = true,
+            TranslationBackend = TranslationBackend.ManagedSmall100,
+            UseCloudAsr = false,
+            AsrProvider = AsrProvider.LocalManagedMoss,
+            AsrProtocol = AsrProtocol.LocalManagedMoss,
+            UseRemoteSpeech = false,
+            UseLocalKokoroTextToSpeech = false,
+            ManagedTtsModel = ManagedTtsModel.Qwen3Tts,
+            ManagedTtsReferenceAudioPath = @"C:\voice\ref.wav",
+            ManagedTtsReferenceText = "reference transcript"
+        };
+
+        var json = JsonSerializer.Serialize(settings.ToEngineJson(), EngineJsonOptions);
+        var engineSettings = JsonSerializer.Deserialize<EngineSettings>(json, EngineJsonOptions);
+
+        Assert.NotNull(engineSettings);
+        Assert.Equal(EngineTranslationProvider.ManagedSmall100, engineSettings.TranslationProvider);
+        Assert.Equal(EngineAsrProtocol.LocalManagedMoss, engineSettings.AsrProtocol);
+        Assert.Equal(EngineManagedTtsModel.Qwen3Tts, engineSettings.ManagedTtsModel);
+        Assert.Equal(@"C:\voice\ref.wav", engineSettings.ManagedTtsReferenceAudioPath);
+        Assert.Equal("reference transcript", engineSettings.ManagedTtsReferenceText);
     }
 
     [Fact]
@@ -797,6 +915,136 @@ public sealed class AppControllerTests
                 Assert.False(model.Installed);
                 Assert.True(model.CanInstall);
             });
+    }
+
+    [Fact]
+    public async Task RefreshLocalModels_PartitionsInstallableAndCatalogOnlyWithSharedInstances()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson("minicpm5-1b", category: "translation", installState: "installed"),
+                LocalModelJson("kokoro-82m", category: "tts"),
+                LocalModelJson("catalog-only-model", category: "tts", installState: "notinstalled", isInstallable: false))
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+
+        await controller.InitializeAsync();
+
+        // 主集合保留全部模型，顺序与目录返回一致。
+        Assert.Collection(
+            controller.LocalModels,
+            model => Assert.Equal("minicpm5-1b", model.Id),
+            model => Assert.Equal("kokoro-82m", model.Id),
+            model => Assert.Equal("catalog-only-model", model.Id));
+
+        // 可安装集合只含 IsInstallable == true 的条目。
+        Assert.Collection(
+            controller.InstallableLocalModels,
+            model => Assert.Equal("minicpm5-1b", model.Id),
+            model => Assert.Equal("kokoro-82m", model.Id));
+
+        Assert.Empty(controller.SpeechRecognitionModels);
+        Assert.Collection(
+            controller.TranslationModels,
+            model => Assert.Equal("minicpm5-1b", model.Id));
+        Assert.Collection(
+            controller.SpeechSynthesisModels,
+            model => Assert.Equal("kokoro-82m", model.Id));
+        Assert.DoesNotContain(
+            controller.SpeechSynthesisModels,
+            model => model.Id == "catalog-only-model");
+        // 只读目录集合只含 IsInstallable == false 的条目。
+        var catalogOnly = Assert.Single(controller.CatalogOnlyLocalModels);
+        Assert.Equal("catalog-only-model", catalogOnly.Id);
+        Assert.False(catalogOnly.IsInstallable);
+
+        // 分区必须复用 LocalModels 中的同一实例，保证进度更新同步生效。
+        Assert.Same(controller.InstallableLocalModels[0], controller.LocalModels[0]);
+        Assert.Same(controller.InstallableLocalModels[1], controller.LocalModels[1]);
+        Assert.Same(catalogOnly, controller.LocalModels[2]);
+
+        // 无重复、无遗漏。
+        var allIds = controller.LocalModels.Select(m => m.Id).ToHashSet();
+        var partitionedIds = controller.InstallableLocalModels.Select(m => m.Id)
+            .Concat(controller.CatalogOnlyLocalModels.Select(m => m.Id));
+        Assert.Equal(allIds.Count, partitionedIds.Distinct().Count());
+        Assert.Equal(allIds.Count, partitionedIds.Count());
+    }
+
+    [Fact]
+    public async Task RefreshLocalModels_ReplacesCollectionsDeterministically()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson("model-a", category: "translation"),
+                LocalModelJson("model-b", category: "tts", isInstallable: false))
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+
+        Assert.Collection(controller.InstallableLocalModels, m => Assert.Equal("model-a", m.Id));
+        Assert.Single(controller.CatalogOnlyLocalModels);
+
+        // 第二次刷新返回不同目录，三个集合应整体替换为新实例，且顺序保持目录顺序。
+        gateway.ModelsResponse = ModelsPayload(
+            LocalModelJson("model-c", category: "tts"),
+            LocalModelJson("model-d", category: "translation", isInstallable: false));
+        await controller.RefreshLocalModelsAsync();
+
+        Assert.Collection(
+            controller.LocalModels,
+            m => Assert.Equal("model-c", m.Id),
+            m => Assert.Equal("model-d", m.Id));
+        Assert.Collection(
+            controller.InstallableLocalModels,
+            m => Assert.Equal("model-c", m.Id));
+        Assert.Collection(
+            controller.CatalogOnlyLocalModels,
+            m => Assert.Equal("model-d", m.Id));
+    }
+
+    [Fact]
+    public async Task ModelProgressEvent_UpdatesSharedInstallableInstanceAcrossLists()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson("kokoro-82m", category: "tts"),
+                LocalModelJson("catalog-only-model", category: "tts", isInstallable: false))
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+
+        gateway.Raise("modelProgress", JsonSerializer.SerializeToElement(new
+        {
+            status = "正在下载",
+            progress = 0.4,
+            modelId = "kokoro-82m"
+        }));
+
+        // 同一实例在 LocalModels 与 InstallableLocalModels 中同步更新。
+        var source = controller.LocalModels.Single(m => m.Id == "kokoro-82m");
+        var partitioned = controller.InstallableLocalModels.Single(m => m.Id == "kokoro-82m");
+        Assert.Same(source, partitioned);
+        Assert.Equal("正在下载", partitioned.OperationStatus);
+        Assert.Equal(0.4, partitioned.Progress, precision: 3);
+        Assert.True(partitioned.IsBusy);
+
+        // 只读目录模型不受该进度事件影响。
+        var catalogOnly = controller.CatalogOnlyLocalModels.Single();
+        Assert.Equal(string.Empty, catalogOnly.OperationStatus);
+        Assert.False(catalogOnly.IsBusy);
     }
 
     [Fact]
@@ -935,6 +1183,464 @@ public sealed class AppControllerTests
     }
 
     [Fact]
+    public async Task InstallAndActivateLocalModelAsync_ActivatesOnlyAfterVerifiedInstall()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.MiniCpm51BGguf, category: "translation"))
+        };
+        var repository = new FakeSettingsRepository(new AppSettings());
+        await using var controller = new AppController(
+            gateway,
+            repository,
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+        gateway.ModelsResponse = ModelsPayload(
+            LocalModelJson(
+                LocalModelIds.MiniCpm51BGguf,
+                category: "translation",
+                installState: "installed"));
+
+        await controller.InstallAndActivateLocalModelAsync(LocalModelIds.MiniCpm51BGguf);
+
+        Assert.True(controller.Settings.UseAiTranslation);
+        Assert.Equal(TranslationBackend.LocalMiniCpm, controller.Settings.TranslationBackend);
+        var activeModel = Assert.Single(controller.TranslationModels);
+        Assert.True(activeModel.IsActive);
+        Assert.Equal("已启用", activeModel.PrimaryActionLabel);
+        Assert.False(activeModel.CanRunPrimaryAction);
+        Assert.Equal(1, repository.SaveCount);
+        Assert.Contains("configure", gateway.Requests);
+    }
+
+    [Fact]
+    public async Task InstallAndActivateLocalModelAsync_SaveFailureRestoresCompleteServiceConfiguration()
+    {
+        var settings = new AppSettings
+        {
+            UseAiTranslation = true,
+            TranslationBackend = TranslationBackend.DeepSeek,
+            TranslationBaseUrl = "https://api.deepseek.example/v1",
+            TranslationModel = "deepseek-test",
+            TranslationApiKey = "cloud-secret",
+            TranslationHeaders = new() { ["X-Tenant"] = "tenant-a" }
+        };
+        var repository = new FakeSettingsRepository(settings);
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.MiniCpm51BGguf, "translation", "installed"))
+        };
+        await using var controller = new AppController(
+            gateway, repository, new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+        repository.SaveFailuresRemaining = 1;
+
+        var activated = await controller.InstallAndActivateLocalModelAsync(
+            LocalModelIds.MiniCpm51BGguf);
+
+        Assert.False(activated);
+        Assert.True(controller.Settings.UseAiTranslation);
+        Assert.Equal(TranslationBackend.DeepSeek, controller.Settings.TranslationBackend);
+        Assert.Equal("https://api.deepseek.example/v1", controller.Settings.TranslationBaseUrl);
+        Assert.Equal("deepseek-test", controller.Settings.TranslationModel);
+        Assert.Equal("cloud-secret", controller.Settings.TranslationApiKey);
+        Assert.Equal("tenant-a", controller.Settings.TranslationHeaders["X-Tenant"]);
+        Assert.Contains("已恢复原服务选择", controller.ErrorMessage);
+        Assert.Equal(2, repository.SaveCount);
+    }
+
+    [Fact]
+    public async Task InstallAndActivateLocalModelAsync_ConfigureFailureRestoresCompleteServiceConfiguration()
+    {
+        var settings = new AppSettings
+        {
+            UseAiTranslation = true,
+            TranslationBackend = TranslationBackend.DeepSeek,
+            TranslationBaseUrl = "https://api.deepseek.example/v1",
+            TranslationModel = "deepseek-test",
+            TranslationApiKey = "cloud-secret"
+        };
+        var repository = new FakeSettingsRepository(settings);
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.MiniCpm51BGguf, "translation", "installed"))
+        };
+        await using var controller = new AppController(
+            gateway, repository, new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+        gateway.FailNextMethod = "configure";
+
+        var activated = await controller.InstallAndActivateLocalModelAsync(
+            LocalModelIds.MiniCpm51BGguf);
+
+        Assert.False(activated);
+        Assert.Equal(TranslationBackend.DeepSeek, controller.Settings.TranslationBackend);
+        Assert.Equal("https://api.deepseek.example/v1", controller.Settings.TranslationBaseUrl);
+        Assert.Equal("deepseek-test", controller.Settings.TranslationModel);
+        Assert.Equal("cloud-secret", controller.Settings.TranslationApiKey);
+        Assert.Contains("已恢复原服务选择", controller.ErrorMessage);
+        Assert.Equal(2, repository.SaveCount);
+        Assert.Equal(2, gateway.Requests.Count(request => request == "configure"));
+    }
+
+    [Fact]
+    public async Task InstallAndActivateLocalModelAsync_RollbackSaveFailureReportsUncertainState()
+    {
+        var settings = new AppSettings
+        {
+            UseAiTranslation = true,
+            TranslationBackend = TranslationBackend.DeepSeek,
+            TranslationBaseUrl = "https://api.deepseek.example/v1",
+            TranslationModel = "deepseek-test"
+        };
+        var repository = new FakeSettingsRepository(settings);
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.MiniCpm51BGguf, "translation", "installed"))
+        };
+        await using var controller = new AppController(
+            gateway, repository, new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+        gateway.FailNextMethod = "configure";
+        repository.FailOnSaveNumbers.Add(2);
+
+        var activated = await controller.InstallAndActivateLocalModelAsync(
+            LocalModelIds.MiniCpm51BGguf);
+
+        Assert.False(activated);
+        Assert.Equal(TranslationBackend.DeepSeek, controller.Settings.TranslationBackend);
+        Assert.Contains("状态可能不一致", controller.ErrorMessage);
+        Assert.Contains("回滚失败", controller.ErrorMessage);
+        Assert.DoesNotContain("已恢复原服务选择", controller.ErrorMessage);
+        Assert.Equal(2, repository.SaveCount);
+    }
+
+    [Fact]
+    public async Task InstallAndActivateLocalModelAsync_RpcFailureUsesVerifiedDiskState()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.MiniCpm51BGguf, "translation"))
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+        gateway.ModelsResponse = ModelsPayload(
+            LocalModelJson(LocalModelIds.MiniCpm51BGguf, "translation", "installed"));
+        gateway.FailNextMethod = "installLocalModel";
+
+        var activated = await controller.InstallAndActivateLocalModelAsync(
+            LocalModelIds.MiniCpm51BGguf);
+
+        Assert.True(activated);
+        Assert.Null(controller.ErrorMessage);
+        Assert.Equal(TranslationBackend.LocalMiniCpm, controller.Settings.TranslationBackend);
+        Assert.True(Assert.Single(controller.TranslationModels).Installed);
+    }
+
+    [Fact]
+    public async Task RemoveLocalModelWithFallbackAsync_SaveFailureKeepsSafeFallback()
+    {
+        var settings = new AppSettings
+        {
+            UseAiTranslation = true,
+            TranslationBackend = TranslationBackend.LocalMiniCpm
+        };
+        var repository = new FakeSettingsRepository(settings);
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.MiniCpm51BGguf, "translation", "installed"))
+        };
+        await using var controller = new AppController(
+            gateway, repository, new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+        gateway.ModelsResponse = ModelsPayload(
+            LocalModelJson(LocalModelIds.MiniCpm51BGguf, "translation"));
+        repository.SaveFailuresRemaining = 1;
+
+        await controller.RemoveLocalModelWithFallbackAsync(LocalModelIds.MiniCpm51BGguf);
+
+        Assert.False(controller.Settings.UseAiTranslation);
+        Assert.Equal(TranslationBackend.PublicFree, controller.Settings.TranslationBackend);
+        Assert.Contains("模型已删除", controller.ErrorMessage);
+        Assert.Equal(2, repository.SaveCount);
+    }
+
+    [Fact]
+    public async Task InstallRecommendedLocalModelsAsync_ConfigureFailureRestoresCompleteSelections()
+    {
+        var settings = new AppSettings
+        {
+            UseAiTranslation = true,
+            TranslationBackend = TranslationBackend.DeepSeek,
+            TranslationBaseUrl = "https://api.deepseek.example/v1",
+            TranslationModel = "deepseek-test",
+            UseCloudAsr = true,
+            AsrProvider = AsrProvider.Soniox,
+            AsrProtocol = AsrProtocol.SonioxStreaming,
+            AsrBaseUrl = "wss://soniox.example",
+            AsrModel = "stt-custom",
+            AllowCloudAudioUpload = true,
+            UseRemoteSpeech = true
+        };
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.WhisperBase, "asr", "installed"),
+                LocalModelJson(LocalModelIds.MiniCpm51BGguf, "translation", "installed"),
+                LocalModelJson(LocalModelIds.Kokoro82M, "tts", "installed"))
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(settings),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+        gateway.FailNextMethod = "configure";
+
+        await controller.InstallRecommendedLocalModelsAsync(startSession: true);
+
+        Assert.False(controller.IsRunning);
+        Assert.Equal(TranslationBackend.DeepSeek, controller.Settings.TranslationBackend);
+        Assert.Equal("https://api.deepseek.example/v1", controller.Settings.TranslationBaseUrl);
+        Assert.Equal("deepseek-test", controller.Settings.TranslationModel);
+        Assert.True(controller.Settings.UseCloudAsr);
+        Assert.Equal(AsrProvider.Soniox, controller.Settings.AsrProvider);
+        Assert.Equal(AsrProtocol.SonioxStreaming, controller.Settings.AsrProtocol);
+        Assert.Equal("wss://soniox.example", controller.Settings.AsrBaseUrl);
+        Assert.Equal("stt-custom", controller.Settings.AsrModel);
+        Assert.True(controller.Settings.AllowCloudAudioUpload);
+        Assert.Equal(SpeechServiceMode.Remote, controller.Settings.SpeechServiceMode);
+        Assert.Contains("已恢复原服务选择", controller.ErrorMessage);
+        Assert.DoesNotContain("startSession", gateway.Requests);
+    }
+
+    [Fact]
+    public async Task InstallAndActivateLocalModelAsync_FailurePreservesPreviousService()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.MiniCpm51BGguf, category: "translation")),
+            InstallResponse = null
+        };
+        var settings = new AppSettings();
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(settings),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+        gateway.ModelsResponse = ModelsPayload(
+            LocalModelJson(
+                LocalModelIds.MiniCpm51BGguf,
+                category: "translation",
+                installState: "partial"));
+
+        await controller.InstallAndActivateLocalModelAsync(LocalModelIds.MiniCpm51BGguf);
+
+        Assert.False(controller.Settings.UseAiTranslation);
+        Assert.Equal(TranslationBackend.PublicFree, controller.Settings.TranslationBackend);
+        var failedModel = Assert.Single(controller.TranslationModels);
+        Assert.False(failedModel.IsActive);
+        Assert.Equal("重试并启用", failedModel.PrimaryActionLabel);
+        Assert.True(failedModel.CanRunPrimaryAction);
+        Assert.NotNull(controller.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task RemoveLocalModelWithFallbackAsync_UsesSafeCategoryFallbacks()
+    {
+        var settings = new AppSettings
+        {
+            UseAiTranslation = true,
+            TranslationBackend = TranslationBackend.LocalMiniCpm,
+            UseLocalKokoroTextToSpeech = true,
+            WhisperModel = "base"
+        };
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"),
+                LocalModelJson(LocalModelIds.WhisperBase, "asr", "installed"),
+                LocalModelJson(LocalModelIds.MiniCpm51BGguf, "translation", "installed"),
+                LocalModelJson(LocalModelIds.Kokoro82M, "tts", "installed"))
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(settings),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+
+        gateway.ModelsResponse = ModelsPayload(
+            LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"),
+            LocalModelJson(LocalModelIds.WhisperBase, "asr"),
+            LocalModelJson(LocalModelIds.MiniCpm51BGguf, "translation", "installed"),
+            LocalModelJson(LocalModelIds.Kokoro82M, "tts", "installed"));
+        await controller.RemoveLocalModelWithFallbackAsync(LocalModelIds.WhisperBase);
+        Assert.Equal("tiny", controller.Settings.WhisperModel);
+
+        gateway.ModelsResponse = ModelsPayload(
+            LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"),
+            LocalModelJson(LocalModelIds.WhisperBase, "asr"),
+            LocalModelJson(LocalModelIds.MiniCpm51BGguf, "translation"),
+            LocalModelJson(LocalModelIds.Kokoro82M, "tts", "installed"));
+        await controller.RemoveLocalModelWithFallbackAsync(LocalModelIds.MiniCpm51BGguf);
+        Assert.False(controller.Settings.UseAiTranslation);
+        Assert.Equal(TranslationBackend.PublicFree, controller.Settings.TranslationBackend);
+
+        gateway.ModelsResponse = ModelsPayload(
+            LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"),
+            LocalModelJson(LocalModelIds.WhisperBase, "asr"),
+            LocalModelJson(LocalModelIds.MiniCpm51BGguf, "translation"),
+            LocalModelJson(LocalModelIds.Kokoro82M, "tts"));
+        await controller.RemoveLocalModelWithFallbackAsync(LocalModelIds.Kokoro82M);
+        Assert.Equal(SpeechServiceMode.SystemFallback, controller.Settings.SpeechServiceMode);
+    }
+
+    [Fact]
+    public async Task ToggleSessionAsync_InstallsSelectedLocalModelBeforeStarting()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.WhisperTiny, category: "asr"))
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+        gateway.ModelsResponse = ModelsPayload(
+            LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"));
+
+        await controller.ToggleSessionAsync();
+
+        Assert.True(controller.IsRunning);
+        Assert.True(Assert.Single(controller.SpeechRecognitionModels).Installed);
+        Assert.True(gateway.Requests.IndexOf("installLocalModel")
+            < gateway.Requests.IndexOf("startSession"));
+    }
+
+    [Fact]
+    public async Task InstallRecommendedLocalModelsAsync_ReadyStackEnablesAndStarts()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.WhisperBase, "asr", "installed"),
+                LocalModelJson(LocalModelIds.MiniCpm51BGguf, "translation", "installed"),
+                LocalModelJson(LocalModelIds.Kokoro82M, "tts", "installed"))
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+
+        await controller.InstallRecommendedLocalModelsAsync(startSession: true);
+
+        Assert.True(controller.RecommendedLocalModelsReady);
+        Assert.True(controller.Settings.UseAiTranslation);
+        Assert.Equal(TranslationBackend.LocalMiniCpm, controller.Settings.TranslationBackend);
+        Assert.Equal("base", controller.Settings.WhisperModel);
+        Assert.Equal(SpeechServiceMode.Kokoro, controller.Settings.SpeechServiceMode);
+        Assert.True(controller.IsRunning);
+        Assert.Contains("startSession", gateway.Requests);
+    }
+
+    [Fact]
+    public async Task InstallRecommendedLocalModelsAsync_FailurePreservesServiceSelections()
+    {
+        var settings = new AppSettings
+        {
+            UseAiTranslation = false,
+            TranslationBackend = TranslationBackend.PublicFree,
+            UseCloudAsr = true,
+            AsrProvider = AsrProvider.Soniox,
+            AsrProtocol = AsrProtocol.SonioxStreaming,
+            WhisperModel = "small",
+            UseRemoteSpeech = true
+        };
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.WhisperBase, "asr"),
+                LocalModelJson(LocalModelIds.MiniCpm51BGguf, "translation"),
+                LocalModelJson(LocalModelIds.Kokoro82M, "tts")),
+            InstallResponse = null
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(settings),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+
+        await controller.InstallRecommendedLocalModelsAsync(startSession: true);
+
+        Assert.False(controller.IsRunning);
+        Assert.False(controller.Settings.UseAiTranslation);
+        Assert.Equal(TranslationBackend.PublicFree, controller.Settings.TranslationBackend);
+        Assert.True(controller.Settings.UseCloudAsr);
+        Assert.Equal(AsrProvider.Soniox, controller.Settings.AsrProvider);
+        Assert.Equal(AsrProtocol.SonioxStreaming, controller.Settings.AsrProtocol);
+        Assert.Equal("small", controller.Settings.WhisperModel);
+        Assert.Equal(SpeechServiceMode.Remote, controller.Settings.SpeechServiceMode);
+    }
+
+    [Fact]
+    public async Task RemoveLocalModelWithFallbackAsync_RejectsActiveModelWhileRunning()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"))
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+        await controller.ToggleSessionAsync();
+
+        await controller.RemoveLocalModelWithFallbackAsync(LocalModelIds.WhisperTiny);
+
+        Assert.True(controller.IsRunning);
+        Assert.DoesNotContain("removeLocalModel", gateway.Requests);
+        Assert.Equal("请先停止翻译，再删除正在使用的模型。", controller.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task RemoveOnlyWhisperModel_LeavesExplicitMissingSelectionAndBlocksStart()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"))
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+        gateway.ModelsResponse = ModelsPayload(
+            LocalModelJson(LocalModelIds.WhisperTiny, "asr"));
+
+        await controller.RemoveLocalModelWithFallbackAsync(LocalModelIds.WhisperTiny);
+        await controller.ToggleSessionAsync();
+
+        Assert.Equal(string.Empty, controller.Settings.WhisperModel);
+        Assert.False(controller.IsRunning);
+        Assert.Equal("请选择本地 Whisper 模型。", controller.ErrorMessage);
+        Assert.DoesNotContain("startSession", gateway.Requests);
+    }
+    [Fact]
     public async Task RemoveLocalModelAsync_Success_MarksNotInstalled()
     {
         var gateway = new FakeEngineGateway
@@ -1029,11 +1735,13 @@ public sealed class AppControllerTests
     }
 
     [Fact]
-    public async Task InstallLocalModelAsync_DoesNotBlockSessionOperations()
+    public async Task InstallLocalModelAsync_BlocksConcurrentSessionStartWithFeedback()
     {
         var gateway = new FakeEngineGateway
         {
-            ModelsResponse = ModelsPayload(LocalModelJson("minicpm5-1b", category: "translation")),
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"),
+                LocalModelJson("minicpm5-1b", category: "translation")),
             BlockInstall = true
         };
         await using var controller = new AppController(
@@ -1047,17 +1755,55 @@ public sealed class AppControllerTests
 
         await controller.ToggleSessionAsync().WaitAsync(TimeSpan.FromSeconds(2));
 
-        Assert.Contains("startSession", gateway.Requests);
-        Assert.True(controller.IsRunning);
+        Assert.DoesNotContain("startSession", gateway.Requests);
+        Assert.False(controller.IsRunning);
+        Assert.Equal("当前有操作正在进行，请稍后重试。", controller.ErrorMessage);
         Assert.False(install.IsCompleted);
-
         gateway.ModelsResponse = ModelsPayload(
+            LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"),
             LocalModelJson("minicpm5-1b", category: "translation", installState: "installed"));
         gateway.InstallRelease.TrySetResult();
         await install.WaitAsync(TimeSpan.FromSeconds(2));
-        Assert.True(Assert.Single(controller.LocalModels).Installed);
+        Assert.True(controller.LocalModels.Single(model => model.Id == "minicpm5-1b").Installed);
     }
 
+    [Fact]
+    public async Task RefreshLocalModels_PreservesBusyInstanceDuringInstall()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(LocalModelJson("minicpm5-1b", category: "translation")),
+            BlockInstall = true
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+        var original = Assert.Single(controller.LocalModels);
+
+        var install = controller.InstallLocalModelAsync(original.Id);
+        await gateway.InstallStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(original.IsBusy);
+        Assert.True(controller.HasBusyLocalModels);
+
+        gateway.ModelsResponse = ModelsPayload(
+            LocalModelJson(original.Id, category: "translation", installState: "partial"));
+        await controller.RefreshLocalModelsAsync();
+
+        var refreshed = Assert.Single(controller.LocalModels);
+        Assert.Same(original, refreshed);
+        Assert.True(refreshed.IsBusy);
+        Assert.False(refreshed.CanInstall);
+        Assert.True(controller.HasBusyLocalModels);
+
+        gateway.ModelsResponse = ModelsPayload(
+            LocalModelJson(original.Id, category: "translation", installState: "installed"));
+        gateway.InstallRelease.TrySetResult();
+        await install.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.False(controller.HasBusyLocalModels);
+        Assert.True(Assert.Single(controller.LocalModels).Installed);
+    }
     private static JsonElement MessagePayload(string text, bool isFinal, string utteranceId) =>
         JsonSerializer.SerializeToElement(new
         {
@@ -1077,7 +1823,8 @@ public sealed class AppControllerTests
     private static object LocalModelJson(
         string id,
         string category,
-        string installState = "notinstalled") => new
+        string installState = "notinstalled",
+        bool isInstallable = true) => new
         {
             id,
             name = id,
@@ -1092,7 +1839,7 @@ public sealed class AppControllerTests
             sourceUrl = "https://example.test/model",
             description = "测试模型",
             downloadBytes = 1024,
-            isInstallable = true,
+            isInstallable,
             installState
         };
 
@@ -1104,6 +1851,9 @@ public sealed class AppControllerTests
     private sealed class FakeSettingsRepository(AppSettings settings) : ISettingsRepository
     {
         public int SaveCount { get; private set; }
+        public int SaveFailuresRemaining { get; set; }
+        public HashSet<int> FailOnSaveNumbers { get; } = [];
+        public Exception SaveError { get; set; } = new IOException("设置保存失败");
 
         public Task<AppSettings> LoadAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(settings);
@@ -1111,10 +1861,26 @@ public sealed class AppControllerTests
         public Task SaveAsync(AppSettings value, CancellationToken cancellationToken = default)
         {
             SaveCount++;
+            if (SaveFailuresRemaining > 0 || FailOnSaveNumbers.Remove(SaveCount))
+            {
+                if (SaveFailuresRemaining > 0)
+                {
+                    SaveFailuresRemaining--;
+                }
+                return Task.FromException(SaveError);
+            }
             return Task.CompletedTask;
         }
     }
 
+    private sealed class ThrowingSettingsRepository(Exception error) : ISettingsRepository
+    {
+        public Task<AppSettings> LoadAsync(CancellationToken cancellationToken = default) =>
+            Task.FromException<AppSettings>(error);
+
+        public Task SaveAsync(AppSettings value, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+    }
     private sealed class BlockingSettingsRepository(AppSettings settings) : ISettingsRepository
     {
         public int SaveCount { get; private set; }
@@ -1167,6 +1933,8 @@ public sealed class AppControllerTests
             JsonSerializer.SerializeToElement(new { installState = "installed" });
         public JsonElement? RemoveResponse { get; set; } =
             JsonSerializer.SerializeToElement(new { removed = true });
+        public string? FailNextMethod { get; set; }
+        public Exception NextFailure { get; set; } = new EngineException("模拟引擎失败");
         public bool BlockInstall { get; init; }
         public TaskCompletionSource InstallStarted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1193,6 +1961,11 @@ public sealed class AppControllerTests
                 parameters is null
                     ? null
                     : new Dictionary<string, object?>(parameters, StringComparer.Ordinal)));
+            if (string.Equals(method, FailNextMethod, StringComparison.Ordinal))
+            {
+                FailNextMethod = null;
+                throw NextFailure;
+            }
             if (method == "installLocalModel" && BlockInstall)
             {
                 InstallStarted.TrySetResult();

@@ -42,6 +42,25 @@ public sealed class EngineHostTests
     }
 
     [Fact]
+    public async Task Bootstrap_ReportsEngineAssemblyVersion()
+    {
+        await using var host = new EngineHost((_, _) => { }, startUiHost: false);
+        using var parameters = JsonDocument.Parse("{}");
+
+        var result = await host.HandleAsync(
+            "getBootstrap",
+            parameters.RootElement,
+            SerializerOptions,
+            CancellationToken.None);
+        var json = JsonSerializer.SerializeToElement(result, SerializerOptions);
+
+        Assert.Equal(
+            typeof(EngineHost).Assembly.GetName().Version?.ToString(3),
+            json.GetProperty("engineVersion").GetString());
+        Assert.Equal("1.3.0", json.GetProperty("engineVersion").GetString());
+    }
+
+    [Fact]
     public void MessagePayload_PreservesReferenceFeatureMetadata()
     {
         var timestamp = DateTimeOffset.Parse("2026-07-31T04:00:00+00:00");
@@ -291,6 +310,72 @@ public sealed class EngineHostTests
     }
 
     [Fact]
+    public async Task RemoveLocalModel_SerializesWithConcurrentSessionStart()
+    {
+        var manager = new RecordingLocalModelManager { BlockRemove = true };
+        await using var host = new EngineHost((_, _) => { }, startUiHost: false, manager);
+        var removeParameters = JsonSerializer.SerializeToElement(
+            new { modelId = "test-local-model" });
+        var startParameters = JsonSerializer.SerializeToElement(new
+        {
+            settings = new AppSettings
+            {
+                CaptureMicrophone = false,
+                CaptureSystemAudio = false
+            }
+        }, SerializerOptions);
+
+        var remove = host.HandleAsync(
+            "removeLocalModel",
+            removeParameters,
+            SerializerOptions,
+            CancellationToken.None);
+        await manager.RemoveStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var start = host.HandleAsync(
+            "startSession",
+            startParameters,
+            SerializerOptions,
+            CancellationToken.None);
+
+        await Task.Delay(100);
+        Assert.False(start.IsCompleted);
+
+        manager.RemoveRelease.TrySetResult();
+        var removed = await remove.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(JsonSerializer.SerializeToElement(removed, SerializerOptions)
+            .GetProperty("removed").GetBoolean());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => start);
+    }
+
+    [Fact]
+    public async Task Shutdown_CancelsBlockedInstallBeforeWaitingForSessionModelGate()
+    {
+        var manager = new RecordingLocalModelManager { BlockInstall = true };
+        await using var host = new EngineHost((_, _) => { }, startUiHost: false, manager);
+        var installParameters = JsonSerializer.SerializeToElement(
+            new { modelId = "test-local-model" });
+        using var empty = JsonDocument.Parse("{}");
+        var install = host.HandleAsync(
+            "installLocalModel",
+            installParameters,
+            SerializerOptions,
+            CancellationToken.None);
+        await manager.InstallStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        var shutdown = host.HandleAsync(
+            "shutdown",
+            empty.RootElement,
+            SerializerOptions,
+            CancellationToken.None);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => install);
+        var result = await shutdown.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(JsonSerializer.SerializeToElement(result, SerializerOptions)
+            .GetProperty("shutdown").GetBoolean());
+        Assert.True(host.ShouldShutdown);
+    }
+
+    [Fact]
     public async Task DisposeAsync_CancelsAndDrainsInFlightRequest_ThenRejectsNewRequests()
     {
         var manager = new RecordingLocalModelManager { BlockInstall = true };
@@ -341,6 +426,15 @@ public sealed class EngineHostTests
     public void Program_BackgroundsOnlyInstallRequests(string request, bool expected) =>
         Assert.Equal(expected, Program.IsBackgroundRequest(request));
 
+    [Theory]
+    [InlineData("{\"id\":1,\"method\":\"prepareManagedRuntime\",\"params\":{\"runtimeProfileId\":\"windows-translation-v1\"}}", true)]
+    [InlineData("{\"id\":2,\"method\":\"probeManagedRuntime\",\"params\":{}}", false)]
+    [InlineData("{\"id\":3,\"method\":\"cancelManagedRuntimePreparation\",\"params\":{}}", false)]
+    [InlineData("{\"id\":4,\"method\":\"removeManagedRuntime\",\"params\":{}}", false)]
+    [InlineData("{\"id\":5,\"method\":\"listManagedRuntimes\"}", false)]
+    public void Program_BackgroundsOnlyPrepareManagedRuntimeRequests(string request, bool expected) =>
+        Assert.Equal(expected, Program.IsBackgroundRequest(request));
+
     [Fact]
     public void ModelProgressPayload_PreservesLegacyAndModelScopedShapes()
     {
@@ -369,6 +463,288 @@ public sealed class EngineHostTests
         Assert.False(VoxLink.Audio.WasapiSpeechCapture.IsLoopbackLikeDeviceName(null));
     }
 
+    [Fact]
+    public async Task ListManagedRuntimes_OntheWireShapeIsSanitized()
+    {
+        var runtimeManager = new RecordingManagedRuntimeManager();
+        await using var host = new EngineHost(
+            (_, _) => { },
+            startUiHost: false,
+            localModelManager: null,
+            managedRuntimeManager: runtimeManager,
+            localModelOrchestrator: null);
+        using var empty = JsonDocument.Parse("{}");
+
+        var listed = await host.HandleAsync(
+            "listManagedRuntimes", empty.RootElement, SerializerOptions, CancellationToken.None);
+        var json = JsonSerializer.SerializeToElement(listed, SerializerOptions);
+        var runtimes = json.GetProperty("runtimes").EnumerateArray().ToArray();
+
+        Assert.Equal(2, runtimes.Length);
+        Assert.Equal(ManagedRuntimeCatalog.WindowsTranslation, runtimes[0].GetProperty("id").GetString());
+        Assert.Equal("windowspython", runtimes[0].GetProperty("platform").GetString());
+        Assert.Equal("3.12", runtimes[0].GetProperty("pythonVersion").GetString());
+        Assert.False(runtimes[0].GetProperty("requiresNvidiaGpu").GetBoolean());
+        Assert.Equal(0L, runtimes[0].GetProperty("minimumGpuMemoryBytes").GetInt64());
+        Assert.Equal(ManagedRuntimeCatalog.WslMoss, runtimes[1].GetProperty("id").GetString());
+        Assert.Equal("wslcuda", runtimes[1].GetProperty("platform").GetString());
+        Assert.True(runtimes[1].GetProperty("requiresNvidiaGpu").GetBoolean());
+        Assert.Equal(6L * 1024 * 1024 * 1024, runtimes[1].GetProperty("minimumGpuMemoryBytes").GetInt64());
+
+        foreach (var runtime in runtimes)
+        {
+            var names = runtime.EnumerateObject().Select(property => property.Name).ToArray();
+            Assert.Equal(
+                ["id", "platform", "pythonVersion", "requiresNvidiaGpu", "minimumGpuMemoryBytes"],
+                names);
+            Assert.DoesNotContain("lockFile", names);
+            Assert.DoesNotContain("sourceRepository", names);
+            Assert.DoesNotContain("sourceRevision", names);
+            Assert.DoesNotContain("sha256", names);
+            Assert.DoesNotContain("url", names);
+            Assert.DoesNotContain("path", names);
+        }
+
+        var wire = JsonSerializer.Serialize(listed, SerializerOptions);
+        Assert.DoesNotContain("github.com", wire, StringComparison.Ordinal);
+        Assert.DoesNotContain("0e3d1403", wire, StringComparison.Ordinal);
+        Assert.DoesNotContain(".lock", wire, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ListManagedRuntimes_WithoutInjectedManager_UsesDefaultCatalogSanitized()
+    {
+        await using var host = new EngineHost((_, _) => { }, startUiHost: false);
+        using var empty = JsonDocument.Parse("{}");
+
+        var listed = await host.HandleAsync(
+            "listManagedRuntimes", empty.RootElement, SerializerOptions, CancellationToken.None);
+        var json = JsonSerializer.SerializeToElement(listed, SerializerOptions);
+        var runtimes = json.GetProperty("runtimes").EnumerateArray().ToArray();
+
+        Assert.Equal(ManagedRuntimeCatalog.All.Count, runtimes.Length);
+        Assert.Contains(runtimes,
+            runtime => runtime.GetProperty("id").GetString() == ManagedRuntimeCatalog.WindowsTranslation);
+        foreach (var runtime in runtimes)
+        {
+            var names = runtime.EnumerateObject().Select(property => property.Name).ToArray();
+            Assert.Equal(
+                ["id", "platform", "pythonVersion", "requiresNvidiaGpu", "minimumGpuMemoryBytes"],
+                names);
+        }
+
+        var wire = JsonSerializer.Serialize(listed, SerializerOptions);
+        Assert.DoesNotContain("github.com", wire, StringComparison.Ordinal);
+        Assert.DoesNotContain(".lock", wire, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ManagedRuntimeRpc_DispatchesProbePrepareCancelRemoveThroughInjectedManager()
+    {
+        var runtimeManager = new RecordingManagedRuntimeManager();
+        await using var host = new EngineHost(
+            (_, _) => { },
+            startUiHost: false,
+            localModelManager: null,
+            managedRuntimeManager: runtimeManager,
+            localModelOrchestrator: null);
+        var parameters = JsonSerializer.SerializeToElement(
+            new { runtimeProfileId = ManagedRuntimeCatalog.WindowsTranslation });
+
+        var probe = await host.HandleAsync(
+            "probeManagedRuntime", parameters, SerializerOptions, CancellationToken.None);
+        var probeJson = JsonSerializer.SerializeToElement(probe, SerializerOptions);
+        Assert.Equal(ManagedRuntimeCatalog.WindowsTranslation,
+            probeJson.GetProperty("runtimeProfileId").GetString());
+        Assert.Equal((int)ManagedRuntimeState.Ready, probeJson.GetProperty("state").GetInt32());
+        Assert.True(probeJson.GetProperty("isReady").GetBoolean());
+        Assert.Equal("就绪", probeJson.GetProperty("status").GetString());
+        Assert.Equal([ManagedRuntimeCatalog.WindowsTranslation], runtimeManager.Probed);
+
+        var prepared = await host.HandleAsync(
+            "prepareManagedRuntime", parameters, SerializerOptions, CancellationToken.None);
+        var preparedJson = JsonSerializer.SerializeToElement(prepared, SerializerOptions);
+        Assert.Equal((int)ManagedRuntimeState.Ready, preparedJson.GetProperty("state").GetInt32());
+        Assert.True(preparedJson.GetProperty("isReady").GetBoolean());
+        Assert.Equal([ManagedRuntimeCatalog.WindowsTranslation], runtimeManager.Prepared);
+
+        var cancelled = await host.HandleAsync(
+            "cancelManagedRuntimePreparation", parameters, SerializerOptions, CancellationToken.None);
+        Assert.True(JsonSerializer.SerializeToElement(cancelled, SerializerOptions)
+            .GetProperty("cancelled").GetBoolean());
+        Assert.Equal([ManagedRuntimeCatalog.WindowsTranslation], runtimeManager.Cancelled);
+
+        runtimeManager.CancelResult = false;
+        var notCancelled = await host.HandleAsync(
+            "cancelManagedRuntimePreparation", parameters, SerializerOptions, CancellationToken.None);
+        Assert.False(JsonSerializer.SerializeToElement(notCancelled, SerializerOptions)
+            .GetProperty("cancelled").GetBoolean());
+        Assert.Equal(
+            [ManagedRuntimeCatalog.WindowsTranslation, ManagedRuntimeCatalog.WindowsTranslation],
+            runtimeManager.Cancelled);
+
+        var removed = await host.HandleAsync(
+            "removeManagedRuntime", parameters, SerializerOptions, CancellationToken.None);
+        Assert.True(JsonSerializer.SerializeToElement(removed, SerializerOptions)
+            .GetProperty("removed").GetBoolean());
+        Assert.Equal([ManagedRuntimeCatalog.WindowsTranslation], runtimeManager.Removed);
+    }
+
+    [Fact]
+    public async Task ManagedRuntimeRpc_UnexpectedInfrastructureFailure_UsesFixedSafeMessage()
+    {
+        const string sensitive = @"C:\Users\secret\runtime https://example.invalid stderr-token api-secret";
+        var runtimeManager = new RecordingManagedRuntimeManager
+        {
+            ProbeException = new InvalidOperationException(sensitive)
+        };
+        await using var host = new EngineHost(
+            (_, _) => { },
+            startUiHost: false,
+            localModelManager: null,
+            managedRuntimeManager: runtimeManager,
+            localModelOrchestrator: null);
+        var parameters = JsonSerializer.SerializeToElement(
+            new { runtimeProfileId = ManagedRuntimeCatalog.WindowsTranslation });
+
+        var exception = await Assert.ThrowsAsync<ManagedRuntimeException>(() => host.HandleAsync(
+            "probeManagedRuntime",
+            parameters,
+            SerializerOptions,
+            CancellationToken.None));
+
+        Assert.Equal("托管模型运行时操作失败，请重试或修复运行时。", exception.Message);
+        Assert.Same(runtimeManager.ProbeException, exception.InnerException);
+        var publicMessage = Program.GetPublicErrorMessage(exception);
+        Assert.Equal(exception.Message, publicMessage);
+        Assert.DoesNotContain(sensitive, publicMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("example.invalid", publicMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("stderr-token", publicMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("api-secret", publicMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TestTranslation_ManagedProvider_UnpreparedRuntime_UsesFixedSafeMessage()
+    {
+        var runtimeManager = new RecordingManagedRuntimeManager();
+        await using var host = new EngineHost(
+            (_, _) => { },
+            startUiHost: false,
+            localModelManager: null,
+            managedRuntimeManager: runtimeManager,
+            localModelOrchestrator: null);
+
+        var initialize = JsonSerializer.SerializeToElement(new
+        {
+            settings = new AppSettings
+            {
+                TranslationProvider = TranslationProvider.ManagedSmall100
+            }
+        }, SerializerOptions);
+        await host.HandleAsync(
+            "initialize",
+            initialize,
+            SerializerOptions,
+            CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            host.HandleAsync(
+                "testTranslation",
+                JsonSerializer.SerializeToElement(new { }, SerializerOptions),
+                SerializerOptions,
+                CancellationToken.None));
+
+        // 模型未安装 → 模型管理器的固定安全消息（比通用消息更精确），且不暴露基础设施文本。
+        Assert.Contains("尚未安装", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Not supported", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("stack", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task RuntimeProgressEvent_NotifiesSanitizedPayload()
+    {
+        var events = new List<(string Name, object Data)>();
+        var runtimeManager = new RecordingManagedRuntimeManager();
+        await using var host = new EngineHost(
+            (name, data) => events.Add((name, data)),
+            startUiHost: false,
+            localModelManager: null,
+            managedRuntimeManager: runtimeManager,
+            localModelOrchestrator: null);
+
+        runtimeManager.RaiseProgress(ManagedRuntimeCatalog.WslMoss, "正在检查托管运行时…", 0);
+        runtimeManager.RaiseProgress(ManagedRuntimeCatalog.WslMoss, "托管运行时已就绪", 1);
+
+        var payloads = events
+            .Where(item => item.Name == "runtimeProgress")
+            .Select(item => JsonSerializer.SerializeToElement(item.Data, SerializerOptions))
+            .ToArray();
+        Assert.Equal(2, payloads.Length);
+        Assert.Equal(ManagedRuntimeCatalog.WslMoss,
+            payloads[0].GetProperty("runtimeProfileId").GetString());
+        Assert.Equal("正在检查托管运行时…", payloads[0].GetProperty("status").GetString());
+        Assert.Equal(0.0, payloads[0].GetProperty("progress").GetDouble());
+        Assert.Equal(ManagedRuntimeCatalog.WslMoss,
+            payloads[1].GetProperty("runtimeProfileId").GetString());
+        Assert.Equal("托管运行时已就绪", payloads[1].GetProperty("status").GetString());
+        Assert.Equal(1.0, payloads[1].GetProperty("progress").GetDouble());
+    }
+
+    [Fact]
+    public async Task Shutdown_CancelsBlockedManagedRuntimePreparationBeforeWaitingForSessionModelGate()
+    {
+        var runtimeManager = new RecordingManagedRuntimeManager { BlockPrepare = true };
+        await using var host = new EngineHost(
+            (_, _) => { },
+            startUiHost: false,
+            localModelManager: null,
+            managedRuntimeManager: runtimeManager,
+            localModelOrchestrator: null);
+        var parameters = JsonSerializer.SerializeToElement(
+            new { runtimeProfileId = ManagedRuntimeCatalog.WindowsTranslation });
+        using var empty = JsonDocument.Parse("{}");
+
+        var prepare = host.HandleAsync(
+            "prepareManagedRuntime", parameters, SerializerOptions, CancellationToken.None);
+        await runtimeManager.PrepareStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        var shutdown = host.HandleAsync(
+            "shutdown", empty.RootElement, SerializerOptions, CancellationToken.None);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => prepare);
+        var result = await shutdown.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(JsonSerializer.SerializeToElement(result, SerializerOptions)
+            .GetProperty("shutdown").GetBoolean());
+        Assert.True(host.ShouldShutdown);
+    }
+
+    [Fact]
+    public async Task DisposeAsync_CancelsBlockedManagedRuntimePreparation_AndDoesNotDisposeInjectedManagers()
+    {
+        var runtimeManager = new RecordingManagedRuntimeManager { BlockPrepare = true };
+        var orchestrator = new RecordingLocalModelOrchestrator();
+        var host = new EngineHost(
+            (_, _) => { },
+            startUiHost: false,
+            localModelManager: null,
+            managedRuntimeManager: runtimeManager,
+            localModelOrchestrator: orchestrator);
+        var parameters = JsonSerializer.SerializeToElement(
+            new { runtimeProfileId = ManagedRuntimeCatalog.WindowsTranslation });
+        var prepare = host.HandleAsync(
+            "prepareManagedRuntime", parameters, SerializerOptions, CancellationToken.None);
+        await runtimeManager.PrepareStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        var dispose = host.DisposeAsync().AsTask();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => prepare);
+        await dispose.WaitAsync(TimeSpan.FromSeconds(2));
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => host.HandleAsync(
+            "listManagedRuntimes", parameters, SerializerOptions, CancellationToken.None));
+        Assert.False(runtimeManager.Disposed);
+        Assert.False(orchestrator.Disposed);
+    }
+
     private sealed class RecordingLocalModelManager : ILocalModelManager, IAsyncDisposable
     {
         private LocalModelInstallState _state = LocalModelInstallState.NotInstalled;
@@ -379,6 +755,11 @@ public sealed class EngineHostTests
         public TaskCompletionSource InstallStarted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool BlockInstall { get; init; }
+        public bool BlockRemove { get; init; }
+        public TaskCompletionSource RemoveStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource RemoveRelease { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool Disposed { get; private set; }
 
         public IReadOnlyList<LocalModelDefinition> List() =>
@@ -423,14 +804,152 @@ public sealed class EngineHostTests
                 modelId, LocalModelCategory.Translation, "完成", 1));
         }
 
-        public Task<bool> RemoveAsync(string modelId, CancellationToken cancellationToken = default)
+        public async Task<bool> RemoveAsync(
+            string modelId,
+            CancellationToken cancellationToken = default)
         {
             Removed.Add(modelId);
+            RemoveStarted.TrySetResult();
+            if (BlockRemove)
+            {
+                await RemoveRelease.Task.WaitAsync(cancellationToken);
+            }
             _state = LocalModelInstallState.NotInstalled;
-            return Task.FromResult(true);
+            return true;
         }
 
         public ILocalModelLease AcquireUsage(string modelId) =>
+            throw new NotSupportedException();
+
+        public ValueTask DisposeAsync()
+        {
+            Disposed = true;
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingManagedRuntimeManager : IManagedModelRuntimeManager
+    {
+        public event EventHandler<ManagedRuntimeProgressEventArgs>? RuntimeProgress;
+
+        public List<string> Probed { get; } = [];
+        public List<string> Prepared { get; } = [];
+        public List<string> Cancelled { get; } = [];
+        public List<string> Removed { get; } = [];
+
+        public bool BlockPrepare { get; init; }
+        public bool CancelResult { get; set; } = true;
+        public Exception? ProbeException { get; init; }
+        public TaskCompletionSource PrepareStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource PrepareRelease { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool Disposed { get; private set; }
+
+        public IReadOnlyList<ManagedRuntimeDefinition> List() => RuntimeCatalog;
+
+        public Task<ManagedRuntimeProbe> ProbeAsync(
+            string runtimeProfileId,
+            CancellationToken cancellationToken = default)
+        {
+            Probed.Add(runtimeProfileId);
+            if (ProbeException is not null)
+            {
+                throw ProbeException;
+            }
+
+            return Task.FromResult(CreateReadyProbe(runtimeProfileId));
+        }
+
+        public async Task<ManagedRuntimeProbe> PrepareAsync(
+            string runtimeProfileId,
+            CancellationToken cancellationToken = default)
+        {
+            Prepared.Add(runtimeProfileId);
+            PrepareStarted.TrySetResult();
+            if (BlockPrepare)
+            {
+                await PrepareRelease.Task.WaitAsync(cancellationToken);
+            }
+
+            return CreateReadyProbe(runtimeProfileId);
+        }
+
+        public Task<IManagedRuntimeLease> AcquireUsageAsync(
+            string runtimeProfileId,
+            string modelDirectory,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public bool CancelPreparation(string runtimeProfileId)
+        {
+            Cancelled.Add(runtimeProfileId);
+            return CancelResult;
+        }
+
+        public Task<bool> RemoveAsync(
+            string runtimeProfileId,
+            CancellationToken cancellationToken = default)
+        {
+            Removed.Add(runtimeProfileId);
+            return Task.FromResult(true);
+        }
+
+        public void RaiseProgress(string runtimeProfileId, string status, double? progress) =>
+            RuntimeProgress?.Invoke(this,
+                new ManagedRuntimeProgressEventArgs(runtimeProfileId, status, progress));
+
+        public ValueTask DisposeAsync()
+        {
+            Disposed = true;
+            return ValueTask.CompletedTask;
+        }
+
+        private static ManagedRuntimeProbe CreateReadyProbe(string runtimeProfileId) => new()
+        {
+            RuntimeProfileId = runtimeProfileId,
+            Platform = ManagedRuntimePlatform.WindowsPython,
+            State = ManagedRuntimeState.Ready,
+            RequiredAction = ManagedRuntimeUserAction.None,
+            Status = "就绪",
+            PythonVersion = "3.12",
+            WslAvailable = false,
+            DistributionInstalled = false,
+            NvidiaAvailable = false,
+            NvidiaMemoryBytes = null,
+            NvidiaDriverVersion = null
+        };
+
+        private static readonly ManagedRuntimeDefinition[] RuntimeCatalog =
+        [
+            new(
+                "windows-translation-v1",
+                ManagedRuntimePlatform.WindowsPython,
+                "3.12",
+                "windows-translation.lock",
+                null,
+                null,
+                RequiresNvidiaGpu: false,
+                MinimumGpuMemoryBytes: 0),
+            new(
+                "wsl-moss-v1",
+                ManagedRuntimePlatform.WslCuda,
+                "3.12",
+                "wsl-moss.lock",
+                "https://github.com/OpenMOSS/MOSS-Transcribe-Diarize.git",
+                "0e3d1403fd8f1f1c674e883ece96b9f630794ebe",
+                RequiresNvidiaGpu: true,
+                MinimumGpuMemoryBytes: 6L * 1024 * 1024 * 1024)
+        ];
+    }
+
+    private sealed class RecordingLocalModelOrchestrator : ILocalModelOrchestrator
+    {
+        public bool Disposed { get; private set; }
+
+        public Task<ManagedRuntimeProbe> ProbeModelRuntimeAsync(
+            string modelId,
+            CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
         public ValueTask DisposeAsync()

@@ -55,26 +55,32 @@ public sealed class LocalModelCatalogTests
     }
 
     [Fact]
-    public void CatalogOnlyEntries_AreNotInstallable_AndExplainWhy()
+    public void Catalog_AllModelsAreInstallable_WithVerifiedDeploymentMetadata()
     {
-        foreach (var model in LocalModelCatalog.All)
-        {
-            if (model.SupportLevel == LocalModelSupportLevel.CatalogOnly)
-            {
-                Assert.False(model.IsInstallable, $"{model.Id} 不应可一键部署。");
-                Assert.False(
-                    string.IsNullOrWhiteSpace(model.UnavailableReason),
-                    $"{model.Id} 需要说明不可部署原因。");
-                Assert.Empty(model.Artifacts);
-                Assert.Null(model.Archive);
-            }
-        }
-
-        Assert.Contains(
+        Assert.Equal(RequiredModelIds.Length, LocalModelCatalog.All.Count);
+        Assert.DoesNotContain(
             LocalModelCatalog.All,
             model => model.SupportLevel == LocalModelSupportLevel.CatalogOnly);
-    }
 
+        foreach (var model in LocalModelCatalog.All)
+        {
+            Assert.True(model.IsInstallable, $"{model.Id} 必须进入软件内安装链路。");
+            Assert.Null(model.UnavailableReason);
+            if (model.InstallKind == LocalModelInstallKind.WhisperGgml)
+            {
+                Assert.False(string.IsNullOrWhiteSpace(model.WhisperModelName));
+                Assert.True(model.DeclaredDownloadBytes > 0);
+                continue;
+            }
+
+            Assert.NotEmpty(model.Artifacts);
+            Assert.All(model.Artifacts, artifact =>
+            {
+                Assert.True(artifact.ExpectedSize > 0);
+                Assert.Matches("^[0-9a-f]{64}$", artifact.Sha256);
+            });
+        }
+    }
     [Fact]
     public void WhisperSmallModels_AreStableInstallable_AndDelegateToExistingInstaller()
     {
@@ -99,15 +105,21 @@ public sealed class LocalModelCatalogTests
     }
 
     [Fact]
-    public void WhisperLargeV3Turbo_IsCatalogOnly_UntilInstallerSupportsIt()
+    public void WhisperLargeV3Turbo_IsStableAndUsesVerifiedWhisperInstaller()
     {
         var model = Assert.Single(
             LocalModelCatalog.All,
             item => item.Id == LocalModelIds.WhisperLargeV3Turbo);
-        Assert.Equal(LocalModelSupportLevel.CatalogOnly, model.SupportLevel);
-        Assert.Null(model.WhisperModelName);
-    }
+        Assert.Equal(LocalModelSupportLevel.Stable, model.SupportLevel);
+        Assert.Equal(LocalModelRuntimeKind.WhisperCpp, model.Runtime);
+        Assert.Equal(LocalModelInstallKind.WhisperGgml, model.InstallKind);
+        Assert.Equal("large-v3-turbo", model.WhisperModelName);
+        Assert.Equal(1_624_555_275, model.DownloadBytes);
 
+        var metadata = WhisperSpeechRecognizer.GetModelInfo(model.WhisperModelName);
+        Assert.Equal(Whisper.net.Ggml.GgmlType.LargeV3Turbo, metadata.Type);
+        Assert.Equal("1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69", metadata.Sha256);
+    }
     [Fact]
     public void WhisperDeclaredDownloadBytes_MatchExistingRecognizerMetadata()
     {
@@ -138,26 +150,49 @@ public sealed class LocalModelCatalogTests
     }
 
     [Fact]
-    public void RequestedCatalogOnlyModels_ExposeVerifiedLicenseAndRuntimeLimits()
+    public void ManagedModels_ExposeRuntimeLicenseHardwareAndVoiceGates()
     {
-        var dots = Assert.Single(LocalModelCatalog.All, model => model.Id == LocalModelIds.DotsTts);
-        Assert.Equal(LocalModelSupportLevel.CatalogOnly, dots.SupportLevel);
-        Assert.Equal("Apache-2.0", dots.License);
-        Assert.Contains("NVIDIA GPU", dots.Requirements, StringComparison.Ordinal);
+        var managed = LocalModelCatalog.All
+            .Where(model => model.Runtime is
+                LocalModelRuntimeKind.ManagedPython or LocalModelRuntimeKind.ManagedWslCuda)
+            .ToArray();
+        Assert.Equal(7, managed.Length);
+        Assert.All(managed, model =>
+        {
+            Assert.Equal(LocalModelInstallKind.ManifestFiles, model.InstallKind);
+            Assert.NotEmpty(model.Artifacts);
+            Assert.True(ManagedRuntimeCatalog.TryGet(model.RuntimeProfileId, out _));
+            Assert.True(model.RequiredFreeSpaceBytes > model.DownloadBytes);
+            Assert.All(model.Artifacts, artifact =>
+            {
+                Assert.Contains("/resolve/", artifact.PrimaryUrl, StringComparison.Ordinal);
+                Assert.DoesNotContain("/main/", artifact.PrimaryUrl, StringComparison.Ordinal);
+                Assert.True(Uri.TryCreate(artifact.PrimaryUrl, UriKind.Absolute, out _));
+            });
+        });
 
-        var hyMt = Assert.Single(LocalModelCatalog.All, model => model.Id == LocalModelIds.HyMt1518B);
-        Assert.Equal(LocalModelSupportLevel.CatalogOnly, hyMt.SupportLevel);
-        Assert.Contains("Tencent HY Community License", hyMt.License, StringComparison.Ordinal);
+        var hyMt = Assert.Single(managed, model => model.Id == LocalModelIds.HyMt1518B);
+        Assert.Equal(LocalModelSupportLevel.Experimental, hyMt.SupportLevel);
+        Assert.False(string.IsNullOrWhiteSpace(hyMt.LicenseAgreementId));
         Assert.Contains("欧盟", hyMt.License, StringComparison.Ordinal);
 
-        var moss = Assert.Single(
-            LocalModelCatalog.All,
-            model => model.Id == LocalModelIds.MossTranscribeDiarize);
-        Assert.Equal(LocalModelSupportLevel.CatalogOnly, moss.SupportLevel);
-        Assert.Contains("CUDA", moss.Requirements, StringComparison.Ordinal);
-        Assert.Contains("Python", moss.UnavailableReason, StringComparison.Ordinal);
-    }
+        var gpuModels = managed
+            .Where(model => model.Runtime == LocalModelRuntimeKind.ManagedWslCuda)
+            .ToArray();
+        Assert.Equal(4, gpuModels.Length);
+        Assert.All(gpuModels, model =>
+        {
+            Assert.Equal(LocalModelSupportLevel.Experimental, model.SupportLevel);
+            Assert.Contains("NVIDIA GPU", model.Requirements, StringComparison.Ordinal);
+            Assert.True(ManagedRuntimeCatalog.TryGet(model.RuntimeProfileId, out var runtime));
+            Assert.True(runtime.RequiresNvidiaGpu);
+            Assert.True(runtime.MinimumGpuMemoryBytes > 0);
+        });
 
+        Assert.All(
+            gpuModels.Where(model => model.Category == LocalModelCategory.Tts),
+            model => Assert.True(model.RequiresVoiceProfile));
+    }
     [Fact]
     public void Catalog_HasCompleteMetadata_ForEveryEntry()
     {

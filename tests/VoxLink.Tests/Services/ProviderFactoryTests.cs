@@ -37,9 +37,10 @@ public sealed class ProviderFactoryTests
             OpenAiModel = "qwen2.5:7b"
         };
 
-        var result = await new TranslationServiceFactory(httpClient)
-            .CreateChatService(settings)
-            .GenerateAsync("draft a reply");
+        var service = new TranslationServiceFactory(httpClient)
+            .CreateChatService(settings);
+        Assert.NotNull(service);
+        var result = await service!.GenerateAsync("draft a reply");
 
         Assert.Equal("ready", result);
         Assert.Equal(expectedEndpoint, capturedRequest!.RequestUri!.AbsoluteUri);
@@ -72,10 +73,11 @@ public sealed class ProviderFactoryTests
             }
         };
 
+        var service = new TranslationServiceFactory(httpClient)
+            .CreateChatService(settings);
+        Assert.NotNull(service);
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            new TranslationServiceFactory(httpClient)
-                .CreateChatService(settings)
-                .GenerateAsync("draft a reply"));
+            service!.GenerateAsync("draft a reply"));
 
         Assert.Equal(
             "header-secret",

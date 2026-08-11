@@ -15,10 +15,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Using Include="Xunit" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\..\src\VoxLink\VoxLink.csproj" />
     <ProjectReference Include="..\..\src\VoxLink.Engine\VoxLink.Engine.csproj" />
     <ProjectReference Include="..\..\src\VoxLink.UI.Core\VoxLink.UI.Core.csproj" />

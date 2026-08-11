@@ -232,6 +232,48 @@ public sealed class TranslationSessionFeatureTests
     }
 
     [Fact]
+    public async Task TypedTranslation_WhileRunningUsesSessionSettingsWithoutReconfiguringSpeech()
+    {
+        Uri? requestedUri = null;
+        using var httpClient = new HttpClient(new DelegateHandler((request, _) =>
+        {
+            requestedUri = request.RequestUri;
+            return Task.FromResult(JsonResponse("translated"));
+        }));
+        var tts = new RecordingConfigurableTextToSpeech();
+        await using var session = new TranslationSession(
+            new StubSpeechRecognizer(),
+            new TranslationServiceFactory(httpClient),
+            tts);
+        var sessionSettings = new AppSettings
+        {
+            MyLanguageCode = "en",
+            OtherLanguageCode = "ja",
+            TranslationProvider = TranslationProvider.OpenAiCompatible,
+            OpenAiBaseUrl = "https://provider-a.example/v1",
+            OpenAiModel = "model-a",
+            TextToSpeechBaseUrl = "https://speech-a.example/v1/audio/speech"
+        };
+        var requestedSettings = sessionSettings.Clone();
+        requestedSettings.OpenAiBaseUrl = "https://provider-b.example/v1";
+        requestedSettings.OpenAiModel = "model-b";
+        requestedSettings.TextToSpeechBaseUrl = "https://speech-b.example/v1/audio/speech";
+        typeof(TranslationSession).GetField(
+            "_settings",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(session, sessionSettings.Clone());
+        typeof(TranslationSession).GetField(
+            "_isRunning",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(session, true);
+
+        await session.TranslateTypedTextAsync("hello", requestedSettings);
+
+        Assert.Equal("provider-a.example", requestedUri?.Host);
+        Assert.Empty(tts.ConfiguredBaseUrls);
+    }
+
+    [Fact]
     public async Task DisposeAsync_ConcurrentCallersWaitForTheSameTextToSpeechShutdown()
     {
         using var httpClient = new HttpClient(new DelegateHandler((_, _) =>
@@ -370,6 +412,30 @@ public sealed class TranslationSessionFeatureTests
             DisposeStarted.TrySetResult();
             await DisposeRelease.Task;
         }
+    }
+
+    private sealed class RecordingConfigurableTextToSpeech :
+        ITextToSpeechService, IConfigurableTextToSpeechService
+    {
+        public bool IsSpeaking => false;
+        public List<string> ConfiguredBaseUrls { get; } = [];
+
+        public void Configure(AppSettings settings) =>
+            ConfiguredBaseUrls.Add(settings.TextToSpeechBaseUrl);
+
+        public IReadOnlyList<string> GetInstalledVoices(LanguageOption language) => [];
+
+        public Task SpeakAsync(
+            string text,
+            LanguageOption language,
+            string? outputDeviceId,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public void Stop()
+        {
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class RecordingTextToSpeech : ITextToSpeechService

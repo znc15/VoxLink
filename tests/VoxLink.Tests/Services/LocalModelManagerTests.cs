@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using SharpCompress.Compressors;
 using SharpCompress.Compressors.BZip2;
@@ -404,6 +405,172 @@ public sealed class LocalModelManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task Install_NetworkInterruption_ResumesWithRangeAndStrongEtag()
+    {
+        const string etag = "\"model-v1\"";
+        var prefixLength = 10;
+        var handler = new ScriptedHttpHandler();
+        handler.Enqueue(_ => CreateDownloadResponse(
+            HttpStatusCode.OK,
+            new PrefixThenBrokenStream(DummyContent[..prefixLength]),
+            etag));
+        handler.Enqueue(request =>
+        {
+            Assert.Equal(prefixLength, request.Headers.Range?.Ranges.Single().From);
+            Assert.Equal(etag, request.Headers.IfRange?.EntityTag?.ToString());
+            var response = CreateDownloadResponse(
+                HttpStatusCode.PartialContent,
+                new MemoryStream(DummyContent[prefixLength..], writable: false),
+                etag);
+            response.Content.Headers.ContentRange = new ContentRangeHeaderValue(
+                prefixLength,
+                DummyContent.Length - 1,
+                DummyContent.Length);
+            return response;
+        });
+        using var manager = CreateManager(
+            handler,
+            [TestDefinition(artifact: DummyArtifact(mirrorUrl: null))]);
+
+        await Assert.ThrowsAsync<IOException>(() =>
+            manager.InstallAsync("test-model", CancellationToken.None));
+        Assert.Equal(LocalModelInstallState.Partial, manager.GetStatus("test-model"));
+        Assert.True(File.Exists(Path.Combine(_root, "test-model", "model.bin.download")));
+
+        await manager.InstallAsync("test-model", CancellationToken.None);
+
+        Assert.Equal(LocalModelInstallState.Installed, manager.GetStatus("test-model"));
+        Assert.Equal(DummyContent, File.ReadAllBytes(Path.Combine(_root, "test-model", "model.bin")));
+        Assert.Null(handler.RequestedRanges[0].Range);
+        Assert.NotNull(handler.RequestedRanges[1].Range);
+    }
+
+    [Fact]
+    public async Task Install_ServerIgnoresRange_ResetsPartialBeforeFullDownload()
+    {
+        const string etag = "\"model-v1\"";
+        var prefixLength = 8;
+        var handler = new ScriptedHttpHandler();
+        handler.Enqueue(_ => CreateDownloadResponse(
+            HttpStatusCode.OK,
+            new PrefixThenBrokenStream(DummyContent[..prefixLength]),
+            etag));
+        handler.Enqueue(_ => CreateDownloadResponse(
+            HttpStatusCode.OK,
+            new MemoryStream(DummyContent, writable: false),
+            etag));
+        handler.Enqueue(_ => CreateDownloadResponse(
+            HttpStatusCode.OK,
+            new MemoryStream(DummyContent, writable: false),
+            etag));
+        using var manager = CreateManager(
+            handler,
+            [TestDefinition(artifact: DummyArtifact(mirrorUrl: null))]);
+
+        await Assert.ThrowsAsync<IOException>(() =>
+            manager.InstallAsync("test-model", CancellationToken.None));
+        await manager.InstallAsync("test-model", CancellationToken.None);
+
+        Assert.Equal(LocalModelInstallState.Installed, manager.GetStatus("test-model"));
+        Assert.NotNull(handler.RequestedRanges[1].Range);
+        Assert.Null(handler.RequestedRanges[2].Range);
+        Assert.Equal(3, handler.RequestedUris.Count);
+    }
+
+    [Fact]
+    public async Task Install_CancelAfterReceivingData_PreservesResumablePartial()
+    {
+        const string etag = "\"model-v1\"";
+        var stream = new PrefixThenBlockingStream(DummyContent[..9]);
+        var handler = new ScriptedHttpHandler();
+        handler.Enqueue(_ => CreateDownloadResponse(HttpStatusCode.OK, stream, etag));
+        using var manager = CreateManager(
+            handler,
+            [TestDefinition(artifact: DummyArtifact(mirrorUrl: null))]);
+        using var cancellation = new CancellationTokenSource();
+        var install = manager.InstallAsync("test-model", cancellation.Token);
+        await stream.PrefixRead.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => install);
+
+        Assert.Equal(LocalModelInstallState.Partial, manager.GetStatus("test-model"));
+        Assert.Equal(
+            9,
+            new FileInfo(Path.Combine(_root, "test-model", "model.bin.download")).Length);
+        Assert.True(File.Exists(Path.Combine(_root, "test-model", "model.bin.download.resume.json")));
+    }
+
+    [Fact]
+    public async Task Install_InsufficientDiskSpace_FailsBeforeNetworkOrDirectoryMutation()
+    {
+        var handler = new ScriptedHttpHandler();
+        using var manager = CreateManager(
+            handler,
+            [TestDefinition(artifact: DummyArtifact(mirrorUrl: null))],
+            getAvailableFreeSpaceBytes: _ => 0);
+
+        var error = await Assert.ThrowsAsync<IOException>(() =>
+            manager.InstallAsync("test-model", CancellationToken.None));
+
+        Assert.Contains("可用空间", error.Message, StringComparison.Ordinal);
+        Assert.Empty(handler.RequestedUris);
+        Assert.False(Directory.Exists(Path.Combine(_root, "test-model")));
+    }
+
+    [Fact]
+    public async Task Install_LargeArtifact_RequiresExplicitReviewedCatalogFlag()
+    {
+        var largeArtifact = new LocalModelArtifact(
+            "model.bin",
+            LocalModelManager.MaxArtifactBytes + 1,
+            new string('a', 64),
+            "https://huggingface.co/test-org/test-model/resolve/fixed/model.bin",
+            null);
+
+        var blockedHandler = new ScriptedHttpHandler();
+        using (var blocked = CreateManager(
+            blockedHandler,
+            [TestDefinition(artifact: largeArtifact)],
+            getAvailableFreeSpaceBytes: _ => long.MaxValue))
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                blocked.InstallAsync("test-model", CancellationToken.None));
+            Assert.Empty(blockedHandler.RequestedUris);
+        }
+
+        var allowedHandler = new ScriptedHttpHandler();
+        allowedHandler.EnqueueStatus(HttpStatusCode.NotFound);
+        var reviewedDefinition = TestDefinition(
+            artifact: largeArtifact,
+            installKind: LocalModelInstallKind.ManifestFiles) with
+        {
+            AllowsLargeArtifacts = true
+        };
+        using var allowed = CreateManager(
+            allowedHandler,
+            [reviewedDefinition],
+            getAvailableFreeSpaceBytes: _ => long.MaxValue);
+
+        await Assert.ThrowsAsync<HttpRequestException>(() =>
+            allowed.InstallAsync("test-model", CancellationToken.None));
+        Assert.Single(allowedHandler.RequestedUris);
+    }
+
+    private static HttpResponseMessage CreateDownloadResponse(
+        HttpStatusCode statusCode,
+        Stream stream,
+        string etag)
+    {
+        var response = new HttpResponseMessage(statusCode)
+        {
+            Content = new StreamContent(stream)
+        };
+        response.Headers.ETag = EntityTagHeaderValue.Parse(etag);
+        return response;
+    }
+
+    [Fact]
     public async Task Install_StalledResponseBody_TimesOutAndFallsBackToMirror()
     {
         var handler = new ScriptedHttpHandler();
@@ -528,12 +695,14 @@ public sealed class LocalModelManagerTests : IDisposable
         ScriptedHttpHandler handler,
         IReadOnlyList<LocalModelDefinition> catalog,
         IWhisperModelInstaller? installer = null,
-        TimeSpan? downloadReadTimeout = null) => new(
+        TimeSpan? downloadReadTimeout = null,
+        Func<string, long>? getAvailableFreeSpaceBytes = null) => new(
             _root,
             catalog,
             installer ?? new FakeWhisperInstaller(),
             new HttpClient(handler),
-            downloadReadTimeout: downloadReadTimeout);
+            downloadReadTimeout: downloadReadTimeout,
+            getAvailableFreeSpaceBytes: getAvailableFreeSpaceBytes);
 
     private static LocalModelArtifact DummyArtifact(
         string relativePath = "model.bin",
@@ -621,6 +790,7 @@ public sealed class LocalModelManagerTests : IDisposable
             Content = new StreamContent(new BrokenStream())
         });
         public List<Uri> RequestedUris { get; } = [];
+        public List<(RangeHeaderValue? Range, RangeConditionHeaderValue? IfRange)> RequestedRanges { get; } = [];
         public TaskCompletionSource RequestStarted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -644,7 +814,7 @@ public sealed class LocalModelManagerTests : IDisposable
         public void Enqueue(Func<CancellationToken, Task<HttpResponseMessage>> factory) =>
             _responses.Enqueue((_, cancellationToken) => factory(cancellationToken));
 
-        private void Enqueue(Func<HttpRequestMessage, HttpResponseMessage> factory) =>
+        public void Enqueue(Func<HttpRequestMessage, HttpResponseMessage> factory) =>
             _responses.Enqueue((request, _) => Task.FromResult(factory(request)));
 
         protected override Task<HttpResponseMessage> SendAsync(
@@ -652,6 +822,7 @@ public sealed class LocalModelManagerTests : IDisposable
             CancellationToken cancellationToken)
         {
             RequestedUris.Add(request.RequestUri!);
+            RequestedRanges.Add((request.Headers.Range, request.Headers.IfRange));
             RequestStarted.TrySetResult();
             if (_responses.Count == 0)
             {
@@ -707,6 +878,82 @@ public sealed class LocalModelManagerTests : IDisposable
             Memory<byte> buffer,
             CancellationToken cancellationToken = default) =>
             ValueTask.FromException<int>(new IOException("connection reset"));
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    private sealed class PrefixThenBrokenStream(byte[] prefix) : Stream
+    {
+        private bool _prefixReturned;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (_prefixReturned)
+            {
+                return ValueTask.FromException<int>(new IOException("connection reset"));
+            }
+
+            _prefixReturned = true;
+            prefix.CopyTo(buffer);
+            return ValueTask.FromResult(prefix.Length);
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    private sealed class PrefixThenBlockingStream(byte[] prefix) : Stream
+    {
+        private bool _prefixReturned;
+        public TaskCompletionSource PrefixRead { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (!_prefixReturned)
+            {
+                _prefixReturned = true;
+                prefix.CopyTo(buffer);
+                PrefixRead.TrySetResult();
+                return prefix.Length;
+            }
+
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return 0;
+        }
+
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
