@@ -3,6 +3,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $uiProject = Join-Path $root "src\VoxLink.UI\VoxLink.UI.csproj"
 $engineProject = Join-Path $root "src\VoxLink.Engine\VoxLink.Engine.csproj"
+$buildProps = Join-Path $root "Directory.Build.props"
 $openVrLicense = Join-Path $root "src\VoxLink\ThirdParty\OpenVR\LICENSE.txt"
 $sherpaLicense = Join-Path $root "src\VoxLink\ThirdParty\SherpaOnnx\LICENSE.txt"
 $sherpaReadme = Join-Path $root "src\VoxLink\ThirdParty\SherpaOnnx\README.md"
@@ -51,6 +52,27 @@ function Assert-FileExists {
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         throw "Release is missing required file: $Path"
+    }
+}
+
+function Assert-BinaryVersion {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ExpectedVersion,
+        [switch]$ManagedAssembly
+    )
+
+    Assert-FileExists $Path
+    $fileVersion = [System.Version]((Get-Item -LiteralPath $Path).VersionInfo.FileVersion)
+    if ($fileVersion.ToString(3) -ne $ExpectedVersion) {
+        throw "Release version mismatch for ${Path}: file version $fileVersion, expected $ExpectedVersion"
+    }
+
+    if ($ManagedAssembly) {
+        $assemblyVersion = [System.Reflection.AssemblyName]::GetAssemblyName($Path).Version
+        if ($assemblyVersion.ToString(3) -ne $ExpectedVersion) {
+            throw "Release version mismatch for ${Path}: assembly version $assemblyVersion, expected $ExpectedVersion"
+        }
     }
 }
 
@@ -177,13 +199,12 @@ Assert-FileExists $windowsAppSdkNotices
 Copy-Item -LiteralPath $windowsAppSdkLicense -Destination (Join-Path $publishDir "WINDOWS-APP-SDK-LICENSE.txt")
 Copy-Item -LiteralPath $windowsAppSdkNotices -Destination (Join-Path $publishDir "WINDOWS-APP-SDK-NOTICES.txt")
 
-$versionNode = $uiProjectXml.SelectSingleNode("//Project/PropertyGroup/Version")
-$appVersion = if ($versionNode -and $versionNode.InnerText) {
-    $versionNode.InnerText.Trim()
+[xml]$buildPropsXml = Get-Content -LiteralPath $buildProps -Raw
+$versionNode = $buildPropsXml.SelectSingleNode("//Project/PropertyGroup/Version")
+if (-not $versionNode -or [string]::IsNullOrWhiteSpace($versionNode.InnerText)) {
+    throw "Release version was not found in $buildProps"
 }
-else {
-    "1.0.0"
-}
+$appVersion = $versionNode.InnerText.Trim()
 $installerPath = Join-Path $releaseRoot "Setup-VoxLink-$appVersion.exe"
 
 $readmePath = Join-Path $root "README.md"
@@ -210,14 +231,21 @@ $requiredFiles = @(
     (Join-Path $publishDir "App.xbf"),
     (Join-Path $publishDir "MainWindow.xbf"),
     (Join-Path $publishDir "Controls\HeaderEditor.xbf"),
+    (Join-Path $publishDir "Controls\HotkeyRecorder.xbf"),
+    (Join-Path $publishDir "Controls\TranslationServiceDialogContent.xbf"),
+    (Join-Path $publishDir "Controls\AsrServiceDialogContent.xbf"),
+    (Join-Path $publishDir "Controls\SpeechServiceDialogContent.xbf"),
     (Join-Path $publishDir "Controls\OnboardingDialog.xbf"),
     (Join-Path $publishDir "Pages\AdvancedPage.xbf"),
     (Join-Path $publishDir "Pages\AudioPage.xbf"),
     (Join-Path $publishDir "Pages\AboutPage.xbf"),
     (Join-Path $publishDir "Pages\ConversationHistoryPage.xbf"),
     (Join-Path $publishDir "Pages\LivePage.xbf"),
+    (Join-Path $publishDir "Pages\LocalModelsPage.xbf"),
+    (Join-Path $publishDir "Pages\LogsPage.xbf"),
     (Join-Path $publishDir "Pages\ModelProvidersPage.xbf"),
-    (Join-Path $publishDir "Pages\ProvidersPage.xbf"),
+    (Join-Path $publishDir "Pages\OverlayPage.xbf"),
+    (Join-Path $publishDir "Pages\SpeechPage.xbf"),
     (Join-Path $publishDir "Pages\VRChatPage.xbf"),
     (Join-Path $publishDir "VoxLink.pri"),
     (Join-Path $publishDir "Assets\AppIcon.ico"),
@@ -227,6 +255,7 @@ $requiredFiles = @(
     (Join-Path $publishDir "WINDOWS-APP-SDK-LICENSE.txt"),
     (Join-Path $publishDir "WINDOWS-APP-SDK-NOTICES.txt"),
     (Join-Path $engineDir "VoxLink.Engine.exe"),
+    (Join-Path $engineDir "VoxLink.Engine.dll"),
     (Join-Path $engineDir "VoxLink.Engine.deps.json"),
     (Join-Path $engineDir "VoxLink.Engine.runtimeconfig.json"),
     (Join-Path $engineDir "VoxLink.dll"),
@@ -242,11 +271,27 @@ $requiredFiles = @(
     (Join-Path $engineDir "ONNXRUNTIME-LICENSE.txt"),
     (Join-Path $engineDir "ONNXRUNTIME-THIRD-PARTY-NOTICES.txt"),
     (Join-Path $engineDir "DOTNET-LICENSE.txt"),
-    (Join-Path $engineDir "DOTNET-THIRD-PARTY-NOTICES.txt")
+    (Join-Path $engineDir "DOTNET-THIRD-PARTY-NOTICES.txt"),
+    (Join-Path $engineDir "ModelHost\model_host.py"),
+    (Join-Path $engineDir "ModelHost\adapter_translation.py"),
+    (Join-Path $engineDir "ModelHost\adapter_wsl.py"),
+    (Join-Path $engineDir "ModelHost\runtime_probe.py"),
+    (Join-Path $engineDir "ModelHost\locks\windows-translation.lock"),
+    (Join-Path $engineDir "ModelHost\locks\wsl-moss.lock"),
+    (Join-Path $engineDir "ModelHost\locks\wsl-dots-tts.lock"),
+    (Join-Path $engineDir "ModelHost\locks\wsl-cosyvoice2.lock"),
+    (Join-Path $engineDir "ModelHost\locks\wsl-qwen3-tts.lock")
 )
 foreach ($requiredFile in $requiredFiles) {
     Assert-FileExists $requiredFile
 }
+
+Assert-BinaryVersion (Join-Path $publishDir "VoxLink.exe") $appVersion
+Assert-BinaryVersion (Join-Path $publishDir "VoxLink.dll") $appVersion -ManagedAssembly
+Assert-BinaryVersion (Join-Path $publishDir "VoxLink.UI.Core.dll") $appVersion -ManagedAssembly
+Assert-BinaryVersion (Join-Path $engineDir "VoxLink.Engine.exe") $appVersion
+Assert-BinaryVersion (Join-Path $engineDir "VoxLink.Engine.dll") $appVersion -ManagedAssembly
+Assert-BinaryVersion (Join-Path $engineDir "VoxLink.dll") $appVersion -ManagedAssembly
 
 $whisperRuntime = Join-Path $engineDir "runtimes\win-x64\whisper.dll"
 Assert-FileExists $whisperRuntime
@@ -258,11 +303,15 @@ foreach ($cpuVariant in @("avx", "avx2", "avx512", "noavx")) {
 }
 
 $forbiddenPaths = @(
+    (Join-Path $publishDir "Pages\ProvidersPage.xbf"),
     (Join-Path $publishDir "data\flutter_assets"),
     (Join-Path $publishDir "Microsoft.Windows.Workloads.Resources_ec.dll"),
     (Join-Path $engineDir "VoxLink.exe"),
     (Join-Path $engineDir "runtimes\win-arm64"),
-    (Join-Path $engineDir "runtimes\win-x86")
+    (Join-Path $engineDir "runtimes\win-x86"),
+    (Join-Path $engineDir "ModelHost\__pycache__"),
+    (Join-Path $engineDir "ModelHost\.ruff_cache"),
+    (Join-Path $engineDir "ModelHost\runtime-state.json")
 )
 foreach ($forbiddenPath in $forbiddenPaths) {
     if (Test-Path -LiteralPath $forbiddenPath) {
@@ -279,6 +328,13 @@ $forbiddenFile = Get-ChildItem -LiteralPath $publishDir -Recurse -Force -File |
     Select-Object -First 1
 if ($forbiddenFile) {
     throw "Release contains a retired Flutter binary: $($forbiddenFile.FullName)"
+}
+
+$modelHostPayload = Get-ChildItem -LiteralPath (Join-Path $engineDir "ModelHost") -Recurse -Force -File |
+    Where-Object { $_.Name -match '\.(pyc|gguf|safetensors|onnx|whl|zip|tar|exe|dll)$' } |
+    Select-Object -First 1
+if ($modelHostPayload) {
+    throw "ModelHost payload must not contain runtime/weights/binaries: $($modelHostPayload.FullName)"
 }
 $forbiddenDirectory = Get-ChildItem -LiteralPath $publishDir -Recurse -Force -Directory |
     Where-Object { $_.Name -eq "flutter_assets" } |

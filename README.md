@@ -28,10 +28,10 @@
 
 - **双向翻译**：麦克风与系统回环分路识别
 - **运行模式**：`仅文字`（Chatbox）；`VRChat 语音`（TTS 经虚拟声卡输出）
-- **识别**：本地 Whisper（tiny/base/small）或 DashScope、Soniox、SiliconFlow、MiMo、OpenAI 兼容接口
-- **本地模型**：软件内安装/删除/重试 Whisper、MiniCPM5-1B GGUF 与 Kokoro-82M；下载均校验大小和 SHA-256
-- **翻译**：免密翻译、云端 LLM 或本地 MiniCPM5-1B；支持可选润色和第二目标语言
-- **语音合成**：Kokoro-82M 可通过 sherpa-onnx 完全离线生成中英文 24 kHz 语音
+- **识别**：本地 Whisper（tiny/base/small/large-v3-turbo）、SenseVoice-Small（sherpa-onnx）、本地 MOSS 转写+说话人（私有 WSL2+NVIDIA），或 DashScope、Soniox、SiliconFlow、MiMo、OpenAI 兼容接口
+- **本地模型**：软件内安装/删除/重试 Whisper、SenseVoice、MiniCPM5-1B GGUF、Kokoro-82M，以及九个模型中的应用托管运行时（HY-MT / M2M-100 / SMaLL-100 隔离 Windows Python；MOSS / dots.tts / CosyVoice2 / Qwen3-TTS 私有 WSL2+NVIDIA）；下载均校验大小和 SHA-256，Python 依赖为哈希锁定
+- **翻译**：免密翻译、云端 LLM、本地 MiniCPM5-1B，或本地 HY-MT1.5-1.8B / M2M-100 418M / SMaLL-100（应用托管 Windows Python）；支持可选润色和第二目标语言
+- **语音合成**：Kokoro-82M 通过 sherpa-onnx 完全离线生成中英文 24 kHz 语音；dots.tts / CosyVoice2 / Qwen3-TTS 经私有 WSL2+NVIDIA 进行声音克隆合成
 - **字幕**：桌面 overlay、可选 SteamVR；简体中文输出统一字形
 - **说话人**：关 / 本地聚类 / 云端 speaker ID
 - **VRChat**：Chatbox、MuteSelf 联动、启动时检查更新
@@ -65,10 +65,10 @@ VRChat OSC 不承载音频，语音模式需第三方虚拟声卡：
 | --- | --- |
 | 实时翻译 | 模式、语言、第二目标语言、最新消息、手动输入 |
 | 会话记录 | 本次运行期间的全部实时翻译与手动输入 |
-| AI 与语音 | 翻译 / 语音识别 / 语音输出开关与测试 |
 | 音频设备 | 采集源、设备路由、断句 |
 | VRChat | Chatbox、语音路由、MuteSelf、字幕 |
-| 模型服务 | 本地 MiniCPM 翻译、Whisper、本地 Kokoro 音色/语速、云端提供方与统一模型目录 |
+| 模型服务 | 只显示翻译、语音识别和语音合成三类当前服务；密钥、协议和高级参数在“设置”弹窗中按需打开 |
+| 本地模型 | 按语音识别、翻译、语音合成分类的一键安装列表；安装完成后自动启用 |
 | 高级设置 | 会话、仅转写、出站朗读内容、说话人标签、快捷键、窗口外观 |
 | 关于 | 版本、更新、运行状态 |
 | 日志 | 运行日志 |
@@ -77,9 +77,9 @@ VRChat OSC 不承载音频，语音模式需第三方虚拟声卡：
 
 ### 本地模型支持
 
-“稳定支持”条目可直接安装并从现有翻译/ASR/TTS 配置调用：Whisper tiny/base/small、MiniCPM5-1B GGUF 和 Kokoro-82M。模型保存到 `%LOCALAPPDATA%\VoxLink\models`；下载只允许固定 HTTPS 主机，使用滑动无进度超时、临时文件、大小/SHA-256 校验和原子替换。MiniCPM/Kokoro 运行时通过目录租约阻止删除正在使用的工件；Whisper 由其独立安装器管理，不宣称同等的运行时租约保护。
+VoxLink 只展示已经接入真实运行管线、能够下载校验并实际执行的模型：语音识别使用 Whisper tiny/base/small/large-v3-turbo、SenseVoice-Small（sherpa-onnx）与本地 MOSS 转写+说话人（私有 WSL2+NVIDIA）；翻译使用 MiniCPM5-1B GGUF 与 HY-MT1.5-1.8B / M2M-100 418M / SMaLL-100（应用托管 Windows Python）；语音合成使用 Kokoro-82M 与 dots.tts / CosyVoice2 / Qwen3-TTS（私有 WSL2+NVIDIA）。模型保存到 `%LOCALAPPDATA%\VoxLink\models`；下载只允许固定 HTTPS 主机，并使用临时文件、大小/SHA-256 校验和原子替换。应用托管运行时的 Python 依赖为固定版本的哈希锁定文件，宿主与适配器脚本在运行时逐一校验 SHA-256。
 
-`dots.tts`、`HY-MT1.5-1.8B`、`MOSS-Transcribe-Diarize` 等候选仅展示许可证、依赖和 Windows 兼容性，不提供虚假的安装按钮。其中 HY-MT 使用带地域限制的 Tencent HY Community License；dots.tts 与 MOSS 的官方运行路径依赖 Python/GPU 服务栈。Kokoro 本地生成失败会直接报错，不会静默上传文字或切换到在线/系统 TTS。
+单个模型点击“安装并启用”即可完成下载、校验、选择和持久化；“一键安装并启动”会准备推荐组合（Whisper base + MiniCPM5-1B + Kokoro-82M）并启动 VoxLink。模型安装后才会在“模型服务”中开放选择。应用托管模型首次启用时需先准备对应运行时（Windows Python 自动安装；WSL2 模型需要 NVIDIA GPU 与 WSL ≥ 2.4.10，应用只使用私有 `VoxLink-Models` 发行版）。Kokoro 本地生成失败会直接报错，不会静默上传文字或切换到在线/系统 TTS。
 
 ## 构建
 

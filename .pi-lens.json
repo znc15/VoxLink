@@ -1,3 +1,3 @@
 {
-  "ignore": ["**/*.xaml.cs"]
+  "ignore": ["**/*.xaml.cs", "src/voxlink_app/**"]
 }

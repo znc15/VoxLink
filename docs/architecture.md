@@ -70,14 +70,28 @@ System loopback (inbound) -+          |
 - **输出开关**：麦克风（我的语音）与系统回环（对方语音）独立启用；Chatbox 是否发送我的译文由「发送到 VRChat Chatbox」控制；「朗读我的译文」开启后，出站 TTS 要求名称可识别的 VB-CABLE、Voicemeeter 或其他虚拟播放设备。
 - **正常翻译**：final 原文翻译到主目标语言；设置第二目标语言时再生成第二译文。可选 LLM 润色分别处理两种译文。
 - **仅转写**：原文作为显示文本并标记 `TranscriptionOnly=true`；不创建翻译服务、不润色、不播放 TTS、不发送 Chatbox。
-- **TTS**：出站和入站由「自动朗读」页独立开关控制。最终 `Outbound` 与 `Typed` 可朗读识别原话及源语言，或主译文及目标语言；`Inbound` 始终朗读主译文，第二译文和 partial 永不朗读。开启「朗读内容口语化」且翻译 provider 非免密时，出站朗读文本先经 LLM 改写成口语化表达再播放。默认回退顺序是 Edge、Google、Windows 已安装语音，实际播放设备通过 `VoiceOutputDeviceId` 传入。
+- **TTS**：出站和入站由「自动朗读」页独立控制何时朗读、朗读原话或译文以及输出设备；实际服务在「模型服务」页通过三态下拉框选择：系统语音兜底、远程服务或本地 Kokoro。最终 `Outbound` 与 `Typed` 可朗读识别原话及源语言，或主译文及目标语言；`Inbound` 始终朗读主译文，第二译文和 partial 永不朗读。开启「朗读内容口语化」且翻译 provider 非免密时，出站朗读文本先经 LLM 改写。系统兜底顺序是 Edge、Google、Windows 已安装语音；远程失败可回退该链路；本地 Kokoro 失败则直接报错。
 - **简体中文**：公开翻译 provider 对简体中文使用 `zh-CN`，LLM 提示明确要求简体；面向 `zh-CN` 的 ASR 原文、主次译文和润色结果再由 `ChineseTextNormalizer` 调用 Windows `LCMapStringEx` 做最终简体归一化。DashScope、Soniox 和 MiMo ASR 的协议语言码仍为 `zh`。
 - **字幕**：WinUI Live、桌面 Overlay 和 SteamVR Overlay 使用相同消息语义，显示 speaker、partial/final、主次译文和原文。仅转写不会重复显示“译文”行。
 - **Chatbox**：只发送 final、非仅转写的 `Outbound` 或 `Typed` 主译文，可按设置附加原文；开启第二目标语言时附加一行第二译文（顺序：主译文/第二译文/原文，仍受 144 文本元素截断）。`Inbound`、partial 和 speaker 标签永不发送。发送器使用有界队列、短时去重、1.5 秒节流和 144 文本元素截断。
 
 ## 本地模型目录与运行时
 
-`LocalModelCatalog` 只收录显式参数规模不超过 2B 且已核验来源、许可证与 Windows 可行性的模型。支持级别分为：`Stable`（可安装并进入现有管线）、`Experimental`（运行时可用但带明确限制）和 `CatalogOnly`（仅展示，不提供安装按钮）。当前稳定路径为 Whisper tiny/base/small、`openbmb/MiniCPM5-1B-GGUF` 和 Kokoro-82M；`dots.tts`、HY-MT1.5-1.8B、MOSS-Transcribe-Diarize 等依赖 Python/GPU 或受许可证地域限制的候选保持 `CatalogOnly`。
+`LocalModelCatalog` 可以保留内部兼容性研究元数据，但产品 UI 只公开已经接入 Windows 原生运行时、具有固定下载工件与校验清单且能实际进入管线的条目。当前公开模型严格限定为 Whisper tiny/base/small、`openbmb/MiniCPM5-1B-GGUF` 和 Kokoro-82M；依赖 Python/CUDA、缺少可发布原生工件或受地域许可证限制的 `CatalogOnly` 条目不会出现在界面中，也不会提供安装或选择入口。
+
+VoxLink 1.3.0 起，九个模型全部接入真实运行管线：Whisper tiny/base/small/large-v3-turbo 与 SenseVoice-Small 使用 Windows 原生运行时（Whisper.net / sherpa-onnx）；HY-MT1.5-1.8B / M2M-100 418M / SMaLL-100 使用应用托管的隔离 Windows Python（transformers，哈希锁定依赖）；MOSS-Transcribe-Diarize / dots.tts / CosyVoice2 / Qwen3-TTS 使用私有 `VoxLink-Models` WSL2 发行版 + NVIDIA CUDA。
+
+### 应用托管运行时
+
+Engine 侧 `ManagedModelRuntimeManager` + `WindowsPythonRuntimeProvisioner` / `WslCudaRuntimeProvisioner` 负责运行时就绪：固定工件（Windows 嵌入 Python、pip、Linux standalone Python、固定 Ubuntu WSL 映像）按字节大小与 SHA-256 下载并原子落盘；Python 依赖使用固定版本、`--require-hashes --only-binary=:all: --no-deps` 的完整闭包锁定文件；`runtime_probe.py` 只读主动探测解释器、包版本、锁/宿主/适配器脚本指纹与状态文件后才报告 Ready——任何静态列表或状态文件本身都不构成就绪。
+
+WSL2 只操作私有 `VoxLink-Models` 发行版：安装前确认名称可用、安装命令成功后写入并回读所有权标记；同名非 VoxLink 发行版一律判定 `Unsupported` 且不做任何修改；回滚仅在能够证明发行版为本应用所建且所有权标记精确匹配时才允许 unregister，否则保留数据并要求修复。所有发行版内命令固定 `wsl.exe --distribution VoxLink-Models --user root --exec`。
+
+托管推理通过严格 JSON Lines 宿主进程完成：`ManagedModelHostClient` 校验协议版本、运行时档案与强制能力（ping/getCapabilities/shutdown/infer 一致性），拒绝畸形、重复或超限响应并终止进程树；请求截止时间覆盖写门与响应等待，释放时先排空在途请求再优雅 shutdown，进程树清理后恰好一次释放模型与运行时租约。宿主错误只回传固定安全码与固定中文消息，不暴露路径、stderr 或模型输出；Engine 的五个托管运行时 RPC 与 `runtimeProgress` 事件为纯增量扩展，`protocolVersion` 保持 1。
+
+模型适配器按模型 ID 路由：Windows Python 适配器（HY-MT 官方 prompt 模板与参数、M2M/SMaLL 方向感知 tokenizer）与 WSL 适配器（MOSS remote-code ASR、dots.tts `DotsTtsRuntime`、Qwen3-TTS `generate_voice_clone`）共享同一宿主协议；音频结果写入租约模型目录并返回相对路径。CosyVoice2 的依赖（omegaconf→antlr4 与 openai-whisper 均为 sdist-only）当前无法进入二进制锁定供应链，适配器如实返回固定依赖错误，等待上游 wheel 或 ONNX 导出路径。
+
+会话启动前会检查旧设置指向的本地模型，缺失时自动安装并继续；用户明确删除当前模型时则执行确定性回退：Whisper 优先回退到已安装的 base/tiny/small，均不存在时保留未选择状态并阻止启动；MiniCPM 回退公共免密翻译；Kokoro 回退系统语音。运行中不能删除当前模型，服务切换只保存为下次会话并显示重启提示，不伪装热切换。
 
 `LocalModelManager` 以 `%LOCALAPPDATA%\VoxLink\models\local` 下的真实工件为状态来源。下载仅接受固定 HTTPS 主机和安全重定向；每个响应体读取使用滑动无进度超时，每个工件限制大小并校验 SHA-256。单文件通过 `.download` 后原子替换；tar.bz2 归档先在隔离 staging 目录拒绝路径穿越、链接和展开体积超限，再逐项校验关键工件，最后以 backup/staging 原子切换，失败保留旧安装。每个模型有独立操作 gate，取消、失败和关闭都会清理临时文件。
 
@@ -111,8 +125,9 @@ Chatbox 通过 UDP OSC `/chatbox/input` 输出。可选 MuteSelf 监听器在独
 - **两级有界队列**：流式音频队列按音源隔离并丢弃最旧块，final 工作队列单读者串行处理，避免阻塞 WASAPI 回调和无限积压。
 - **能力驱动降级**：本地 speaker 只处理完整分段音频；云 speaker 只接受 Soniox 能力。SteamVR、说话人标签和 MuteSelf 失败均隔离为可选功能错误。
 - **自动故障转移**：默认翻译使用免密端点故障转移；未选择本地 Kokoro 时，TTS 依次尝试远程、Edge、Google 和 Windows；本地 Kokoro 失败不参与回退；Whisper 模型下载使用镜像和官方源。
-- **敏感数据隔离**：普通配置和 DPAPI secrets 分离；PasswordBox 与请求头编辑器不把秘密写入 XAML Key 或普通可绑定对象。
-- **字段存在性感知迁移**：新仓库缺失时，`SettingsRepository` 只读迁移旧 Flutter 普通设置和 DPAPI 安全存储；缺失 `useAiTranslation`/`useCloudAsr` 时按已选 provider 一次性推断开关并重写设置。
+- **敏感数据隔离**：普通配置和 DPAPI secrets 分离；PasswordBox 与请求头编辑器不把秘密写入 XAML Key 或普通可绑定对象。服务配置 `ContentDialog` 使用暂存值，只有点击保存后才提交，取消不会修改或发送秘密。
+- **最少配置优先**：「模型服务」主页面只显示三类当前服务；预置云服务默认只要求 API Key，地址、模型、协议和请求头折叠到高级设置。本地模型使用固定安全默认值，可安装后直接启动。
+- **字段存在性感知迁移**：新仓库缺失时，`SettingsRepository` 只读迁移旧 Flutter 普通设置和 DPAPI 安全存储；缺失 `useAiTranslation`/`useCloudAsr` 时按已选 provider 一次性推断开关。升级后的矛盾组合以旧开关代表的实际行为安全规范为公共翻译、本地 Whisper 或 Kokoro 优先三态，并保留地址、模型、DPAPI 密钥与请求头。
 - **显式关闭协调**：关闭先阻止新操作，停止并释放 capture、stream、recognizer 和 sidecar，再等待设置保存收敛。
 - **SteamVR 可选输出**：OpenVR 在 WPF STA 线程按需初始化；SteamVR 缺失、未运行、无头显或运行时错误只关闭 VR 输出，不影响桌面字幕和翻译。
 
@@ -124,7 +139,9 @@ Chatbox 通过 UDP OSC `/chatbox/input` 输出。可选 MuteSelf 监听器在独
 - `src/VoxLink.UI/MainWindow.xaml`：Mica 标题栏、NavigationView 和响应式导航壳
 - `src/VoxLink.UI/Controls/OnboardingDialog.xaml`：首次启动语言、设备与 VRChat 路由测试
 - `src/VoxLink.UI/Pages/LivePage.xaml`：输入、会话控制、partial/final 与双目标消息显示
-- `src/VoxLink.UI/Pages/ModelProvidersPage.xaml`：翻译/ASR/TTS 提供方、本地 MiniCPM/Kokoro 配置和统一模型目录
+- `src/VoxLink.UI/Pages/ModelProvidersPage.xaml`：只显示翻译、ASR、TTS 三类当前服务和简洁状态；复杂参数由按需配置弹窗承载
+- `src/VoxLink.UI/Pages/LocalModelsPage.xaml`：按语音识别、翻译、语音合成分类的五个真实可运行模型及一键安装/启用/启动
+- `src/VoxLink.UI/Controls/*ServiceDialogContent.xaml`：翻译、ASR、TTS 的按需配置弹窗；预置服务默认只露出必要字段，高级字段折叠
 - `src/VoxLink.UI/Pages/AudioPage.xaml`：独立音源、设备、语音活动检测与智能断句
 - `src/VoxLink.UI/Pages/AdvancedPage.xaml`：仅转写、全局快捷键、窗口退出与外观
 - `src/VoxLink.UI/Pages/VRChatPage.xaml`：翻译对方语音（系统回环）、说话人标签、Chatbox 与 MuteSelf 联动
