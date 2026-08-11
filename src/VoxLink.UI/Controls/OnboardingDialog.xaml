@@ -117,7 +117,7 @@
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
-                    <Button Click="TestOsc_Click">
+                    <Button x:Name="TestOscButton" Click="TestOsc_Click">
                         <StackPanel Orientation="Horizontal" Spacing="7">
                             <FontIcon FontSize="13" Glyph="&#xE724;" />
                             <TextBlock Text="测试 Chatbox" />

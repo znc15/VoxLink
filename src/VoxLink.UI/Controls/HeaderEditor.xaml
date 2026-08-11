@@ -24,6 +24,12 @@
             </Button>
         </Grid>
 
+        <InfoBar
+            x:Name="HeaderErrorBar"
+            IsClosable="False"
+            IsOpen="False"
+            Severity="Error" />
+
         <ListView
             ItemsSource="{x:Bind Entries}"
             SelectionMode="None">

@@ -162,7 +162,7 @@ public sealed partial class SpeechPage : Page
 
     private void RefreshSpeechRefinementHint() =>
         SpeechRefinementHintBar.IsOpen = SpeechRefinementSwitch.IsOn
-            && !Controller.Settings.SpeechRefinementEnabled;
+            && (!Controller.Settings.UseAiTranslation || !Controller.Settings.SupportsGeneration);
 
     private async void OpenVirtualCableDownload_Click(object sender, RoutedEventArgs args) =>
         await Launcher.LaunchUriAsync(new Uri("https://vb-audio.com/Cable/"));

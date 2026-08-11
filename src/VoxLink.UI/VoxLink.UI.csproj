@@ -25,9 +25,6 @@
     <Product>VoxLink</Product>
     <Description>VoxLink game translation workspace</Description>
     <AssemblyTitle>VoxLink game translation workspace</AssemblyTitle>
-    <Version>1.1.0</Version>
-    <FileVersion>1.1.0.0</FileVersion>
-    <AssemblyVersion>1.1.0.0</AssemblyVersion>
   </PropertyGroup>
 
   <ItemGroup>

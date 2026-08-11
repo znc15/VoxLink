@@ -44,7 +44,8 @@ public sealed partial class MainWindow : Window
     {
         Exit,
         KeepBackground,
-        Cancel
+        Cancel,
+        Retry
     }
 
     private bool _allowClose;
@@ -77,6 +78,7 @@ public sealed partial class MainWindow : Window
         App.Controller.PropertyChanged += Controller_PropertyChanged;
         App.Controller.OnboardingRequested += Controller_OnboardingRequested;
         App.Controller.ConversationHistoryRequested += Controller_ConversationHistoryRequested;
+        App.Controller.LocalModelsRequested += Controller_LocalModelsRequested;
         EnsureSettingsSubscribed();
         ContentFrame.Navigate(typeof(LivePage));
         UpdateEngineStatus();
@@ -160,12 +162,12 @@ public sealed partial class MainWindow : Window
         {
             "live" => typeof(LivePage),
             "history" => typeof(ConversationHistoryPage),
-            "providers" => typeof(ProvidersPage),
             "audio" => typeof(AudioPage),
             "vrchat" => typeof(VRChatPage),
             "overlay" => typeof(OverlayPage),
             "speech" => typeof(SpeechPage),
             "models" => typeof(ModelProvidersPage),
+            "local-models" => typeof(LocalModelsPage),
             "advanced" => typeof(AdvancedPage),
             "logs" => typeof(LogsPage),
             "about" => typeof(AboutPage),
@@ -204,6 +206,8 @@ public sealed partial class MainWindow : Window
             ContentFrame.Navigate(typeof(ConversationHistoryPage));
         });
 
+    private void Controller_LocalModelsRequested(object? sender, EventArgs args) =>
+        DispatcherQueue.TryEnqueue(() => NavView.SelectedItem = LocalModelsNavigationItem);
     private async void RootLayout_Loaded(object sender, RoutedEventArgs args)
     {
         ApplyWindowIcon();
@@ -267,7 +271,6 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        _onboardingPending = false;
         _onboardingOpen = true;
         try
         {
@@ -275,11 +278,27 @@ public sealed partial class MainWindow : Window
             {
                 XamlRoot = RootLayout.XamlRoot
             };
+            _onboardingPending = false;
             await dialog.ShowAsync();
+        }
+        catch (Exception exception) when (exception is COMException or InvalidOperationException)
+        {
+            System.Diagnostics.Debug.WriteLine(exception);
+            _onboardingPending = true;
+            _ = RetryOnboardingAsync();
         }
         finally
         {
             _onboardingOpen = false;
+        }
+    }
+
+    private async Task RetryOnboardingAsync()
+    {
+        await Task.Delay(250);
+        if (!_closeRequested && _onboardingPending)
+        {
+            DispatcherQueue.TryEnqueue(async () => await TryShowOnboardingAsync());
         }
     }
 
@@ -366,6 +385,11 @@ public sealed partial class MainWindow : Window
         try
         {
             var choice = await ConfirmCloseAsync();
+            while (choice == CloseChoice.Retry && !_allowClose)
+            {
+                await Task.Delay(250);
+                choice = await ConfirmCloseAsync();
+            }
             if (choice == CloseChoice.Cancel)
             {
                 return;
@@ -405,6 +429,7 @@ public sealed partial class MainWindow : Window
         App.Controller.PropertyChanged -= Controller_PropertyChanged;
         App.Controller.OnboardingRequested -= Controller_OnboardingRequested;
         App.Controller.ConversationHistoryRequested -= Controller_ConversationHistoryRequested;
+        App.Controller.LocalModelsRequested -= Controller_LocalModelsRequested;
         if (_trayIcon is not null)
         {
             _trayIcon.RestoreRequested -= TrayIcon_RestoreRequested;
@@ -440,7 +465,13 @@ public sealed partial class MainWindow : Window
                 _ => CloseChoice.Cancel
             };
         }
-        catch (Exception exception) when (exception is COMException or InvalidOperationException or ObjectDisposedException)
+        catch (Exception exception) when (exception is COMException or InvalidOperationException)
+        {
+            System.Diagnostics.Debug.WriteLine("退出确认正在等待当前设置对话框关闭。");
+            System.Diagnostics.Debug.WriteLine(exception);
+            return CloseChoice.Retry;
+        }
+        catch (ObjectDisposedException exception)
         {
             LogService.Instance.Warning("UI", $"退出确认对话框无法显示，已取消退出：{exception}");
             return CloseChoice.Cancel;

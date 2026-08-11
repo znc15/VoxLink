@@ -12,6 +12,7 @@ public sealed partial class OnboardingDialog : ContentDialog
     private readonly AppController _controller;
     private int _step;
     private bool _loading = true;
+    private bool _testInProgress;
 
     public OnboardingDialog(AppController controller)
     {
@@ -151,6 +152,11 @@ public sealed partial class OnboardingDialog : ContentDialog
 
     private async Task RunTestAsync(Func<Task> test, string successMessage, bool requireVoiceRoute)
     {
+        if (_testInProgress || _controller.IsBusy)
+        {
+            return;
+        }
+
         CommitSelections();
         if (requireVoiceRoute)
         {
@@ -165,6 +171,9 @@ public sealed partial class OnboardingDialog : ContentDialog
             }
         }
 
+        _testInProgress = true;
+        TestOscButton.IsEnabled = false;
+        TestVoiceButton.IsEnabled = false;
         TestProgress.IsActive = true;
         TestProgress.Visibility = Visibility.Visible;
         try
@@ -174,6 +183,9 @@ public sealed partial class OnboardingDialog : ContentDialog
         }
         finally
         {
+            _testInProgress = false;
+            TestOscButton.IsEnabled = true;
+            TestVoiceButton.IsEnabled = true;
             TestProgress.IsActive = false;
             TestProgress.Visibility = Visibility.Collapsed;
         }

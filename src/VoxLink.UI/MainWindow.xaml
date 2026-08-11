@@ -58,11 +58,6 @@
                         <FontIcon Glyph="&#xE8BD;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="AI 与语音" Tag="providers">
-                    <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE945;" />
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
                 <NavigationViewItemHeader Content="配置" />
                 <NavigationViewItem Content="音频设备" Tag="audio">
                     <NavigationViewItem.Icon>
@@ -87,6 +82,11 @@
                 <NavigationViewItem Content="模型服务" Tag="models">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE945;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="LocalModelsNavigationItem" Content="本地模型" Tag="local-models">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE950;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem Content="高级设置" Tag="advanced">

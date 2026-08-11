@@ -3,28 +3,18 @@
     x:Class="VoxLink.UI.Pages.ModelProvidersPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:controls="using:VoxLink.UI.Controls"
-    xmlns:models="using:VoxLink.UI.Core.Models"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     Background="Transparent"
     mc:Ignorable="d"
     NavigationCacheMode="Required">
+
     <ScrollViewer Style="{StaticResource PageScrollViewerStyle}">
         <StackPanel Style="{StaticResource PageStackStyle}">
             <StackPanel Spacing="3">
                 <TextBlock Style="{StaticResource PageTitleStyle}" Text="模型服务" />
-                <TextBlock
-                    Style="{StaticResource CaptionStyle}"
-                    Text="配置翻译、语音识别与语音输出服务的提供方、地址、模型和凭据" />
+                <TextBlock Style="{StaticResource CaptionStyle}" Text="选择要使用的服务，其他设置按需打开" />
             </StackPanel>
-
-            <InfoBar
-                IsClosable="False"
-                IsOpen="True"
-                Message="API Key 与请求头使用当前 Windows 用户加密存储。云端语音识别是否上传原始音频由 AI 与语音页的开关和这里的允许上传选项共同控制。"
-                Severity="Informational"
-                Title="数据边界" />
 
             <InfoBar
                 x:Name="ProviderErrorBar"
@@ -32,408 +22,118 @@
                 IsOpen="False"
                 Severity="Error"
                 Closed="ProviderErrorBar_Closed" />
+            <InfoBar
+                x:Name="ProviderResultBar"
+                IsClosable="False"
+                IsOpen="False"
+                Severity="Success" />
+            <InfoBar
+                x:Name="RestartInfoBar"
+                IsClosable="False"
+                IsOpen="False"
+                Message="当前会话仍使用原服务，停止并重新启动后应用新选择。"
+                Severity="Informational"
+                Title="需要重新启动会话" />
 
             <Border Style="{StaticResource PanelBorderStyle}">
-                <StackPanel Spacing="16">
-                    <StackPanel Spacing="3">
-                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="翻译与文本生成" />
-                        <TextBlock
-                            x:Name="TranslationDescription"
-                            Style="{StaticResource CaptionStyle}"
-                            Text="公共免密翻译；选择其他提供方后可配置并测试。" />
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="150" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center" Spacing="2">
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="翻译" />
+                        <TextBlock x:Name="TranslationStatusText" Style="{StaticResource CaptionStyle}" Text="无需配置" />
                     </StackPanel>
-
                     <ComboBox
                         x:Name="TranslationBackendBox"
-                        Header="服务提供方"
+                        Grid.Column="1"
+                        HorizontalAlignment="Stretch"
                         SelectionChanged="TranslationBackendBox_SelectionChanged">
                         <ComboBoxItem Content="公共免密" Tag="PublicFree" />
-                        <ComboBoxItem Content="阿里云 DashScope" Tag="DashScope" />
+                        <ComboBoxItem x:Name="MiniCpmOption" Content="本地 MiniCPM5-1B" Tag="LocalMiniCpm" />
+                        <ComboBoxItem x:Name="ManagedHyMtOption" Content="本地混元翻译 HY-MT1.5-1.8B" Tag="ManagedHyMt" />
+                        <ComboBoxItem x:Name="ManagedM2M100Option" Content="本地 M2M-100 418M" Tag="ManagedM2M100" />
+                        <ComboBoxItem x:Name="ManagedSmall100Option" Content="本地 SMaLL-100" Tag="ManagedSmall100" />
                         <ComboBoxItem Content="DeepSeek" Tag="DeepSeek" />
                         <ComboBoxItem Content="OpenAI 兼容" Tag="OpenAiCompatible" />
                         <ComboBoxItem Content="自定义服务" Tag="Custom" />
-                        <ComboBoxItem Content="本地 MiniCPM5-1B" Tag="LocalMiniCpm" />
                     </ComboBox>
-
-                    <StackPanel x:Name="TranslationCredentials" Spacing="12">
-                        <Grid ColumnSpacing="12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <TextBox
-                                Header="服务地址"
-                                PlaceholderText="https://api.example.com/v1"
-                                Text="{x:Bind Controller.Settings.TranslationBaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            <TextBox
-                                Grid.Column="1"
-                                Header="模型"
-                                PlaceholderText="模型名称"
-                                Text="{x:Bind Controller.Settings.TranslationModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                        </Grid>
-                        <PasswordBox
-                            x:Name="TranslationApiKeyBox"
-                            Header="API Key"
-                            PasswordChanged="TranslationApiKeyBox_PasswordChanged"
-                            PasswordRevealMode="Peek"
-                            PlaceholderText="密钥仅保存在当前 Windows 用户的加密存储中" />
-                        <controls:HeaderEditor x:Name="TranslationHeaderEditor" />
-                    </StackPanel>
-
-                    <ToggleSwitch
-                        x:Name="TranslationRefinementSwitch"
-                        Header="使用当前 AI 服务润色译文"
-                        IsOn="{x:Bind Controller.Settings.EnableTranslationRefinement, Mode=TwoWay}"
-                        OffContent="关闭"
-                        OnContent="开启"
-                        Toggled="TranslationRefinementSwitch_Toggled" />
-                    <TextBox
-                        x:Name="TranslationRefinementPromptBox"
-                        AcceptsReturn="True"
-                        Header="润色要求"
-                        MaxHeight="120"
-                        PlaceholderText="例如：保持游戏术语，表达自然简洁"
-                        Text="{x:Bind Controller.Settings.TranslationRefinementPrompt, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                        TextWrapping="Wrap" />
-                </StackPanel>
+                    <Button
+                        x:Name="ConfigureTranslationButton"
+                        Grid.Column="2"
+                        Click="ConfigureTranslation_Click"
+                        Content="设置" />
+                </Grid>
             </Border>
 
             <Border Style="{StaticResource PanelBorderStyle}">
-                <StackPanel Spacing="16">
-                    <StackPanel Spacing="3">
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="150" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center" Spacing="2">
                         <TextBlock Style="{StaticResource SectionTitleStyle}" Text="语音识别" />
-                        <TextBlock
-                            x:Name="AsrDescription"
-                            Style="{StaticResource CaptionStyle}"
-                            Text="选择云端提供方后显示所需配置；本地 Whisper 会同时置灰。" />
+                        <TextBlock x:Name="AsrStatusText" Style="{StaticResource CaptionStyle}" Text="本地处理" />
                     </StackPanel>
-
-                    <InfoBar
-                        x:Name="AsrLocalWhisperWarning"
-                        IsClosable="False"
-                        IsOpen="False"
-                        Message="已开启云端语音识别，但尚未选择云端提供方。"
-                        Severity="Warning" />
-
                     <ComboBox
                         x:Name="AsrProviderBox"
-                        Header="识别提供方"
+                        Grid.Column="1"
+                        HorizontalAlignment="Stretch"
                         SelectionChanged="AsrProviderBox_SelectionChanged">
-                        <ComboBoxItem Content="本地 Whisper" Tag="LocalWhisper" />
-                        <ComboBoxItem Content="阿里云 DashScope 流式" Tag="DashScope" />
-                        <ComboBoxItem Content="Soniox 流式" Tag="Soniox" />
+                        <ComboBoxItem x:Name="WhisperTinyOption" Content="Whisper tiny（最快）" Tag="WhisperTiny" />
+                        <ComboBoxItem x:Name="WhisperBaseOption" Content="Whisper base（推荐）" Tag="WhisperBase" />
+                        <ComboBoxItem x:Name="WhisperSmallOption" Content="Whisper small（更准确）" Tag="WhisperSmall" />
+                        <ComboBoxItem x:Name="ManagedMossOption" Content="本地 MOSS 转写+说话人" Tag="LocalManagedMoss" />
+                        <ComboBoxItem Content="Soniox" Tag="Soniox" />
                         <ComboBoxItem Content="硅基流动" Tag="SiliconFlow" />
                         <ComboBoxItem Content="小米 MiMo" Tag="MiMo" />
                         <ComboBoxItem Content="OpenAI 兼容" Tag="OpenAiCompatible" />
                         <ComboBoxItem Content="自定义服务" Tag="Custom" />
                     </ComboBox>
-
-                    <StackPanel x:Name="AsrCloudCredentials" Spacing="12">
-                        <ComboBox
-                            x:Name="AsrProtocolBox"
-                            Header="协议"
-                            SelectionChanged="AsrProtocolBox_SelectionChanged">
-                            <ComboBoxItem Content="DashScope WebSocket" Tag="DashScopeStreaming" />
-                            <ComboBoxItem Content="Soniox WebSocket" Tag="SonioxStreaming" />
-                            <ComboBoxItem Content="OpenAI multipart" Tag="OpenAiMultipart" />
-                            <ComboBoxItem Content="MiMo input_audio" Tag="MiMoInputAudio" />
-                        </ComboBox>
-                        <Grid ColumnSpacing="12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <TextBox
-                                Header="服务地址"
-                                PlaceholderText="https:// 或 wss://"
-                                Text="{x:Bind Controller.Settings.AsrBaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            <TextBox
-                                Grid.Column="1"
-                                Header="模型"
-                                PlaceholderText="ASR 模型名称"
-                                Text="{x:Bind Controller.Settings.AsrModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                        </Grid>
-                        <PasswordBox
-                            x:Name="AsrApiKeyBox"
-                            Header="API Key"
-                            PasswordChanged="AsrApiKeyBox_PasswordChanged"
-                            PasswordRevealMode="Peek"
-                            PlaceholderText="密钥仅保存在当前 Windows 用户的加密存储中" />
-                        <ToggleSwitch
-                            Header="允许向所选云服务上传原始音频"
-                            IsOn="{x:Bind Controller.Settings.AllowCloudAudioUpload, Mode=TwoWay}"
-                            OffContent="禁止上传"
-                            OnContent="允许上传" />
-                        <controls:HeaderEditor x:Name="AsrHeaderEditor" />
-                    </StackPanel>
-                </StackPanel>
-            </Border>
-
-            <Border x:Name="LocalWhisperPanel" Style="{StaticResource PanelBorderStyle}">
-                <StackPanel Spacing="16">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Spacing="3">
-                            <TextBlock Style="{StaticResource SectionTitleStyle}" Text="本地 Whisper 识别" />
-                            <TextBlock
-                                Style="{StaticResource CaptionStyle}"
-                                Text="模型只下载到本机，原始音频不会上传；选择云端识别后此区域置灰。" />
-                        </StackPanel>
-                        <Button x:Name="PrepareModelButton" Grid.Column="1" Click="PrepareModel_Click">
-                            <StackPanel Orientation="Horizontal" Spacing="7">
-                                <FontIcon FontSize="13" Glyph="&#xE896;" />
-                                <TextBlock Text="准备模型" />
-                            </StackPanel>
-                        </Button>
-                    </Grid>
-
-                    <StackPanel Spacing="10">
-                        <TextBlock FontWeight="SemiBold" Text="模型" />
-                        <StackPanel Orientation="Horizontal" Spacing="16">
-                            <RadioButton
-                                x:Name="TinyModelButton"
-                                Content="tiny"
-                                GroupName="WhisperModel"
-                                Tag="tiny"
-                                Checked="WhisperModel_Checked" />
-                            <RadioButton
-                                x:Name="BaseModelButton"
-                                Content="base"
-                                GroupName="WhisperModel"
-                                Tag="base"
-                                Checked="WhisperModel_Checked" />
-                            <RadioButton
-                                x:Name="SmallModelButton"
-                                Content="small"
-                                GroupName="WhisperModel"
-                                Tag="small"
-                                Checked="WhisperModel_Checked" />
-                        </StackPanel>
-                    </StackPanel>
-                    <TextBlock
-                        Style="{StaticResource CaptionStyle}"
-                        Text="tiny：最快；base：平衡；small：准确率更高。" />
-                    <ProgressBar x:Name="ModelProgressBar" Maximum="1" Visibility="Collapsed" />
-                    <TextBlock x:Name="ModelProgressText" Style="{StaticResource CaptionStyle}" Visibility="Collapsed" />
-                </StackPanel>
+                    <Button
+                        x:Name="ConfigureAsrButton"
+                        Grid.Column="2"
+                        Click="ConfigureAsr_Click"
+                        Content="设置" />
+                </Grid>
             </Border>
 
             <Border Style="{StaticResource PanelBorderStyle}">
-                <StackPanel Spacing="16">
-                    <StackPanel Spacing="3">
-                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="语音输出" />
-                        <TextBlock
-                            x:Name="SpeechDescription"
-                            Style="{StaticResource CaptionStyle}"
-                            Text="填写远程语音服务配置后即可试听；开启后实际朗读使用远程服务。" />
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="150" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center" Spacing="2">
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="语音合成" />
+                        <TextBlock x:Name="SpeechStatusText" Style="{StaticResource CaptionStyle}" Text="系统语音" />
                     </StackPanel>
-
-                    <ToggleSwitch
-                        x:Name="LocalKokoroSwitch"
-                        Header="使用本地 Kokoro-82M"
-                        IsOn="{x:Bind Controller.Settings.UseLocalKokoroTextToSpeech, Mode=TwoWay}"
-                        OffContent="关闭"
-                        OnContent="完全离线"
-                        Toggled="LocalKokoroSwitch_Toggled" />
-                    <StackPanel x:Name="LocalKokoroSettings" Spacing="10">
-                        <Grid ColumnSpacing="12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <NumberBox
-                                x:Name="KokoroSpeakerBox"
-                                Header="Speaker ID"
-                                Maximum="102"
-                                Minimum="0"
-                                SmallChange="1"
-                                SpinButtonPlacementMode="Inline"
-                                ValueChanged="KokoroSpeakerBox_ValueChanged" />
-                            <NumberBox
-                                x:Name="KokoroSpeedBox"
-                                Grid.Column="1"
-                                Header="语速"
-                                Maximum="2"
-                                Minimum="0.5"
-                                SmallChange="0.1"
-                                SpinButtonPlacementMode="Inline"
-                                ValueChanged="KokoroSpeedBox_ValueChanged" />
-                        </Grid>
-                        <TextBlock
-                            Style="{StaticResource CaptionStyle}"
-                            Text="speaker 0–2 为英文；3–57 为中文女声；58–102 为中文男声。Kokoro 只支持中文和英语。"
-                            TextWrapping="Wrap" />
-                    </StackPanel>
-
-                    <ToggleSwitch
-                        x:Name="RemoteSpeechSwitch"
-                        Header="使用远程语音服务"
-                        IsOn="{x:Bind Controller.Settings.UseRemoteSpeech, Mode=TwoWay}"
-                        OffContent="系统语音兜底"
-                        OnContent="远程服务"
-                        Toggled="RemoteSpeechSwitch_Toggled" />
-
-                    <StackPanel x:Name="SpeechCredentials" Spacing="12">
-                        <ComboBox
-                            x:Name="SpeechProtocolBox"
-                            Header="协议"
-                            SelectionChanged="SpeechProtocolBox_SelectionChanged">
-                            <ComboBoxItem Content="阿里云 DashScope" Tag="DashScope" />
-                            <ComboBoxItem Content="小米 MiMo" Tag="MiMo" />
-                            <ComboBoxItem Content="OpenAI 兼容" Tag="OpenAiCompatible" />
-                        </ComboBox>
-                        <TextBox
-                            Header="服务地址"
-                            PlaceholderText="https://api.example.com/v1/audio/speech"
-                            Text="{x:Bind Controller.Settings.SpeechBaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                        <Grid ColumnSpacing="12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <TextBox
-                                Header="模型"
-                                PlaceholderText="语音模型"
-                                Text="{x:Bind Controller.Settings.SpeechModel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            <TextBox
-                                Grid.Column="1"
-                                Header="音色"
-                                PlaceholderText="音色名称"
-                                Text="{x:Bind Controller.Settings.SpeechVoice, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                        </Grid>
-                        <PasswordBox
-                            x:Name="SpeechApiKeyBox"
-                            Header="API Key"
-                            PasswordChanged="SpeechApiKeyBox_PasswordChanged"
-                            PasswordRevealMode="Peek"
-                            PlaceholderText="密钥仅保存在当前 Windows 用户的加密存储中" />
-                        <controls:HeaderEditor x:Name="SpeechHeaderEditor" />
-                    </StackPanel>
-                </StackPanel>
+                    <ComboBox
+                        x:Name="SpeechServiceBox"
+                        Grid.Column="1"
+                        HorizontalAlignment="Stretch"
+                        SelectionChanged="SpeechServiceBox_SelectionChanged">
+                        <ComboBoxItem Content="系统语音" Tag="SystemFallback" />
+                        <ComboBoxItem x:Name="KokoroOption" Content="本地 Kokoro-82M" Tag="Kokoro" />
+                        <ComboBoxItem Content="远程语音服务" Tag="Remote" />
+                    </ComboBox>
+                    <Button
+                        x:Name="ConfigureSpeechButton"
+                        Grid.Column="2"
+                        Click="ConfigureSpeech_Click"
+                        Content="设置" />
+                </Grid>
             </Border>
 
-            <Border Style="{StaticResource PanelBorderStyle}">
-                <StackPanel Spacing="16">
-                    <Grid ColumnSpacing="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Spacing="3">
-                            <TextBlock Style="{StaticResource SectionTitleStyle}" Text="本地模型目录" />
-                            <TextBlock
-                                Style="{StaticResource CaptionStyle}"
-                                Text="稳定模型可在此安装、重试和删除；实验或目录条目只展示经核验的许可证、依赖和 Windows 兼容性。"
-                                TextWrapping="Wrap" />
-                        </StackPanel>
-                        <Button
-                            x:Name="RefreshLocalModelsButton"
-                            Grid.Column="1"
-                            Click="RefreshLocalModels_Click"
-                            ToolTipService.ToolTip="重新读取磁盘安装状态">
-                            <StackPanel Orientation="Horizontal" Spacing="7">
-                                <FontIcon FontSize="13" Glyph="&#xE72C;" />
-                                <TextBlock Text="刷新" />
-                            </StackPanel>
-                        </Button>
-                    </Grid>
-
-                    <ListView
-                        HorizontalContentAlignment="Stretch"
-                        ItemsSource="{x:Bind Controller.LocalModels, Mode=OneWay}"
-                        SelectionMode="None">
-                        <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="models:LocalModelItem">
-                                <Border
-                                    Margin="0,0,0,8"
-                                    Padding="14"
-                                    Background="{ThemeResource VoxLinkSurfaceBrush}"
-                                    BorderBrush="{ThemeResource VoxLinkStrokeBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="{StaticResource VoxLinkRadiusMedium}">
-                                    <Grid ColumnSpacing="16" RowSpacing="10">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-
-                                        <StackPanel Spacing="7">
-                                            <TextBlock FontSize="16" FontWeight="SemiBold" Text="{x:Bind Name}" />
-                                            <StackPanel Orientation="Horizontal" Spacing="12">
-                                                <TextBlock Style="{StaticResource CaptionStyle}" Text="{x:Bind CategoryLabel}" />
-                                                <TextBlock Style="{StaticResource CaptionStyle}" Text="{x:Bind SupportLabel}" />
-                                                <TextBlock Style="{StaticResource CaptionStyle}" Text="{x:Bind ParameterLabel}" />
-                                                <TextBlock Style="{StaticResource CaptionStyle}" Text="{x:Bind DownloadSizeLabel}" />
-                                            </StackPanel>
-                                            <TextBlock Text="{x:Bind Description}" TextWrapping="Wrap" />
-                                            <TextBlock
-                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                Text="{x:Bind UnavailableReason}"
-                                                TextWrapping="Wrap" />
-                                            <TextBlock
-                                                Style="{StaticResource CaptionStyle}"
-                                                Text="{x:Bind Requirements}"
-                                                TextWrapping="Wrap" />
-                                            <StackPanel Orientation="Horizontal" Spacing="12">
-                                                <TextBlock Style="{StaticResource CaptionStyle}" Text="{x:Bind License}" />
-                                                <TextBlock Style="{StaticResource CaptionStyle}" Text="{x:Bind Languages}" />
-                                                <TextBlock Style="{StaticResource CaptionStyle}" Text="{x:Bind RuntimeLabel}" />
-                                            </StackPanel>
-                                        </StackPanel>
-
-                                        <StackPanel Grid.Column="1" MinWidth="112" Spacing="8">
-                                            <TextBlock
-                                                HorizontalAlignment="Right"
-                                                FontWeight="SemiBold"
-                                                Text="{x:Bind InstallStateLabel, Mode=OneWay}" />
-                                            <StackPanel
-                                                x:Name="ModelActions"
-                                                x:Load="{x:Bind IsInstallable}"
-                                                Spacing="8">
-                                                <Button
-                                                    HorizontalAlignment="Stretch"
-                                                    Click="InstallLocalModel_Click"
-                                                    Content="{x:Bind InstallActionLabel, Mode=OneWay}"
-                                                    IsEnabled="{x:Bind CanInstall, Mode=OneWay}"
-                                                    Tag="{x:Bind Id}" />
-                                                <Button
-                                                    HorizontalAlignment="Stretch"
-                                                    Click="RemoveLocalModel_Click"
-                                                    Content="删除"
-                                                    IsEnabled="{x:Bind CanRemove, Mode=OneWay}"
-                                                    Tag="{x:Bind Id}" />
-                                            </StackPanel>
-                                            <HyperlinkButton
-                                                HorizontalAlignment="Center"
-                                                Click="OpenModelSource_Click"
-                                                Content="模型来源"
-                                                Tag="{x:Bind SourceUrl}" />
-                                        </StackPanel>
-
-                                        <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Spacing="4">
-                                            <ProgressBar
-                                                Maximum="1"
-                                                Minimum="0"
-                                                Value="{x:Bind Progress, Mode=OneWay}" />
-                                            <TextBlock
-                                                Style="{StaticResource CaptionStyle}"
-                                                Text="{x:Bind OperationStatus, Mode=OneWay}"
-                                                TextWrapping="Wrap" />
-                                        </StackPanel>
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
-                </StackPanel>
-            </Border>
+            <Button
+                HorizontalAlignment="Left"
+                Click="OpenLocalModels_Click"
+                Content="管理本地模型" />
         </StackPanel>
     </ScrollViewer>
 </Page>

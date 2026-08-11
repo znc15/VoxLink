@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="VoxLink.UI.Controls.AsrServiceDialogContent"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:VoxLink.UI.Controls">
+    <ScrollViewer MaxHeight="560">
+        <StackPanel MinWidth="430" Spacing="12">
+            <InfoBar
+                x:Name="UploadInfoBar"
+                IsClosable="False"
+                IsOpen="True"
+                Message="云端识别需要发送原始音频，必须由你明确允许。"
+                Severity="Warning" />
+            <PasswordBox
+                x:Name="ApiKeyBox"
+                Header="API Key"
+                PasswordRevealMode="Peek"
+                PlaceholderText="预置服务通常只需填写此项" />
+            <ToggleSwitch
+                x:Name="AllowUploadSwitch"
+                Header="允许向当前服务上传原始音频"
+                OffContent="禁止上传"
+                OnContent="允许上传" />
+            <Expander x:Name="AdvancedExpander" Header="高级设置">
+                <StackPanel Padding="0,10,0,0" Spacing="10">
+                    <ComboBox x:Name="ProtocolBox" Header="协议">
+                        <ComboBoxItem Content="DashScope WebSocket" Tag="DashScopeStreaming" />
+                        <ComboBoxItem Content="Soniox WebSocket" Tag="SonioxStreaming" />
+                        <ComboBoxItem Content="OpenAI multipart" Tag="OpenAiMultipart" />
+                        <ComboBoxItem Content="MiMo input_audio" Tag="MiMoInputAudio" />
+                    </ComboBox>
+                    <TextBox x:Name="BaseUrlBox" Header="服务地址" />
+                    <TextBox x:Name="ModelBox" Header="模型" />
+                    <controls:HeaderEditor x:Name="HeaderEditor" />
+                </StackPanel>
+            </Expander>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

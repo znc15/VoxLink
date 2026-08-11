@@ -16,6 +16,7 @@ public sealed partial class HeaderEditor : UserControl
     private AppController? _controller;
     private HeaderEditorTarget _target;
     private bool _loading;
+    private bool _commitImmediately = true;
     private readonly Dictionary<HeaderEntry, string> _secretValues = [];
 
     public HeaderEditor()
@@ -25,10 +26,14 @@ public sealed partial class HeaderEditor : UserControl
 
     public ObservableCollection<HeaderEntry> Entries { get; } = [];
 
-    public void Configure(AppController controller, HeaderEditorTarget target)
+    public void Configure(
+        AppController controller,
+        HeaderEditorTarget target,
+        bool commitImmediately = true)
     {
         _controller = controller;
         _target = target;
+        _commitImmediately = commitImmediately;
         _loading = true;
         Entries.Clear();
         _secretValues.Clear();
@@ -61,7 +66,7 @@ public sealed partial class HeaderEditor : UserControl
         {
             Entries.Remove(entry);
             _secretValues.Remove(entry);
-            Commit();
+            CommitIfImmediate();
         }
     }
 
@@ -73,7 +78,7 @@ public sealed partial class HeaderEditor : UserControl
         }
 
         entry.Name = textBox.Text;
-        Commit();
+        CommitIfImmediate();
     }
 
     private void HeaderValue_Loaded(object sender, RoutedEventArgs args)
@@ -94,12 +99,54 @@ public sealed partial class HeaderEditor : UserControl
         }
 
         _secretValues[entry] = passwordBox.Password;
-        Commit();
+        CommitIfImmediate();
     }
 
-    private void Commit()
+    private void CommitIfImmediate()
     {
-        if (_controller is null)
+        if (_commitImmediately)
+        {
+            Commit();
+        }
+    }
+
+    public bool Validate()
+    {
+        HeaderErrorBar.IsOpen = false;
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in Entries)
+        {
+            var name = entry.Name.Trim();
+            if (name.Length == 0)
+            {
+                return ShowValidationError("请求头名称不能为空，请填写名称或删除该行。");
+            }
+            if (!IsValidHeaderName(name))
+            {
+                return ShowValidationError(
+                    $"请求头 {name} 名称无效，只能使用 HTTP token 字符。");
+            }
+            if (IsRestrictedHeader(name))
+            {
+                return ShowValidationError($"请求头 {name} 由 VoxLink 自动管理，不能自定义。");
+            }
+            var value = _secretValues.GetValueOrDefault(entry, string.Empty);
+            if (value.Contains('\r') || value.Contains('\n'))
+            {
+                return ShowValidationError($"请求头 {name} 的值不能包含换行符。");
+            }
+            if (!names.Add(name))
+            {
+                return ShowValidationError($"请求头 {name} 重复，请只保留一项。");
+            }
+        }
+
+        return true;
+    }
+
+    public void Commit()
+    {
+        if (_controller is null || !Validate())
         {
             return;
         }
@@ -108,10 +155,7 @@ public sealed partial class HeaderEditor : UserControl
         foreach (var entry in Entries)
         {
             var name = entry.Name.Trim();
-            if (name.Length > 0)
-            {
-                values[name] = _secretValues.GetValueOrDefault(entry, string.Empty);
-            }
+            values.Add(name, _secretValues.GetValueOrDefault(entry, string.Empty));
         }
 
         switch (_target)
@@ -126,5 +170,25 @@ public sealed partial class HeaderEditor : UserControl
                 _controller.Settings.SpeechHeaders = values;
                 break;
         }
+    }
+
+    private bool ShowValidationError(string message)
+    {
+        HeaderErrorBar.Message = message;
+        HeaderErrorBar.IsOpen = true;
+        return false;
+    }
+
+    private static bool IsValidHeaderName(string name) =>
+        name.All(character =>
+            char.IsAsciiLetterOrDigit(character)
+            || "!#$%&'*+-.^_`|~".Contains(character, StringComparison.Ordinal));
+
+    private static bool IsRestrictedHeader(string name)
+    {
+        return name.Equals("Authorization", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("Content-Type", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("Content-Length", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("Host", StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -39,6 +39,8 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     private string? _errorMessage;
     private string? _warningMessage;
     private string? _testResultMessage;
+    private string? _modelServiceResultMessage;
+    private string? _localModelResultMessage;
     private bool _onboardingRequestPending;
     private bool _isCheckingForUpdates;
     private bool _isUpdateAvailable;
@@ -54,6 +56,12 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     private const string SourceUpdate = "更新";
     private const string SourceSettings = "设置";
 
+    private static readonly string[] RecommendedLocalModelIds =
+    [
+        LocalModelIds.WhisperBase,
+        LocalModelIds.MiniCpm51BGguf,
+        LocalModelIds.Kokoro82M
+    ];
     public AppController(
         IEngineGateway engine,
         ISettingsRepository settingsRepository,
@@ -99,6 +107,16 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     public ObservableCollection<AudioDeviceInfo> RenderDevices { get; } = [];
     public ObservableCollection<ConversationMessage> Messages { get; } = [];
     public ObservableCollection<LocalModelItem> LocalModels { get; } = [];
+    public ObservableCollection<LocalModelItem> InstallableLocalModels { get; } = [];
+    public ObservableCollection<LocalModelItem> CatalogOnlyLocalModels { get; } = [];
+    public ObservableCollection<LocalModelItem> SpeechRecognitionModels { get; } = [];
+    public ObservableCollection<LocalModelItem> TranslationModels { get; } = [];
+    public ObservableCollection<LocalModelItem> SpeechSynthesisModels { get; } = [];
+    public bool HasBusyLocalModels => LocalModels.Any(model => model.IsBusy);
+    public bool RecommendedLocalModelsReady =>
+        IsInstalled(LocalModelIds.WhisperBase)
+        && IsInstalled(LocalModelIds.MiniCpm51BGguf)
+        && IsInstalled(LocalModelIds.Kokoro82M);
 
     public bool Initialized { get => _initialized; private set => SetProperty(ref _initialized, value); }
     public bool EngineConnected { get => _engineConnected; private set => SetProperty(ref _engineConnected, value); }
@@ -114,6 +132,18 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     {
         get => _testResultMessage;
         private set => SetProperty(ref _testResultMessage, value);
+    }
+
+    public string? ModelServiceResultMessage
+    {
+        get => _modelServiceResultMessage;
+        private set => SetProperty(ref _modelServiceResultMessage, value);
+    }
+
+    public string? LocalModelResultMessage
+    {
+        get => _localModelResultMessage;
+        private set => SetProperty(ref _localModelResultMessage, value);
     }
 
     public Version AppVersion { get; }
@@ -141,7 +171,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
 
     public event EventHandler? OnboardingRequested;
     public event EventHandler? ConversationHistoryRequested;
-
+    public event EventHandler? LocalModelsRequested;
     public bool HasVirtualCable => FindVirtualCable() is not null;
     public string? VirtualCableName => FindVirtualCable()?.Name;
     public bool IsVoiceRouteReady => Settings.SpeakMyTranslation && ValidateVoiceRouteSettings() is null;
@@ -192,6 +222,30 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         RaiseQuickStartProperties();
     }
 
+    public void MarkSessionRestartRequired()
+    {
+        if (IsRunning)
+        {
+            NeedsSessionRestart = true;
+        }
+    }
+
+    public Task SaveCommittedServiceSettingsAsync(bool reportToLocalModels = false) =>
+        RunOperationAsync(async () =>
+        {
+            MarkSessionRestartRequired();
+            await SaveNowAsync();
+            var message = IsRunning ? "设置已保存，重启翻译后生效" : "设置已保存";
+            if (reportToLocalModels)
+            {
+                LocalModelResultMessage = message;
+            }
+            else
+            {
+                ModelServiceResultMessage = message;
+            }
+        });
+
     public void RequestConversationHistory() =>
         ConversationHistoryRequested?.Invoke(this, EventArgs.Empty);
 
@@ -233,6 +287,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         || name.Contains("voicemeeter", StringComparison.OrdinalIgnoreCase)
         || name.Contains("virtual cable", StringComparison.OrdinalIgnoreCase);
 
+    public void RequestLocalModels() => LocalModelsRequested?.Invoke(this, EventArgs.Empty);
     public void RequestOnboarding()
     {
         _onboardingRequestPending = true;
@@ -287,20 +342,23 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             return;
         }
 
-        await RunOperationAsync(async () =>
-        {
-            await SaveNowAsync();
-            NeedsSessionRestart = false;
-            StatusMessage = "正在启动软件";
-            Activity = "preparing";
-            await _engine.RequestAsync(
-                "startSession",
-                new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson() },
-                TimeSpan.FromMinutes(20));
-            IsRunning = true;
-            StatusMessage = "软件运行中";
-            LogService.Instance.Info(SourceSession, $"开始翻译会话：{Settings.MyLanguageCode} → {Settings.OtherLanguageCode}（{DescribeCaptureSources()}）。");
-        });
+        await RunOperationAsync(StartSessionCoreAsync);
+    }
+
+    private async Task StartSessionCoreAsync()
+    {
+        await EnsureSelectedLocalModelsInstalledAsync();
+        await SaveNowAsync();
+        NeedsSessionRestart = false;
+        StatusMessage = "正在启动软件";
+        Activity = "preparing";
+        await _engine.RequestAsync(
+            "startSession",
+            new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson() },
+            TimeSpan.FromMinutes(20));
+        IsRunning = true;
+        StatusMessage = "软件运行中";
+        LogService.Instance.Info(SourceSession, $"开始翻译会话：{Settings.MyLanguageCode} → {Settings.OtherLanguageCode}（{DescribeCaptureSources()}）。");
     }
 
     public async Task SubmitAsync(string text)
@@ -353,7 +411,8 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     public async Task TestTranslationAsync()
     {
         TestResultMessage = null;
-        var validationError = ValidateTranslationSettingsForTest();
+        ModelServiceResultMessage = null;
+        var validationError = ValidateTranslationSettings();
         if (validationError is not null)
         {
             ErrorMessage = validationError;
@@ -365,19 +424,21 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             await SaveNowAsync();
             var result = await _engine.RequestAsync(
                 "testTranslation",
-                new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson(respectSwitches: false) },
+                new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson() },
                 TimeSpan.FromSeconds(30));
             var translated = result is { ValueKind: JsonValueKind.Object } value
                 && value.TryGetProperty("translated", out var text)
                 ? text.GetString()
                 : null;
             TestResultMessage = $"翻译连接正常：{translated}";
+            ModelServiceResultMessage = TestResultMessage;
         });
     }
 
     public async Task TestSpeechAsync()
     {
         TestResultMessage = null;
+        ModelServiceResultMessage = null;
         var validationError = ValidateSpeechSettings();
         if (validationError is not null)
         {
@@ -390,9 +451,10 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             await SaveNowAsync();
             await _engine.RequestAsync(
                 "testSpeech",
-                new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson(respectSwitches: false) },
+                new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson() },
                 TimeSpan.FromSeconds(45));
             TestResultMessage = "语音试听完成。";
+            ModelServiceResultMessage = TestResultMessage;
         });
     }
 
@@ -485,7 +547,8 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     public async Task PrepareModelAsync()
     {
         TestResultMessage = null;
-        var validationError = ValidateAsrSettingsForTest();
+        ModelServiceResultMessage = null;
+        var validationError = ValidateAsrSettings();
         if (validationError is not null)
         {
             ErrorMessage = validationError;
@@ -497,36 +560,192 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             await SaveNowAsync();
             await _engine.RequestAsync(
                 "prepareModel",
-                new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson(respectSwitches: false) },
+                new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson() },
                 TimeSpan.FromMinutes(20));
-            TestResultMessage = Settings.UsesCloudAsr
-                ? "云端语音识别配置已就绪"
+            TestResultMessage = Settings.UseCloudAsr
+                ? "云端语音识别配置已保存并通过本地校验"
                 : "本地识别模型已就绪";
+            ModelServiceResultMessage = TestResultMessage;
+        });
+    }
+
+    public async Task PrepareWhisperModelAsync()
+    {
+        TestResultMessage = null;
+        LocalModelResultMessage = null;
+        var validationError = ValidateLocalWhisperSettings();
+        if (validationError is not null)
+        {
+            ErrorMessage = validationError;
+            return;
+        }
+
+        await RunOperationAsync(async () =>
+        {
+            await SaveNowAsync();
+            var engineSettings = Settings.ToEngineJson();
+            engineSettings["asrProvider"] = "localWhisper";
+            engineSettings["asrProtocol"] = "localWhisper";
+            engineSettings["allowCloudAudioUpload"] = false;
+            try
+            {
+                await _engine.RequestAsync(
+                    "prepareModel",
+                    new Dictionary<string, object?> { ["settings"] = engineSettings },
+                    TimeSpan.FromMinutes(20));
+                TestResultMessage = "本地识别模型已就绪";
+                LocalModelResultMessage = TestResultMessage;
+            }
+            finally
+            {
+                if (_engine.IsConnected && !_closing)
+                {
+                    await _engine.RequestAsync(
+                        "configure",
+                        new Dictionary<string, object?> { ["settings"] = Settings.ToEngineJson() });
+                }
+            }
         });
     }
 
     public Task RefreshLocalModelsAsync() => RunOperationAsync(RefreshLocalModelsCoreAsync);
 
     public Task InstallLocalModelAsync(string modelId) =>
-        RunLocalModelOperationAsync(modelId, install: true);
+        RunOperationAsync(async () => _ = await RunLocalModelOperationAsync(modelId, install: true));
 
     public Task RetryLocalModelAsync(string modelId) => InstallLocalModelAsync(modelId);
 
     public Task RemoveLocalModelAsync(string modelId) =>
-        RunLocalModelOperationAsync(modelId, install: false);
+        RunOperationAsync(async () => _ = await RunLocalModelOperationAsync(modelId, install: false));
 
-    private async Task RunLocalModelOperationAsync(string modelId, bool install)
+    public async Task<bool> InstallAndActivateLocalModelAsync(
+        string modelId,
+        bool reportToModelService = false)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
+        var activated = false;
+        await RunOperationAsync(async () =>
+        {
+            var model = FindLocalModel(modelId);
+            if (model is null || !model.IsInstallable || model.IsBusy)
+            {
+                throw new EngineException("该模型当前不可安装或启用。");
+            }
+
+            if (!model.Installed && !await RunLocalModelOperationAsync(modelId, install: true))
+            {
+                throw new EngineException($"{model.Name} 安装失败，未更改当前服务。");
+            }
+
+            var previous = CaptureServiceSelections();
+            ActivateLocalModel(modelId);
+            await SaveSelectionsOrRollbackAsync(previous, $"{model.Name} 启用失败");
+            var message = $"{model.Name} 已启用";
+            if (reportToModelService)
+            {
+                ModelServiceResultMessage = message;
+            }
+            else
+            {
+                LocalModelResultMessage = message;
+            }
+            RefreshActiveLocalModels();
+            activated = true;
+        });
+        return activated;
+    }
+
+    public Task RemoveLocalModelWithFallbackAsync(string modelId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
+        return RunOperationAsync(async () =>
+        {
+            if (IsRunning)
+            {
+                ErrorMessage = "请先停止翻译，再删除正在使用的模型。";
+                return;
+            }
+
+            if (!await RunLocalModelOperationAsync(modelId, install: false))
+            {
+                return;
+            }
+
+            ApplyRemovedModelFallback(modelId);
+            try
+            {
+                await SaveNowAsync();
+            }
+            catch (Exception exception) when (IsRecoverableOperationException(exception))
+            {
+                var retryError = await TryPersistCurrentSettingsAsync();
+                var detail = retryError is null
+                    ? FriendlyError(exception)
+                    : $"首次失败：{FriendlyError(exception)}；重试失败：{FriendlyError(retryError)}";
+                throw new EngineException(
+                    $"模型已删除，但安全回退设置保存或应用失败，请重试保存设置。{detail}");
+            }
+            LocalModelResultMessage = "模型已删除";
+            RefreshActiveLocalModels();
+        });
+    }
+
+    public Task InstallRecommendedLocalModelsAsync(bool startSession = false) =>
+        RunOperationAsync(async () =>
+        {
+            if (IsRunning)
+            {
+                throw new EngineException("软件正在运行，请先停止后再启用推荐模型。");
+            }
+            if (HasBusyLocalModels)
+            {
+                throw new EngineException("当前有模型操作正在进行，请稍后重试。");
+            }
+
+            var previous = CaptureServiceSelections();
+            foreach (var modelId in RecommendedLocalModelIds)
+            {
+                if (!IsInstalled(modelId)
+                    && !await RunLocalModelOperationAsync(modelId, install: true))
+                {
+                    RestoreServiceSelections(previous);
+                    RefreshActiveLocalModels();
+                    throw new EngineException("推荐模型未全部安装，当前服务选择保持不变。");
+                }
+            }
+
+            Settings.SelectTranslationBackend(TranslationBackend.LocalMiniCpm);
+            Settings.SelectAsrProvider(AsrProvider.LocalWhisper);
+            Settings.WhisperModel = "base";
+            Settings.SelectSpeechService(SpeechServiceMode.Kokoro);
+            await SaveSelectionsOrRollbackAsync(previous, "推荐模型启用失败");
+            RefreshActiveLocalModels();
+            LocalModelResultMessage = "本地模型已准备并启用";
+            if (startSession)
+            {
+                var validationError = ValidateSessionSettings();
+                if (validationError is not null)
+                {
+                    throw new EngineException(validationError);
+                }
+                await StartSessionCoreAsync();
+            }
+        });
+
+    private async Task<bool> RunLocalModelOperationAsync(string modelId, bool install)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
         var item = LocalModels.FirstOrDefault(model =>
             model.Id.Equals(modelId, StringComparison.Ordinal));
         if (item is null || item.IsBusy)
         {
-            return;
+            return false;
         }
 
+        var operationSucceeded = false;
         ErrorMessage = null;
         item.BeginOperation(install ? "正在准备安装…" : "正在删除…");
+        OnPropertyChanged(nameof(HasBusyLocalModels));
         try
         {
             var result = await _engine.RequestAsync(
@@ -547,20 +766,25 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 }
 
                 item.CompleteOperation(installState, "模型已安装并通过校验");
+                operationSucceeded = installState.Equals("installed", StringComparison.OrdinalIgnoreCase);
             }
             else
             {
                 var removed = response.TryGetProperty("removed", out var removedValue)
                     && removedValue.ValueKind is JsonValueKind.True or JsonValueKind.False
                     && removedValue.GetBoolean();
+                operationSucceeded = removed;
                 item.CompleteOperation(
-                    "notinstalled",
+                    removed ? "notinstalled" : item.InstallState,
                     removed ? "模型已删除" : "未删除模型（可能已不存在或正在使用）");
             }
 
             try
             {
                 await RefreshLocalModelsCoreAsync();
+                operationSucceeded = install
+                    ? IsInstalled(modelId)
+                    : operationSucceeded && !IsInstalled(modelId);
             }
             catch (Exception refreshError) when (refreshError is EngineException or IOException)
             {
@@ -572,14 +796,25 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         catch (Exception exception) when (exception is
             EngineException or IOException or UnauthorizedAccessException or CryptographicException)
         {
+            item.FailOperation(install ? "安装失败，可重试" : "删除失败");
             try
             {
                 await RefreshLocalModelsCoreAsync();
+                operationSucceeded = install ? IsInstalled(modelId) : !IsInstalled(modelId);
                 var refreshed = LocalModels.FirstOrDefault(model =>
                     model.Id.Equals(modelId, StringComparison.Ordinal));
-                if (refreshed is not null)
+                if (operationSucceeded)
                 {
-                    refreshed.FailOperation(install ? "安装失败，可重试" : "删除失败");
+                    refreshed?.CompleteOperation(
+                        install ? "installed" : "notinstalled",
+                        install ? "模型已安装并通过校验" : "模型已删除");
+                    LogService.Instance.Warning(
+                        SourceEngine,
+                        "模型请求返回错误，但目录刷新确认操作已完成：" + FriendlyError(exception));
+                }
+                else
+                {
+                    refreshed?.FailOperation(install ? "安装失败，可重试" : "删除失败");
                 }
             }
             catch (Exception refreshError) when (refreshError is EngineException or IOException)
@@ -598,10 +833,20 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                     "模型操作失败后刷新目录失败：" + FriendlyError(refreshError));
             }
 
-            ErrorMessage = FriendlyError(exception);
-            Activity = "error";
-            LogService.Instance.Error(SourceApp, exception, "本地模型操作失败");
+            if (!operationSucceeded)
+            {
+                ErrorMessage = FriendlyError(exception);
+                Activity = "error";
+                LogService.Instance.Error(SourceApp, exception, "本地模型操作失败");
+            }
         }
+        finally
+        {
+            OnPropertyChanged(nameof(HasBusyLocalModels));
+            OnPropertyChanged(nameof(RecommendedLocalModelsReady));
+        }
+
+        return operationSucceeded;
     }
 
     public async Task CheckForUpdatesAsync()
@@ -681,11 +926,53 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             }
         }
 
+        var busyModels = LocalModels
+            .Where(item => item.IsBusy)
+            .ToDictionary(item => item.Id, StringComparer.Ordinal);
+        for (var index = 0; index < parsedModels.Count; index++)
+        {
+            var parsed = parsedModels[index];
+            if (busyModels.TryGetValue(parsed.Id, out var busy))
+            {
+                parsedModels[index] = busy;
+            }
+        }
+
+        // LocalModels 保留完整 Engine 目录以兼容协议和进度事件；公开 UI 只消费
+        // 已接入原生运行时的 IsInstallable 条目，并按能力分类。
         LocalModels.Clear();
+        InstallableLocalModels.Clear();
+        CatalogOnlyLocalModels.Clear();
+        SpeechRecognitionModels.Clear();
+        TranslationModels.Clear();
+        SpeechSynthesisModels.Clear();
         foreach (var item in parsedModels)
         {
             LocalModels.Add(item);
+            if (!item.IsInstallable)
+            {
+                CatalogOnlyLocalModels.Add(item);
+                continue;
+            }
+
+            InstallableLocalModels.Add(item);
+            switch (item.Category)
+            {
+                case "asr":
+                    SpeechRecognitionModels.Add(item);
+                    break;
+                case "translation":
+                    TranslationModels.Add(item);
+                    break;
+                case "tts":
+                    SpeechSynthesisModels.Add(item);
+                    break;
+            }
         }
+
+        RefreshActiveLocalModels();
+        OnPropertyChanged(nameof(HasBusyLocalModels));
+        OnPropertyChanged(nameof(RecommendedLocalModelsReady));
     }
     public void ClearMessages() => Messages.Clear();
     public void DismissError() => ErrorMessage = null;
@@ -860,7 +1147,11 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
 
     public string? ValidateTranslationSettingsForTest()
     {
-        if (Settings.TranslationBackend is TranslationBackend.PublicFree or TranslationBackend.LocalMiniCpm)
+        if (Settings.TranslationBackend is TranslationBackend.PublicFree
+            or TranslationBackend.LocalMiniCpm
+            or TranslationBackend.ManagedHyMt
+            or TranslationBackend.ManagedM2M100
+            or TranslationBackend.ManagedSmall100)
         {
             return null;
         }
@@ -986,7 +1277,11 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             Activity = "idle";
             LogService.Instance.Info(SourceApp, "初始化完成，已就绪。");
         }
-        catch (Exception exception) when (exception is EngineException or IOException or UnauthorizedAccessException or CryptographicException)
+        catch (Exception exception) when (exception is EngineException
+            or IOException
+            or UnauthorizedAccessException
+            or CryptographicException
+            or JsonException)
         {
             if (!_closing)
             {
@@ -999,7 +1294,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         finally
         {
             Initialized = true;
-            if (!Settings.OnboardingCompleted && !_closing)
+            if (_settingsLoaded && !Settings.OnboardingCompleted && !_closing)
             {
                 _onboardingRequestPending = true;
             }
@@ -1067,6 +1362,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     {
         if (!await _operationGate.WaitAsync(0))
         {
+            ErrorMessage = "当前有操作正在进行，请稍后重试。";
             return;
         }
 
@@ -1302,11 +1598,20 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         }
 
         if (args.PropertyName is nameof(AppSettings.UseAiTranslation)
+            or nameof(AppSettings.TranslationBackend)
             or nameof(AppSettings.UseCloudAsr)
+            or nameof(AppSettings.AsrProvider)
+            or nameof(AppSettings.AsrProtocol)
+            or nameof(AppSettings.WhisperModel)
             or nameof(AppSettings.UseRemoteSpeech)
             or nameof(AppSettings.UseLocalKokoroTextToSpeech))
         {
+            RefreshActiveLocalModels();
             OnPropertyChanged(nameof(Settings));
+            if (IsRunning)
+            {
+                NeedsSessionRestart = true;
+            }
         }
 
         if (IsRunning
@@ -1435,6 +1740,234 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             && (normalizedPartial.StartsWith(normalizedFinal, StringComparison.OrdinalIgnoreCase)
                 || normalizedFinal.StartsWith(normalizedPartial, StringComparison.OrdinalIgnoreCase));
     }
+
+    private LocalModelItem? FindLocalModel(string modelId) => LocalModels.FirstOrDefault(model =>
+        model.Id.Equals(modelId, StringComparison.Ordinal));
+
+    private bool IsInstalled(string modelId) => FindLocalModel(modelId)?.Installed == true;
+
+    private async Task EnsureSelectedLocalModelsInstalledAsync()
+    {
+        var required = new List<string>();
+        if (!Settings.UseCloudAsr)
+        {
+            if (Settings.AsrProtocol == AsrProtocol.LocalManagedMoss)
+            {
+                required.Add(LocalModelIds.MossTranscribeDiarize);
+            }
+            else
+            {
+                required.Add(LocalModelIds.WhisperId(Settings.WhisperModel));
+            }
+        }
+
+        if (!Settings.TranscriptionOnly
+            && Settings.UseAiTranslation
+            && Settings.TranslationBackend == TranslationBackend.LocalMiniCpm)
+        {
+            required.Add(LocalModelIds.MiniCpm51BGguf);
+        }
+
+        if (!Settings.TranscriptionOnly && Settings.UseAiTranslation)
+        {
+            var managedModelId = Settings.TranslationBackend switch
+            {
+                TranslationBackend.ManagedHyMt => LocalModelIds.HyMt1518B,
+                TranslationBackend.ManagedM2M100 => LocalModelIds.M2M100418M,
+                TranslationBackend.ManagedSmall100 => LocalModelIds.Small100,
+                _ => null
+            };
+            if (managedModelId is not null)
+            {
+                required.Add(managedModelId);
+            }
+        }
+
+        if (!Settings.TranscriptionOnly
+            && (Settings.SpeakMyTranslation || Settings.SpeakInboundTranslation)
+            && Settings.SpeechServiceMode == SpeechServiceMode.Kokoro)
+        {
+            required.Add(LocalModelIds.Kokoro82M);
+        }
+
+        foreach (var modelId in required.Distinct(StringComparer.Ordinal))
+        {
+            var model = FindLocalModel(modelId)
+                ?? throw new EngineException("本地模型目录尚未就绪，请稍后重试。");
+            if (!model.Installed && !await RunLocalModelOperationAsync(modelId, install: true))
+            {
+                throw new EngineException($"{model.Name} 安装失败，无法启动翻译。");
+            }
+        }
+    }
+    private bool IsLocalModelActive(string modelId) => modelId switch
+    {
+        LocalModelIds.WhisperTiny or LocalModelIds.WhisperBase or LocalModelIds.WhisperSmall =>
+            !Settings.UseCloudAsr
+            && LocalModelIds.WhisperId(Settings.WhisperModel).Equals(modelId, StringComparison.Ordinal),
+        LocalModelIds.MiniCpm51BGguf => Settings.UseAiTranslation
+            && Settings.TranslationBackend == TranslationBackend.LocalMiniCpm,
+        LocalModelIds.Kokoro82M => Settings.SpeechServiceMode == SpeechServiceMode.Kokoro,
+        _ => false
+    };
+
+    private void RefreshActiveLocalModels()
+    {
+        foreach (var model in LocalModels)
+        {
+            model.IsActive = model.Installed && IsLocalModelActive(model.Id);
+        }
+    }
+
+    private void ActivateLocalModel(string modelId)
+    {
+        var whisperModel = LocalModelIds.WhisperName(modelId);
+        if (whisperModel is not null)
+        {
+            Settings.SelectAsrProvider(AsrProvider.LocalWhisper);
+            Settings.WhisperModel = whisperModel;
+        }
+        else if (modelId.Equals(LocalModelIds.MiniCpm51BGguf, StringComparison.Ordinal))
+        {
+            Settings.SelectTranslationBackend(TranslationBackend.LocalMiniCpm);
+        }
+        else if (modelId.Equals(LocalModelIds.HyMt1518B, StringComparison.Ordinal))
+        {
+            Settings.SelectTranslationBackend(TranslationBackend.ManagedHyMt);
+        }
+        else if (modelId.Equals(LocalModelIds.M2M100418M, StringComparison.Ordinal))
+        {
+            Settings.SelectTranslationBackend(TranslationBackend.ManagedM2M100);
+        }
+        else if (modelId.Equals(LocalModelIds.Small100, StringComparison.Ordinal))
+        {
+            Settings.SelectTranslationBackend(TranslationBackend.ManagedSmall100);
+        }
+        else if (modelId.Equals(LocalModelIds.Kokoro82M, StringComparison.Ordinal))
+        {
+            Settings.SelectSpeechService(SpeechServiceMode.Kokoro);
+        }
+        else
+        {
+            throw new ArgumentException("未知的可运行本地模型。", nameof(modelId));
+        }
+
+        if (IsRunning)
+        {
+            NeedsSessionRestart = true;
+        }
+    }
+
+    private void ApplyRemovedModelFallback(string modelId)
+    {
+        var whisperName = LocalModelIds.WhisperName(modelId);
+        if (whisperName is not null
+            && !Settings.UseCloudAsr
+            && Settings.WhisperModel.Equals(whisperName, StringComparison.OrdinalIgnoreCase))
+        {
+            var fallback = new[]
+            {
+                LocalModelIds.WhisperBase,
+                LocalModelIds.WhisperTiny,
+                LocalModelIds.WhisperSmall
+            }.FirstOrDefault(id => !id.Equals(modelId, StringComparison.Ordinal) && IsInstalled(id));
+            if (fallback is not null)
+            {
+                Settings.WhisperModel = LocalModelIds.WhisperName(fallback)!;
+            }
+            else
+            {
+                Settings.WhisperModel = string.Empty;
+            }
+        }
+        else if (modelId.Equals(LocalModelIds.MiniCpm51BGguf, StringComparison.Ordinal)
+            && Settings.UseAiTranslation
+            && Settings.TranslationBackend == TranslationBackend.LocalMiniCpm)
+        {
+            Settings.SelectTranslationBackend(TranslationBackend.PublicFree);
+        }
+        else if (((modelId.Equals(LocalModelIds.HyMt1518B, StringComparison.Ordinal)
+                   && Settings.TranslationBackend == TranslationBackend.ManagedHyMt)
+                  || (modelId.Equals(LocalModelIds.M2M100418M, StringComparison.Ordinal)
+                      && Settings.TranslationBackend == TranslationBackend.ManagedM2M100)
+                  || (modelId.Equals(LocalModelIds.Small100, StringComparison.Ordinal)
+                      && Settings.TranslationBackend == TranslationBackend.ManagedSmall100))
+                 && Settings.UseAiTranslation)
+        {
+            Settings.SelectTranslationBackend(TranslationBackend.PublicFree);
+        }
+        else if (modelId.Equals(LocalModelIds.Kokoro82M, StringComparison.Ordinal)
+            && Settings.SpeechServiceMode == SpeechServiceMode.Kokoro)
+        {
+            Settings.SelectSpeechService(SpeechServiceMode.SystemFallback);
+        }
+    }
+
+    private SettingsTransactionSnapshot CaptureServiceSelections()
+    {
+        var snapshot = JsonSerializer.Deserialize<AppSettings>(
+            JsonSerializer.Serialize(Settings))
+            ?? throw new JsonException("无法创建设置事务快照。");
+        snapshot.TranslationApiKey = Settings.TranslationApiKey;
+        snapshot.AsrApiKey = Settings.AsrApiKey;
+        snapshot.SpeechApiKey = Settings.SpeechApiKey;
+        snapshot.TranslationHeaders = new(Settings.TranslationHeaders, StringComparer.OrdinalIgnoreCase);
+        snapshot.AsrHeaders = new(Settings.AsrHeaders, StringComparer.OrdinalIgnoreCase);
+        snapshot.SpeechHeaders = new(Settings.SpeechHeaders, StringComparer.OrdinalIgnoreCase);
+        return new SettingsTransactionSnapshot(snapshot, NeedsSessionRestart);
+    }
+
+    private void RestoreServiceSelections(SettingsTransactionSnapshot snapshot)
+    {
+        Settings = snapshot.Settings;
+        NeedsSessionRestart = snapshot.NeedsSessionRestart;
+    }
+
+    private async Task SaveSelectionsOrRollbackAsync(
+        SettingsTransactionSnapshot previous,
+        string failureContext)
+    {
+        try
+        {
+            await SaveNowAsync();
+        }
+        catch (Exception exception) when (IsRecoverableOperationException(exception))
+        {
+            RestoreServiceSelections(previous);
+            RefreshActiveLocalModels();
+            var rollbackError = await TryPersistCurrentSettingsAsync();
+            if (rollbackError is null)
+            {
+                throw new EngineException(
+                    $"{failureContext}，已恢复原服务选择。{FriendlyError(exception)}");
+            }
+            throw new EngineException(
+                $"{failureContext}。内存已恢复，但磁盘或引擎回滚失败，状态可能不一致。"
+                + $"首次失败：{FriendlyError(exception)}；回滚失败：{FriendlyError(rollbackError)}");
+        }
+    }
+
+    private async Task<Exception?> TryPersistCurrentSettingsAsync()
+    {
+        try
+        {
+            await SaveNowAsync();
+            return null;
+        }
+        catch (Exception exception) when (IsRecoverableOperationException(exception))
+        {
+            LogService.Instance.Error(SourceSettings, exception, "保存恢复后的设置失败");
+            return exception;
+        }
+    }
+
+    private static bool IsRecoverableOperationException(Exception exception) =>
+        exception is EngineException or IOException or UnauthorizedAccessException or CryptographicException;
+
+    private sealed record SettingsTransactionSnapshot(
+        AppSettings Settings,
+        bool NeedsSessionRestart);
+
     private string? ValidateAsrProviderProtocol()
     {
         if (Settings.AsrProvider == AsrProvider.Custom)
@@ -1445,6 +1978,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         var compatible = Settings.AsrProvider switch
         {
             AsrProvider.LocalWhisper => Settings.AsrProtocol == AsrProtocol.LocalWhisper,
+            AsrProvider.LocalManagedMoss => Settings.AsrProtocol == AsrProtocol.LocalManagedMoss,
             AsrProvider.DashScope => Settings.AsrProtocol == AsrProtocol.DashScopeStreaming,
             AsrProvider.Soniox => Settings.AsrProtocol == AsrProtocol.SonioxStreaming,
             AsrProvider.SiliconFlow or AsrProvider.OpenAiCompatible =>

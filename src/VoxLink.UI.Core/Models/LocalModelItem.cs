@@ -10,7 +10,7 @@ public sealed class LocalModelItem : ObservableObject
     private string _operationStatus = string.Empty;
     private double _progress;
     private bool _isBusy;
-
+    private bool _isActive;
     public required string Id { get; init; }
     public required string Name { get; init; }
     public required string Category { get; init; }
@@ -63,11 +63,32 @@ public sealed class LocalModelItem : ObservableObject
         }
     }
 
+    public bool IsActive
+    {
+        get => _isActive;
+        internal set
+        {
+            if (SetProperty(ref _isActive, value))
+            {
+                RaiseActionProperties();
+            }
+        }
+    }
+
     public bool Installed => InstallState == "installed";
     public bool IsPartial => InstallState == "partial";
     public bool CanInstall => IsInstallable && !Installed && !IsBusy;
     public bool CanRemove => IsInstallable && Installed && !IsBusy;
+    public bool CanActivate => IsInstallable && Installed && !IsActive && !IsBusy;
+    public bool CanRunPrimaryAction => !IsActive && !IsBusy && IsInstallable;
     public string InstallActionLabel => IsPartial ? "重试" : "安装";
+    public string PrimaryActionLabel => IsActive
+        ? "已启用"
+        : Installed
+            ? "启用"
+            : IsPartial
+                ? "重试并启用"
+                : "安装并启用";
     public string CategoryLabel => Category switch
     {
         "asr" => "语音识别",
@@ -174,7 +195,10 @@ public sealed class LocalModelItem : ObservableObject
         OnPropertyChanged(nameof(IsPartial));
         OnPropertyChanged(nameof(CanInstall));
         OnPropertyChanged(nameof(CanRemove));
+        OnPropertyChanged(nameof(CanActivate));
+        OnPropertyChanged(nameof(CanRunPrimaryAction));
         OnPropertyChanged(nameof(InstallActionLabel));
+        OnPropertyChanged(nameof(PrimaryActionLabel));
         OnPropertyChanged(nameof(InstallStateLabel));
     }
 

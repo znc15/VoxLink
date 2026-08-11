@@ -23,8 +23,8 @@ public sealed partial class ModelProvidersPage : Page
 
     private void ModelProvidersPage_Loaded(object sender, RoutedEventArgs args)
     {
-        LoadSettingsIntoControls();
         Controller.PropertyChanged += Controller_PropertyChanged;
+        LoadSelections();
         RefreshState();
     }
 
@@ -33,35 +33,22 @@ public sealed partial class ModelProvidersPage : Page
 
     private void Controller_PropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
-        if (args.PropertyName == nameof(AppController.Settings))
-        {
-            LoadSettingsIntoControls();
-        }
-
+        LoadSelections();
         RefreshState();
     }
 
-    private void LoadSettingsIntoControls()
+    private void LoadSelections()
     {
         _loading = true;
         try
         {
-            Bindings.Update();
-            TranslationBackendBox.SelectedIndex = (int)Controller.Settings.TranslationBackend;
-            AsrProviderBox.SelectedIndex = (int)Controller.Settings.AsrProvider;
-            AsrProtocolBox.SelectedIndex = (int)Controller.Settings.AsrProtocol;
-            SpeechProtocolBox.SelectedIndex = (int)Controller.Settings.SpeechProtocol;
-            TranslationApiKeyBox.Password = Controller.Settings.TranslationApiKey;
-            AsrApiKeyBox.Password = Controller.Settings.AsrApiKey;
-            SpeechApiKeyBox.Password = Controller.Settings.SpeechApiKey;
-            TranslationHeaderEditor.Configure(Controller, HeaderEditorTarget.Translation);
-            AsrHeaderEditor.Configure(Controller, HeaderEditorTarget.Asr);
-            SpeechHeaderEditor.Configure(Controller, HeaderEditorTarget.Speech);
-            TinyModelButton.IsChecked = Controller.Settings.WhisperModel == "tiny";
-            BaseModelButton.IsChecked = Controller.Settings.WhisperModel == "base";
-            SmallModelButton.IsChecked = Controller.Settings.WhisperModel == "small";
-            KokoroSpeakerBox.Value = Controller.Settings.KokoroSpeakerId;
-            KokoroSpeedBox.Value = Controller.Settings.KokoroSpeed;
+            SelectByTag(
+                TranslationBackendBox,
+                Controller.Settings.UseAiTranslation
+                    ? Controller.Settings.TranslationBackend.ToString()
+                    : TranslationBackend.PublicFree.ToString());
+            SelectByTag(AsrProviderBox, CurrentAsrTag());
+            SelectByTag(SpeechServiceBox, Controller.Settings.SpeechServiceMode.ToString());
         }
         finally
         {
@@ -69,239 +56,310 @@ public sealed partial class ModelProvidersPage : Page
         }
     }
 
+    private string CurrentAsrTag()
+    {
+        if (Controller.Settings.UseCloudAsr
+            && Controller.Settings.AsrProvider != AsrProvider.LocalWhisper)
+        {
+            return Controller.Settings.AsrProvider.ToString();
+        }
+
+        return Controller.Settings.WhisperModel.ToLowerInvariant() switch
+        {
+            "base" => "WhisperBase",
+            "small" => "WhisperSmall",
+            _ => "WhisperTiny"
+        };
+    }
+
     private void RefreshState()
     {
-        var usesPublicTranslation = Controller.Settings.TranslationBackend == TranslationBackend.PublicFree;
-        var usesLocalTranslation = Controller.Settings.TranslationBackend == TranslationBackend.LocalMiniCpm;
-        TranslationCredentials.Visibility = usesPublicTranslation || usesLocalTranslation
-            ? Visibility.Collapsed
-            : Visibility.Visible;
-        TranslationRefinementSwitch.Visibility = usesPublicTranslation
-            ? Visibility.Collapsed
-            : Visibility.Visible;
-        TranslationRefinementPromptBox.Visibility = !usesPublicTranslation
-            && Controller.Settings.EnableTranslationRefinement
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-        AsrCloudCredentials.Visibility = Controller.Settings.UsesCloudAsr
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        AsrLocalWhisperWarning.Visibility = Controller.Settings.UseCloudAsr
-            && !Controller.Settings.UsesCloudAsr
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-        LocalWhisperPanel.Visibility = Visibility.Visible;
-        var localWhisperEnabled = !Controller.Settings.UsesCloudAsr;
-        LocalWhisperPanel.Opacity = localWhisperEnabled ? 1.0 : 0.45;
-        PrepareModelButton.IsEnabled = localWhisperEnabled;
-        TinyModelButton.IsEnabled = localWhisperEnabled;
-        BaseModelButton.IsEnabled = localWhisperEnabled;
-        SmallModelButton.IsEnabled = localWhisperEnabled;
-        AsrProtocolBox.IsEnabled = Controller.Settings.AsrProvider == AsrProvider.Custom;
-        var usesLocalKokoro = Controller.Settings.UseLocalKokoroTextToSpeech;
-        LocalKokoroSettings.Visibility = usesLocalKokoro ? Visibility.Visible : Visibility.Collapsed;
-        RemoteSpeechSwitch.IsEnabled = !usesLocalKokoro;
-        SpeechCredentials.Visibility = !usesLocalKokoro && Controller.Settings.UseRemoteSpeech
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        TranslationDescription.Text = Controller.Settings.TranslationBackend switch
+        var translation = Controller.Settings.UseAiTranslation
+            ? Controller.Settings.TranslationBackend
+            : TranslationBackend.PublicFree;
+        TranslationStatusText.Text = translation switch
         {
-            TranslationBackend.PublicFree => "公共免密翻译；选择其他提供方后可配置并测试。",
-            TranslationBackend.DashScope => "DashScope 官方 OpenAI 兼容接口，填写 API Key、模型等信息后可测试。",
-            TranslationBackend.DeepSeek => "DeepSeek 官方接口，填写 API Key、模型等信息后可测试。",
-            TranslationBackend.OpenAiCompatible => "任意 OpenAI 兼容服务，填写地址、模型与 API Key 后可测试。",
-            TranslationBackend.LocalMiniCpm => "MiniCPM5-1B 在本机 CPU 上运行，不使用服务地址或 API Key；请先在下方模型目录安装。",
-            _ => "自定义服务地址、模型、API Key 与请求头。"
+            TranslationBackend.PublicFree => "免密在线",
+            TranslationBackend.LocalMiniCpm => LocalStatus(LocalModelIds.MiniCpm51BGguf),
+            TranslationBackend.ManagedHyMt => LocalStatus(LocalModelIds.HyMt1518B),
+            TranslationBackend.ManagedM2M100 => LocalStatus(LocalModelIds.M2M100418M),
+            TranslationBackend.ManagedSmall100 => LocalStatus(LocalModelIds.Small100),
+            _ => "云端文本服务"
         };
-        AsrDescription.Text = Controller.Settings.UsesCloudAsr
-            ? "选择云端提供方后显示所需配置；本地 Whisper 会同时置灰。"
-            : "本地 Whisper 识别，原始音频不会离开电脑。";
-        SpeechDescription.Text = usesLocalKokoro
-            ? "Kokoro-82M 完全在本机生成语音；模型加载或生成失败时会直接报错，不会上传文字或静默切换在线服务。"
-            : Controller.Settings.UseRemoteSpeech
-                ? "使用所选远程语音服务，失败时回退本地系统语音。"
-                : "使用 Edge、Google 或 Windows 系统语音作为普通语音输出兜底。";
-        ModelProgressBar.Visibility = string.IsNullOrWhiteSpace(Controller.ModelStatus)
-            ? Visibility.Collapsed
-            : Visibility.Visible;
-        ModelProgressText.Visibility = string.IsNullOrWhiteSpace(Controller.ModelStatus)
-            ? Visibility.Collapsed
-            : Visibility.Visible;
-        ModelProgressBar.Value = Controller.ModelProgress;
-        ModelProgressText.Text = string.IsNullOrWhiteSpace(Controller.ModelStatus)
-            ? string.Empty
-            : $"{Controller.ModelStatus} · {Controller.ModelProgress:P0}";
+
+        AsrStatusText.Text = Controller.Settings.UseCloudAsr
+            ? Controller.Settings.AllowCloudAudioUpload ? "云端 · 已授权上传" : "云端 · 等待上传授权"
+            : LocalStatus(LocalModelIds.WhisperId(Controller.Settings.WhisperModel));
+
+        SpeechStatusText.Text = Controller.Settings.SpeechServiceMode switch
+        {
+            SpeechServiceMode.Kokoro => LocalStatus(LocalModelIds.Kokoro82M),
+            SpeechServiceMode.Remote => "远程语音",
+            _ => "系统语音"
+        };
+
+        UpdateLocalOption(MiniCpmOption, "本地 MiniCPM5-1B", LocalModelIds.MiniCpm51BGguf);
+        UpdateLocalOption(ManagedHyMtOption, "本地混元翻译 HY-MT1.5-1.8B", LocalModelIds.HyMt1518B);
+        UpdateLocalOption(ManagedM2M100Option, "本地 M2M-100 418M", LocalModelIds.M2M100418M);
+        UpdateLocalOption(ManagedSmall100Option, "本地 SMaLL-100", LocalModelIds.Small100);
+        UpdateLocalOption(WhisperBaseOption, "Whisper base（推荐）", LocalModelIds.WhisperBase);
+        UpdateLocalOption(WhisperSmallOption, "Whisper small（更准确）", LocalModelIds.WhisperSmall);
+        UpdateLocalOption(KokoroOption, "本地 Kokoro-82M", LocalModelIds.Kokoro82M);
+        UpdateLocalOption(ManagedMossOption, "本地 MOSS 转写+说话人", LocalModelIds.MossTranscribeDiarize);
+        var canSelect = !Controller.HasBusyLocalModels && !Controller.IsBusy;
+        TranslationBackendBox.IsEnabled = canSelect;
+        AsrProviderBox.IsEnabled = canSelect;
+        SpeechServiceBox.IsEnabled = canSelect;
+        ConfigureTranslationButton.IsEnabled = canSelect;
+        ConfigureAsrButton.IsEnabled = canSelect;
+        ConfigureSpeechButton.IsEnabled = canSelect;
+
+        ProviderResultBar.Message = Controller.ModelServiceResultMessage ?? string.Empty;
+        ProviderResultBar.IsOpen = !string.IsNullOrWhiteSpace(Controller.ModelServiceResultMessage);
         ProviderErrorBar.Message = Controller.ErrorMessage ?? string.Empty;
         ProviderErrorBar.IsOpen = !string.IsNullOrWhiteSpace(Controller.ErrorMessage);
+        RestartInfoBar.IsOpen = Controller.NeedsSessionRestart;
     }
 
-    private void TranslationBackendBox_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    private void UpdateLocalOption(ComboBoxItem option, string name, string modelId)
     {
-        if (_loading || TranslationBackendBox.SelectedItem is not ComboBoxItem { Tag: string tag }
-            || !Enum.TryParse<TranslationBackend>(tag, out var backend))
+        var installed = Controller.LocalModels.FirstOrDefault(model => model.Id == modelId)?.Installed == true;
+        option.Content = $"{name} · {(installed ? "已安装" : "请先安装")}";
+        option.IsEnabled = installed;
+    }
+    private string LocalStatus(string modelId) =>
+        Controller.LocalModels.FirstOrDefault(model => model.Id == modelId)?.Installed == true
+            ? "本地 · 已安装"
+            : "本地 · 请先安装";
+
+    private async void TranslationBackendBox_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (_loading || !TryReadTag(TranslationBackendBox, out var tag))
         {
             return;
         }
 
-        Controller.Settings.ApplyTranslationBackendDefaults(backend);
+        if (tag == nameof(TranslationBackend.LocalMiniCpm))
+        {
+            await Controller.InstallAndActivateLocalModelAsync(
+                LocalModelIds.MiniCpm51BGguf,
+                reportToModelService: true);
+        }
+        else if (tag is nameof(TranslationBackend.ManagedHyMt)
+                 or nameof(TranslationBackend.ManagedM2M100)
+                 or nameof(TranslationBackend.ManagedSmall100))
+        {
+            var modelId = tag switch
+            {
+                nameof(TranslationBackend.ManagedHyMt) => LocalModelIds.HyMt1518B,
+                nameof(TranslationBackend.ManagedM2M100) => LocalModelIds.M2M100418M,
+                _ => LocalModelIds.Small100
+            };
+            await Controller.InstallAndActivateLocalModelAsync(
+                modelId,
+                reportToModelService: true);
+        }
+        else if (Enum.TryParse<TranslationBackend>(tag, out var backend))
+        {
+            Controller.Settings.SelectTranslationBackend(backend);
+        }
+        LoadSelections();
         RefreshState();
     }
 
-    private void AsrProviderBox_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    private async void AsrProviderBox_SelectionChanged(object sender, SelectionChangedEventArgs args)
     {
-        if (_loading || AsrProviderBox.SelectedItem is not ComboBoxItem { Tag: string tag }
-            || !Enum.TryParse<AsrProvider>(tag, out var provider))
+        if (_loading || !TryReadTag(AsrProviderBox, out var tag))
         {
             return;
         }
 
-        Controller.Settings.ApplyAsrProviderDefaults(provider);
-        AsrProtocolBox.SelectedIndex = (int)Controller.Settings.AsrProtocol;
+        var localModelId = tag switch
+        {
+            "WhisperTiny" => LocalModelIds.WhisperTiny,
+            "WhisperBase" => LocalModelIds.WhisperBase,
+            "WhisperSmall" => LocalModelIds.WhisperSmall,
+            "LocalManagedMoss" => LocalModelIds.MossTranscribeDiarize,
+            _ => null
+        };
+        if (localModelId is not null)
+        {
+            await Controller.InstallAndActivateLocalModelAsync(
+                localModelId,
+                reportToModelService: true);
+        }
+        else if (Enum.TryParse<AsrProvider>(tag, out var provider))
+        {
+            Controller.Settings.SelectAsrProvider(provider);
+        }
+        LoadSelections();
         RefreshState();
     }
 
-    private void AsrProtocolBox_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    private async void SpeechServiceBox_SelectionChanged(object sender, SelectionChangedEventArgs args)
     {
-        if (_loading || Controller.Settings.AsrProvider != AsrProvider.Custom
-            || AsrProtocolBox.SelectedItem is not ComboBoxItem { Tag: string tag }
-            || !Enum.TryParse<AsrProtocol>(tag, out var protocol))
+        if (_loading || !TryReadTag(SpeechServiceBox, out var tag)
+            || !Enum.TryParse<SpeechServiceMode>(tag, out var mode))
         {
             return;
         }
 
-        Controller.Settings.AsrProtocol = protocol;
-        RefreshState();
-    }
-
-    private void TranslationRefinementSwitch_Toggled(object sender, RoutedEventArgs args)
-    {
-        if (!_loading)
+        if (mode == SpeechServiceMode.Kokoro)
         {
-            RefreshState();
-        }
-    }
-
-    private void SpeechProtocolBox_SelectionChanged(object sender, SelectionChangedEventArgs args)
-    {
-        if (_loading || SpeechProtocolBox.SelectedItem is not ComboBoxItem { Tag: string tag }
-            || !Enum.TryParse<SpeechProtocol>(tag, out var protocol))
-        {
-            return;
-        }
-
-        Controller.Settings.ApplySpeechProtocolDefaults(protocol);
-    }
-
-    private void TranslationApiKeyBox_PasswordChanged(object sender, RoutedEventArgs args)
-    {
-        if (!_loading)
-        {
-            Controller.Settings.TranslationApiKey = TranslationApiKeyBox.Password;
-        }
-    }
-
-    private void AsrApiKeyBox_PasswordChanged(object sender, RoutedEventArgs args)
-    {
-        if (!_loading)
-        {
-            Controller.Settings.AsrApiKey = AsrApiKeyBox.Password;
-        }
-    }
-
-    private void SpeechApiKeyBox_PasswordChanged(object sender, RoutedEventArgs args)
-    {
-        if (!_loading)
-        {
-            Controller.Settings.SpeechApiKey = SpeechApiKeyBox.Password;
-        }
-    }
-
-    private void LocalKokoroSwitch_Toggled(object sender, RoutedEventArgs args)
-    {
-        if (!_loading)
-        {
-            Controller.NotifySettingsChanged();
-            RefreshState();
-        }
-    }
-
-    private void RemoteSpeechSwitch_Toggled(object sender, RoutedEventArgs args)
-    {
-        if (!_loading)
-        {
-            Controller.NotifySettingsChanged();
-            RefreshState();
-        }
-    }
-
-    private void KokoroSpeakerBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
-    {
-        if (!_loading && double.IsFinite(args.NewValue))
-        {
-            Controller.Settings.KokoroSpeakerId = (int)Math.Round(args.NewValue);
-        }
-    }
-
-    private void KokoroSpeedBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
-    {
-        if (!_loading && double.IsFinite(args.NewValue))
-        {
-            Controller.Settings.KokoroSpeed = args.NewValue;
-        }
-    }
-    private async void PrepareModel_Click(object sender, RoutedEventArgs args) =>
-        await Controller.PrepareModelAsync();
-
-    private void WhisperModel_Checked(object sender, RoutedEventArgs args)
-    {
-        if (!_loading && sender is RadioButton { Tag: string model })
-        {
-            Controller.Settings.WhisperModel = model;
-        }
-    }
-
-    private async void RefreshLocalModels_Click(object sender, RoutedEventArgs args) =>
-        await Controller.RefreshLocalModelsAsync();
-
-    private async void InstallLocalModel_Click(object sender, RoutedEventArgs args)
-    {
-        if (sender is not Button { DataContext: LocalModelItem model })
-        {
-            return;
-        }
-
-        if (model.IsPartial)
-        {
-            await Controller.RetryLocalModelAsync(model.Id);
+            await Controller.InstallAndActivateLocalModelAsync(
+                LocalModelIds.Kokoro82M,
+                reportToModelService: true);
         }
         else
         {
-            await Controller.InstallLocalModelAsync(model.Id);
+            Controller.Settings.SelectSpeechService(mode);
+        }
+        LoadSelections();
+        RefreshState();
+    }
+
+    private async void ConfigureTranslation_Click(object sender, RoutedEventArgs args)
+    {
+        if (Controller.Settings.TranslationBackend is TranslationBackend.PublicFree
+            or TranslationBackend.LocalMiniCpm)
+        {
+            await ShowSimpleDialogAsync(
+                Controller.Settings.TranslationBackend == TranslationBackend.LocalMiniCpm
+                    ? "本地翻译"
+                    : "公共免密翻译",
+                Controller.Settings.TranslationBackend == TranslationBackend.LocalMiniCpm
+                    ? "模型在“本地模型”页管理，安装后会随 VoxLink 一起启动。"
+                    : "无需 API Key 或其他配置。");
+            return;
+        }
+
+        var content = new TranslationServiceDialogContent(Controller);
+        if (await ShowSettingsDialogAsync(
+                "翻译设置",
+                content,
+                Controller.IsRunning ? "保存（重启后生效）" : "保存并测试",
+                content.Validate) == ContentDialogResult.Primary)
+        {
+            content.Commit();
+            if (Controller.IsRunning)
+            {
+                await Controller.SaveCommittedServiceSettingsAsync();
+            }
+            else
+            {
+                await Controller.TestTranslationAsync();
+            }
         }
     }
 
-    private async void RemoveLocalModel_Click(object sender, RoutedEventArgs args)
+    private async void ConfigureAsr_Click(object sender, RoutedEventArgs args)
     {
-        if (sender is not Button { DataContext: LocalModelItem model } || XamlRoot is null)
+        if (!Controller.Settings.UseCloudAsr)
+        {
+            await ShowSimpleDialogAsync(
+                "本地语音识别",
+                "选择模型即可。未安装时，VoxLink 会在启动翻译前自动下载并校验。"
+            );
+            return;
+        }
+
+        var content = new AsrServiceDialogContent(Controller);
+        if (await ShowSettingsDialogAsync(
+                "语音识别设置",
+                content,
+                Controller.IsRunning ? "保存（重启后生效）" : "保存并校验",
+                content.Validate) == ContentDialogResult.Primary)
+        {
+            content.Commit();
+            if (Controller.IsRunning)
+            {
+                await Controller.SaveCommittedServiceSettingsAsync();
+            }
+            else
+            {
+                await Controller.PrepareModelAsync();
+            }
+        }
+    }
+
+    private async void ConfigureSpeech_Click(object sender, RoutedEventArgs args)
+    {
+        var content = new SpeechServiceDialogContent(Controller);
+        var result = await ShowSettingsDialogAsync(
+            "语音合成设置",
+            content,
+            content.HasEditableSettings
+                ? Controller.IsRunning ? "保存（重启后生效）" : "保存并试听"
+                : "关闭",
+            content.Validate);
+        if (result == ContentDialogResult.Primary && content.HasEditableSettings)
+        {
+            content.Commit();
+            if (Controller.IsRunning)
+            {
+                await Controller.SaveCommittedServiceSettingsAsync();
+            }
+            else
+            {
+                await Controller.TestSpeechAsync();
+            }
+        }
+    }
+
+    private void OpenLocalModels_Click(object sender, RoutedEventArgs args) => Controller.RequestLocalModels();
+
+    private async Task<ContentDialogResult> ShowSettingsDialogAsync(
+        string title,
+        object content,
+        string primaryText = "保存并测试",
+        Func<bool>? validate = null)
+    {
+        if (XamlRoot is null)
+        {
+            return ContentDialogResult.None;
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = content,
+            PrimaryButtonText = primaryText,
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot
+        };
+        if (validate is not null)
+        {
+            dialog.PrimaryButtonClick += (_, args) => args.Cancel = !validate();
+        }
+        try
+        {
+            return await dialog.ShowAsync();
+        }
+        catch (Exception exception) when (exception is COMException or InvalidOperationException)
+        {
+            System.Diagnostics.Debug.WriteLine(exception);
+            return ContentDialogResult.None;
+        }
+    }
+
+    private async Task ShowSimpleDialogAsync(string title, string message)
+    {
+        if (XamlRoot is null)
         {
             return;
         }
 
         var dialog = new ContentDialog
         {
-            Title = $"删除 {model.Name}？",
-            Content = "模型文件将从本机删除。MiniCPM/Kokoro 正在使用时会阻止删除；Whisper 由独立安装器管理，删除前请先停止相关会话。",
-            PrimaryButtonText = "删除",
-            CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Close,
+            Title = title,
+            Content = message,
+            CloseButtonText = "关闭",
             XamlRoot = XamlRoot
         };
         try
         {
-            if (await dialog.ShowAsync() == ContentDialogResult.Primary)
-            {
-                await Controller.RemoveLocalModelAsync(model.Id);
-            }
+            await dialog.ShowAsync();
         }
         catch (Exception exception) when (exception is COMException or InvalidOperationException)
         {
@@ -309,36 +367,31 @@ public sealed partial class ModelProvidersPage : Page
         }
     }
 
-    private async void OpenModelSource_Click(object sender, RoutedEventArgs args)
+    private static void SelectByTag(ComboBox comboBox, string tag)
     {
-        if (sender is not HyperlinkButton { Tag: string url }
-            || !TryCreateTrustedSourceUri(url, out var uri))
+        foreach (var item in comboBox.Items)
         {
-            return;
+            if (item is ComboBoxItem { Tag: string itemTag }
+                && itemTag.Equals(tag, StringComparison.Ordinal))
+            {
+                comboBox.SelectedItem = item;
+                return;
+            }
         }
-
-        await Windows.System.Launcher.LaunchUriAsync(uri);
+        comboBox.SelectedIndex = -1;
     }
 
-    private static bool TryCreateTrustedSourceUri(string value, out Uri uri)
+    private static bool TryReadTag(ComboBox comboBox, out string tag)
     {
-        if (Uri.TryCreate(value, UriKind.Absolute, out var candidate)
-            && candidate.Scheme == Uri.UriSchemeHttps
-            && string.IsNullOrEmpty(candidate.UserInfo)
-            && (IsHostOrSubdomain(candidate.IdnHost, "huggingface.co")
-                || IsHostOrSubdomain(candidate.IdnHost, "github.com")))
+        if (comboBox.SelectedItem is ComboBoxItem { Tag: string value })
         {
-            uri = candidate;
+            tag = value;
             return true;
         }
-
-        uri = null!;
+        tag = string.Empty;
         return false;
     }
 
-    private static bool IsHostOrSubdomain(string host, string expected) =>
-        host.Equals(expected, StringComparison.OrdinalIgnoreCase)
-        || host.EndsWith('.' + expected, StringComparison.OrdinalIgnoreCase);
     private void ProviderErrorBar_Closed(InfoBar sender, InfoBarClosedEventArgs args) =>
         Controller.DismissError();
 }

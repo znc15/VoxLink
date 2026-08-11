@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using VoxLink.UI.Core.Models;
 
@@ -15,6 +16,7 @@ public interface ISettingsRepository
 
 public sealed class SettingsRepository : ISettingsRepository
 {
+    private const string GenerationPropertyName = "settingsGeneration";
     private static readonly byte[] SecretEntropy = Encoding.UTF8.GetBytes("VoxLink.UI.Secrets.v1");
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
@@ -26,6 +28,7 @@ public sealed class SettingsRepository : ISettingsRepository
 
     private readonly string _settingsPath;
     private readonly string _secretsPath;
+    private readonly string _lockPath;
     private readonly string _legacyPreferencesPath;
     private readonly string _legacySecretsPath;
 
@@ -36,8 +39,11 @@ public sealed class SettingsRepository : ISettingsRepository
         string? legacySecretsPath = null)
     {
         var roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        _settingsPath = settingsPath ?? Path.Combine(roaming, "VoxLink", "settings.json");
-        _secretsPath = secretsPath ?? Path.Combine(roaming, "VoxLink", "secrets.dat");
+        _settingsPath = Path.GetFullPath(
+            settingsPath ?? Path.Combine(roaming, "VoxLink", "settings.json"));
+        _secretsPath = Path.GetFullPath(
+            secretsPath ?? Path.Combine(roaming, "VoxLink", "secrets.dat"));
+        _lockPath = _settingsPath + ".lock";
         _legacyPreferencesPath = legacyPreferencesPath
             ?? Path.Combine(roaming, "VoxLink", "VoxLink", "shared_preferences.json");
         _legacySecretsPath = legacySecretsPath
@@ -46,12 +52,19 @@ public sealed class SettingsRepository : ISettingsRepository
 
     public async Task<AppSettings> LoadAsync(CancellationToken cancellationToken = default)
     {
+        await using var transactionLock = await AcquireTransactionLockAsync(cancellationToken);
+        return await LoadCoreAsync(cancellationToken);
+    }
+
+    private async Task<AppSettings> LoadCoreAsync(CancellationToken cancellationToken)
+    {
         var migrated = false;
         var publicLoad = await LoadPublicSettingsAsync(cancellationToken);
+        var currentPublicMissing = publicLoad.IsMissing;
         var settings = publicLoad.Settings;
         var hasUseAiTranslation = publicLoad.HasUseAiTranslation;
         var hasUseCloudAsr = publicLoad.HasUseCloudAsr;
-        if (settings is null)
+        if (currentPublicMissing)
         {
             var legacyLoad = await LoadLegacyPublicSettingsAsync(cancellationToken);
             settings = legacyLoad.Settings;
@@ -67,14 +80,33 @@ public sealed class SettingsRepository : ISettingsRepository
             hasUseCloudAsr = false;
         }
 
-        var secrets = await LoadSecretsAsync(_secretsPath, SecretEntropy, cancellationToken);
-        if (secrets is null)
+        var secretsLoad = await LoadSecretsAsync(_secretsPath, SecretEntropy, cancellationToken);
+        var currentSecretsMissing = secretsLoad.IsMissing;
+        migrated |= ValidateCurrentGenerationPair(publicLoad, secretsLoad);
+        var secrets = secretsLoad.Settings;
+        if (currentPublicMissing && !currentSecretsMissing)
         {
-            secrets = await LoadSecretsAsync(_legacySecretsPath, entropy: null, cancellationToken)
-                ?? new SecretSettings();
+            secrets = new SecretSettings();
+            migrated = true;
+        }
+        if (currentSecretsMissing)
+        {
+            if (currentPublicMissing)
+            {
+                var legacySecretsLoad = await LoadSecretsAsync(
+                    _legacySecretsPath,
+                    entropy: null,
+                    cancellationToken);
+                secrets = legacySecretsLoad.Settings ?? new SecretSettings();
+            }
+            else
+            {
+                secrets = new SecretSettings();
+            }
             migrated = true;
         }
 
+        secrets ??= new SecretSettings();
         settings.TranslationApiKey = secrets.TranslationApiKey;
         settings.SpeechApiKey = secrets.SpeechApiKey;
         settings.AsrApiKey = secrets.AsrApiKey;
@@ -96,9 +128,10 @@ public sealed class SettingsRepository : ISettingsRepository
             migrated = true;
         }
 
+        migrated |= settings.NormalizeServiceSelections();
         if (migrated)
         {
-            await SaveAsync(settings, cancellationToken);
+            await SaveCoreAsync(settings, cancellationToken);
         }
 
         return settings;
@@ -107,10 +140,22 @@ public sealed class SettingsRepository : ISettingsRepository
     public async Task SaveAsync(AppSettings settings, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        var publicJson = JsonSerializer.SerializeToUtf8Bytes(settings, SerializerOptions);
+        await using var transactionLock = await AcquireTransactionLockAsync(cancellationToken);
+        await SaveCoreAsync(settings, cancellationToken);
+    }
+
+    private async Task SaveCoreAsync(AppSettings settings, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        var generation = Guid.NewGuid().ToString("N");
+        var publicObject = JsonSerializer.SerializeToNode(settings, SerializerOptions) as JsonObject
+            ?? throw new JsonException("无法序列化设置。");
+        publicObject[GenerationPropertyName] = generation;
+        var publicJson = JsonSerializer.SerializeToUtf8Bytes(publicObject, SerializerOptions);
         var secretJson = JsonSerializer.SerializeToUtf8Bytes(
             new SecretSettings
             {
+                SettingsGeneration = generation,
                 TranslationApiKey = settings.TranslationApiKey,
                 SpeechApiKey = settings.SpeechApiKey,
                 AsrApiKey = settings.AsrApiKey,
@@ -124,31 +169,34 @@ public sealed class SettingsRepository : ISettingsRepository
             SecretEntropy,
             DataProtectionScope.CurrentUser);
 
-        await WriteAtomicallyAsync(_settingsPath, publicJson, cancellationToken);
-        await WriteAtomicallyAsync(_secretsPath, protectedSecrets, cancellationToken);
+        await WritePairAtomicallyAsync(
+            _settingsPath,
+            publicJson,
+            _secretsPath,
+            protectedSecrets,
+            cancellationToken);
     }
 
     private async Task<PublicSettingsLoad> LoadPublicSettingsAsync(CancellationToken cancellationToken)
     {
+        byte[] raw;
         try
         {
-            if (!File.Exists(_settingsPath))
-            {
-                return new PublicSettingsLoad(null, false);
-            }
-
-            var raw = await File.ReadAllBytesAsync(_settingsPath, cancellationToken);
-            using var document = JsonDocument.Parse(raw);
-            var settings = document.RootElement.Deserialize<AppSettings>(SerializerOptions);
-            return new PublicSettingsLoad(
-                settings,
-                HasProperty(document.RootElement, "useAiTranslation"),
-                HasProperty(document.RootElement, "useCloudAsr"));
+            raw = await File.ReadAllBytesAsync(_settingsPath, cancellationToken);
         }
-        catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
         {
-            return new PublicSettingsLoad(null, false);
+            return PublicSettingsLoad.Missing;
         }
+
+        using var document = JsonDocument.Parse(raw);
+        var settings = document.RootElement.Deserialize<AppSettings>(SerializerOptions)
+            ?? throw new JsonException("设置文件不包含有效的 JSON 对象。");
+        return new PublicSettingsLoad(
+            settings,
+            HasProperty(document.RootElement, "useAiTranslation"),
+            HasProperty(document.RootElement, "useCloudAsr"),
+            ReadOptionalString(document.RootElement, GenerationPropertyName));
     }
 
     private async Task<PublicSettingsLoad> LoadLegacyPublicSettingsAsync(CancellationToken cancellationToken)
@@ -188,68 +236,205 @@ public sealed class SettingsRepository : ISettingsRepository
     }
 
 
-    private static async Task<SecretSettings?> LoadSecretsAsync(
+    private static async Task<SecretSettingsLoad> LoadSecretsAsync(
         string path,
         byte[]? entropy,
         CancellationToken cancellationToken)
     {
+        byte[] protectedBytes;
         try
         {
-            if (!File.Exists(path))
-            {
-                return null;
-            }
-
-            var protectedBytes = await File.ReadAllBytesAsync(path, cancellationToken);
-            var json = ProtectedData.Unprotect(
-                protectedBytes,
-                entropy,
-                DataProtectionScope.CurrentUser);
-            return JsonSerializer.Deserialize<SecretSettings>(json, SerializerOptions);
+            protectedBytes = await File.ReadAllBytesAsync(path, cancellationToken);
         }
-        catch (Exception exception) when (
-            exception is CryptographicException
-                or JsonException
-                or IOException
-                or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return SecretSettingsLoad.Missing;
+        }
+
+        var json = ProtectedData.Unprotect(
+            protectedBytes,
+            entropy,
+            DataProtectionScope.CurrentUser);
+        var settings = JsonSerializer.Deserialize<SecretSettings>(json, SerializerOptions)
+            ?? throw new JsonException("秘密设置文件不包含有效的 JSON 对象。");
+        return new SecretSettingsLoad(settings);
+    }
+
+    private async Task<FileStream> AcquireTransactionLockAsync(CancellationToken cancellationToken)
+    {
+        var directory = Path.GetDirectoryName(_lockPath)
+            ?? throw new InvalidOperationException("设置锁路径无效。");
+        Directory.CreateDirectory(directory);
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                return new FileStream(
+                    _lockPath,
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.None,
+                    bufferSize: 1,
+                    FileOptions.Asynchronous);
+            }
+            catch (IOException exception)
+            {
+                if (DateTime.UtcNow >= deadline)
+                {
+                    throw new IOException(
+                        "设置正被另一个 VoxLink 进程使用，请稍后重试。",
+                        exception);
+                }
+                await Task.Delay(50, cancellationToken);
+            }
+        }
+    }
+
+    private static async Task WritePairAtomicallyAsync(
+        string publicPath,
+        byte[] publicContent,
+        string secretPath,
+        byte[] secretContent,
+        CancellationToken cancellationToken)
+    {
+        var publicDirectory = Path.GetDirectoryName(publicPath)
+            ?? throw new InvalidOperationException("设置路径无效。");
+        var secretDirectory = Path.GetDirectoryName(secretPath)
+            ?? throw new InvalidOperationException("秘密设置路径无效。");
+        Directory.CreateDirectory(publicDirectory);
+        Directory.CreateDirectory(secretDirectory);
+
+        var previousPublic = await ReadExistingFileAsync(publicPath, cancellationToken);
+        var previousSecret = await ReadExistingFileAsync(secretPath, cancellationToken);
+        var publicTemporaryPath = publicPath + $".{Guid.NewGuid():N}.tmp";
+        var secretTemporaryPath = secretPath + $".{Guid.NewGuid():N}.tmp";
+        try
+        {
+            await File.WriteAllBytesAsync(publicTemporaryPath, publicContent, cancellationToken);
+            await File.WriteAllBytesAsync(secretTemporaryPath, secretContent, cancellationToken);
+            File.Move(publicTemporaryPath, publicPath, overwrite: true);
+            try
+            {
+                File.Move(secretTemporaryPath, secretPath, overwrite: true);
+            }
+            catch
+            {
+                RestoreFile(publicPath, previousPublic);
+                RestoreFile(secretPath, previousSecret);
+                throw;
+            }
+        }
+        finally
+        {
+            DeleteTemporaryFile(publicTemporaryPath);
+            DeleteTemporaryFile(secretTemporaryPath);
+        }
+    }
+
+    private static async Task<byte[]?> ReadExistingFileAsync(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await File.ReadAllBytesAsync(path, cancellationToken);
+        }
+        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
         {
             return null;
         }
     }
 
-    private static async Task WriteAtomicallyAsync(
-        string path,
-        byte[] content,
-        CancellationToken cancellationToken)
+    private static void RestoreFile(string path, byte[]? content)
     {
-        var directory = Path.GetDirectoryName(path)
-            ?? throw new InvalidOperationException("设置路径无效。");
-        Directory.CreateDirectory(directory);
-        var temporaryPath = path + $".{Guid.NewGuid():N}.tmp";
+        if (content is null)
+        {
+            File.Delete(path);
+            return;
+        }
+
+        var temporaryPath = path + $".{Guid.NewGuid():N}.rollback";
         try
         {
-            await File.WriteAllBytesAsync(temporaryPath, content, cancellationToken);
+            File.WriteAllBytes(temporaryPath, content);
             File.Move(temporaryPath, path, overwrite: true);
         }
         finally
         {
-            try
-            {
-                File.Delete(temporaryPath);
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-            {
-            }
+            DeleteTemporaryFile(temporaryPath);
         }
+    }
+
+    private static void DeleteTemporaryFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private static bool ValidateCurrentGenerationPair(
+        PublicSettingsLoad publicLoad,
+        SecretSettingsLoad secretsLoad)
+    {
+        if (publicLoad.IsMissing && secretsLoad.IsMissing)
+        {
+            return false;
+        }
+        if (publicLoad.IsMissing || secretsLoad.IsMissing)
+        {
+            var presentGeneration = publicLoad.IsMissing
+                ? secretsLoad.Settings?.SettingsGeneration
+                : publicLoad.SettingsGeneration;
+            if (string.IsNullOrWhiteSpace(presentGeneration))
+            {
+                return true;
+            }
+            throw new InvalidDataException("设置与秘密设置不完整，已拒绝加载以保护服务凭据。");
+        }
+
+        var publicGeneration = publicLoad.SettingsGeneration;
+        var secretGeneration = secretsLoad.Settings?.SettingsGeneration;
+        if (string.IsNullOrWhiteSpace(publicGeneration)
+            && string.IsNullOrWhiteSpace(secretGeneration))
+        {
+            return true;
+        }
+        if (string.IsNullOrWhiteSpace(publicGeneration)
+            || string.IsNullOrWhiteSpace(secretGeneration)
+            || !string.Equals(publicGeneration, secretGeneration, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("设置与秘密设置版本不一致，已拒绝加载以保护服务凭据。");
+        }
+
+        return false;
     }
 
     private sealed record PublicSettingsLoad(
         AppSettings? Settings,
         bool HasUseAiTranslation = false,
-        bool HasUseCloudAsr = false);
+        bool HasUseCloudAsr = false,
+        string? SettingsGeneration = null,
+        bool IsMissing = false)
+    {
+        public static PublicSettingsLoad Missing { get; } = new(null, IsMissing: true);
+    }
+
+    private sealed record SecretSettingsLoad(SecretSettings? Settings, bool IsMissing = false)
+    {
+        public static SecretSettingsLoad Missing { get; } = new(null, IsMissing: true);
+    }
 
     private sealed class SecretSettings
     {
+        [JsonPropertyName("voxlink.settings.generation")]
+        public string? SettingsGeneration { get; set; }
+
         [JsonPropertyName("voxlink.translation.apiKey")]
         public string TranslationApiKey { get; set; } = string.Empty;
 
@@ -311,6 +496,14 @@ public sealed class SettingsRepository : ISettingsRepository
             JsonSerializerOptions options) =>
             JsonSerializer.Serialize(writer, value, options);
     }
+
+    private static string? ReadOptionalString(JsonElement element, string name) =>
+        element.ValueKind == JsonValueKind.Object
+        && element.EnumerateObject().FirstOrDefault(property =>
+            property.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).Value
+            is { ValueKind: JsonValueKind.String } value
+            ? value.GetString()
+            : null;
 
     private static bool HasProperty(JsonElement element, string name) =>
         element.ValueKind == JsonValueKind.Object

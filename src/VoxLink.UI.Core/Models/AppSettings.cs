@@ -11,7 +11,16 @@ public enum TranslationBackend
     DeepSeek,
     OpenAiCompatible,
     Custom,
-    LocalMiniCpm
+    LocalMiniCpm,
+    ManagedHyMt,
+    ManagedM2M100,
+    ManagedSmall100
+}
+
+public enum ManagedTtsModel
+{
+    DotsTts,
+    Qwen3Tts
 }
 
 public enum SpeechProtocol
@@ -24,6 +33,7 @@ public enum SpeechProtocol
 public enum AsrProvider
 {
     LocalWhisper,
+    LocalManagedMoss,
     DashScope,
     Soniox,
     SiliconFlow,
@@ -35,6 +45,8 @@ public enum AsrProvider
 public enum AsrProtocol
 {
     LocalWhisper,
+    LocalSenseVoice,
+    LocalManagedMoss,
     DashScopeStreaming,
     SonioxStreaming,
     OpenAiMultipart,
@@ -53,6 +65,13 @@ public enum OutboundSpeechContent
 {
     Translation,
     Original
+}
+
+public enum SpeechServiceMode
+{
+    SystemFallback,
+    Remote,
+    Kokoro
 }
 
 public sealed class AppSettings : ObservableObject
@@ -88,6 +107,9 @@ public sealed class AppSettings : ObservableObject
     private bool _useLocalKokoroTextToSpeech;
     private int _kokoroSpeakerId = 3;
     private double _kokoroSpeed = 1.0;
+    private ManagedTtsModel? _managedTtsModel;
+    private string _managedTtsReferenceAudioPath = string.Empty;
+    private string _managedTtsReferenceText = string.Empty;
     private SpeechProtocol _speechProtocol = SpeechProtocol.DashScope;
     private string _speechBaseUrl = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation";
     private string _speechApiKey = string.Empty;
@@ -126,7 +148,7 @@ public sealed class AppSettings : ObservableObject
     public bool OnboardingCompleted { get => _onboardingCompleted; set => SetProperty(ref _onboardingCompleted, value); }
 
     public string MyLanguageCode { get => _myLanguageCode; set => SetProperty(ref _myLanguageCode, value); }
-    public bool SpeechRefinementEnabled { get => _enableSpeechRefinement; set => SetProperty(ref _enableSpeechRefinement, value && SupportsGeneration); }
+    public bool SpeechRefinementEnabled { get => _enableSpeechRefinement; set => SetProperty(ref _enableSpeechRefinement, value); }
     public string SpeechRefinementPrompt { get => _speechRefinementPrompt; set => SetProperty(ref _speechRefinementPrompt, value); }
     public string OtherLanguageCode { get => _otherLanguageCode; set => SetProperty(ref _otherLanguageCode, value); }
     public string SecondaryTargetLanguageCode { get => _secondaryTargetLanguageCode; set => SetProperty(ref _secondaryTargetLanguageCode, value); }
@@ -241,6 +263,24 @@ public sealed class AppSettings : ObservableObject
             Math.Clamp(double.IsFinite(value) ? value : 1.0, 0.5, 2.0));
     }
 
+    public ManagedTtsModel? ManagedTtsModel
+    {
+        get => _managedTtsModel;
+        set => SetProperty(ref _managedTtsModel, value);
+    }
+
+    public string ManagedTtsReferenceAudioPath
+    {
+        get => _managedTtsReferenceAudioPath;
+        set => SetProperty(ref _managedTtsReferenceAudioPath, value);
+    }
+
+    public string ManagedTtsReferenceText
+    {
+        get => _managedTtsReferenceText;
+        set => SetProperty(ref _managedTtsReferenceText, value);
+    }
+
     [JsonConverter(typeof(JsonStringEnumConverter<SpeechProtocol>))]
     public SpeechProtocol SpeechProtocol { get => _speechProtocol; set => SetProperty(ref _speechProtocol, value); }
 
@@ -293,19 +333,34 @@ public sealed class AppSettings : ObservableObject
     public bool MinimizeToTray { get => _minimizeToTray; set => SetProperty(ref _minimizeToTray, value); }
     public bool ConfirmOnClose { get => _confirmOnClose; set => SetProperty(ref _confirmOnClose, value); }
 
+    /// <summary>
+    /// 非持久化三态语音服务模式，由 UseRemoteSpeech / UseLocalKokoroTextToSpeech 计算得出。
+    /// 历史同时为 true 时以 Kokoro 优先。
+    /// </summary>
+    [JsonIgnore]
+    public SpeechServiceMode SpeechServiceMode
+    {
+        get
+        {
+            if (UseLocalKokoroTextToSpeech) return global::VoxLink.UI.Core.Models.SpeechServiceMode.Kokoro;
+            if (UseRemoteSpeech) return global::VoxLink.UI.Core.Models.SpeechServiceMode.Remote;
+            return global::VoxLink.UI.Core.Models.SpeechServiceMode.SystemFallback;
+        }
+    }
+
     [JsonIgnore]
     public bool SupportsGeneration => TranslationBackend != TranslationBackend.PublicFree;
 
     [JsonIgnore]
-    public bool UsesCloudAsr => AsrProtocol != AsrProtocol.LocalWhisper;
+    public bool UsesCloudAsr => AsrProtocol is not (AsrProtocol.LocalWhisper
+        or AsrProtocol.LocalSenseVoice
+        or AsrProtocol.LocalManagedMoss);
 
     [JsonIgnore]
     public bool UsesStreamingAsr => AsrProtocol is AsrProtocol.DashScopeStreaming or AsrProtocol.SonioxStreaming;
 
     [JsonIgnore]
     public bool SupportsCloudSpeakerLabels => AsrProtocol == AsrProtocol.SonioxStreaming;
-
-
     public void ApplyTranslationBackendDefaults(TranslationBackend backend)
     {
         TranslationBackend = backend;
@@ -335,6 +390,12 @@ public sealed class AppSettings : ObservableObject
         {
             case AsrProvider.LocalWhisper:
                 AsrProtocol = AsrProtocol.LocalWhisper;
+                AsrBaseUrl = string.Empty;
+                AsrModel = string.Empty;
+                AllowCloudAudioUpload = false;
+                break;
+            case AsrProvider.LocalManagedMoss:
+                AsrProtocol = AsrProtocol.LocalManagedMoss;
                 AsrBaseUrl = string.Empty;
                 AsrModel = string.Empty;
                 AllowCloudAudioUpload = false;
@@ -396,6 +457,127 @@ public sealed class AppSettings : ObservableObject
         }
     }
 
+    /// <summary>
+    /// 集中式翻译选择：PublicFree 关闭 AI 翻译并固定为免费端点；其余提供方应用默认值并开启 AI 翻译。
+    /// 不触碰已保存的 API Key / 自定义请求头。
+    /// </summary>
+    public void SelectTranslationBackend(TranslationBackend backend)
+    {
+        if (backend == TranslationBackend.PublicFree)
+        {
+            UseAiTranslation = false;
+            TranslationBackend = TranslationBackend.PublicFree;
+            return;
+        }
+
+        ApplyTranslationBackendDefaults(backend);
+        UseAiTranslation = true;
+    }
+
+    /// <summary>
+    /// 集中式 ASR 选择：本地 Whisper 关闭云端、撤销音频上传授权；
+    /// 云提供方应用默认值并开启云端，但绝不自动开启 AllowCloudAudioUpload。
+    /// 切回本地时保留云 URL / model / API Key，便于恢复。
+    /// </summary>
+    public void SelectAsrProvider(AsrProvider provider)
+    {
+        if (provider == AsrProvider.LocalWhisper)
+        {
+            UseCloudAsr = false;
+            AsrProvider = AsrProvider.LocalWhisper;
+            AsrProtocol = AsrProtocol.LocalWhisper;
+            AllowCloudAudioUpload = false;
+            return;
+        }
+
+        var providerChanged = AsrProvider != provider;
+        ApplyAsrProviderDefaults(provider);
+        if (providerChanged)
+        {
+            AllowCloudAudioUpload = false;
+        }
+        UseCloudAsr = true;
+    }
+
+    /// <summary>
+    /// 集中式 TTS 三态选择：SystemFallback=false/false；Remote=true/false；Kokoro=false/true。
+    /// </summary>
+    public void SelectSpeechService(SpeechServiceMode mode)
+    {
+        switch (mode)
+        {
+            case global::VoxLink.UI.Core.Models.SpeechServiceMode.SystemFallback:
+                UseRemoteSpeech = false;
+                UseLocalKokoroTextToSpeech = false;
+                break;
+            case global::VoxLink.UI.Core.Models.SpeechServiceMode.Remote:
+                UseRemoteSpeech = true;
+                UseLocalKokoroTextToSpeech = false;
+                break;
+            case global::VoxLink.UI.Core.Models.SpeechServiceMode.Kokoro:
+                UseRemoteSpeech = false;
+                UseLocalKokoroTextToSpeech = true;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// 将旧版本中互相矛盾的服务开关规范为下拉框可表达的有效状态。
+    /// 仅修正实际生效字段，不清空地址、模型、密钥或请求头。
+    /// </summary>
+    public bool NormalizeServiceSelections()
+    {
+        var changed = false;
+        if (!UseAiTranslation && TranslationBackend != TranslationBackend.PublicFree)
+        {
+            TranslationBackend = TranslationBackend.PublicFree;
+            changed = true;
+        }
+        else if (UseAiTranslation && TranslationBackend == TranslationBackend.PublicFree)
+        {
+            UseAiTranslation = false;
+            changed = true;
+        }
+
+        if (!UseCloudAsr
+            || AsrProvider == AsrProvider.LocalWhisper
+            || AsrProtocol == AsrProtocol.LocalWhisper)
+        {
+            changed |= UseCloudAsr
+                || AsrProvider != AsrProvider.LocalWhisper
+                || AsrProtocol != AsrProtocol.LocalWhisper
+                || AllowCloudAudioUpload;
+            UseCloudAsr = false;
+            AsrProvider = AsrProvider.LocalWhisper;
+            AsrProtocol = AsrProtocol.LocalWhisper;
+            AllowCloudAudioUpload = false;
+        }
+        else if (AsrProvider != AsrProvider.Custom)
+        {
+            var expectedProtocol = AsrProvider switch
+            {
+                AsrProvider.DashScope => AsrProtocol.DashScopeStreaming,
+                AsrProvider.Soniox => AsrProtocol.SonioxStreaming,
+                AsrProvider.SiliconFlow or AsrProvider.OpenAiCompatible => AsrProtocol.OpenAiMultipart,
+                AsrProvider.MiMo => AsrProtocol.MiMoInputAudio,
+                _ => AsrProtocol
+            };
+            if (AsrProtocol != expectedProtocol)
+            {
+                AsrProtocol = expectedProtocol;
+                changed = true;
+            }
+        }
+
+        if (UseLocalKokoroTextToSpeech && UseRemoteSpeech)
+        {
+            UseRemoteSpeech = false;
+            changed = true;
+        }
+
+        return changed;
+    }
+
     public Dictionary<string, object?> ToEngineJson(bool respectSwitches = true) => new(StringComparer.Ordinal)
     {
         ["myLanguageCode"] = MyLanguageCode,
@@ -413,6 +595,9 @@ public sealed class AppSettings : ObservableObject
             TranslationBackend.DeepSeek => "deepSeek",
             TranslationBackend.OpenAiCompatible => "openAiCompatible",
             TranslationBackend.LocalMiniCpm => "localMiniCpm",
+            TranslationBackend.ManagedHyMt => "managedHyMt",
+            TranslationBackend.ManagedM2M100 => "managedM2M100",
+            TranslationBackend.ManagedSmall100 => "managedSmall100",
             _ => "custom"
         },
         ["openAiBaseUrl"] = TranslationBaseUrl,
@@ -421,12 +606,12 @@ public sealed class AppSettings : ObservableObject
         ["openAiHeaders"] = TranslationHeaders,
         ["enableTranslationRefinement"] = EnableTranslationRefinement,
         ["translationRefinementPrompt"] = TranslationRefinementPrompt,
-        ["speechRefinementEnabled"] = SpeechRefinementEnabled,
+        ["speechRefinementEnabled"] = SpeechRefinementEnabled && UseAiTranslation && SupportsGeneration,
         ["speechRefinementPrompt"] = SpeechRefinementPrompt,
         ["asrProvider"] = respectSwitches && !UseCloudAsr
             ? "localWhisper"
             : JsonNamingPolicy.CamelCase.ConvertName(AsrProvider.ToString()),
-        ["asrProtocol"] = respectSwitches && !UseCloudAsr
+        ["asrProtocol"] = respectSwitches && !UseCloudAsr && AsrProtocol != global::VoxLink.UI.Core.Models.AsrProtocol.LocalManagedMoss
             ? "localWhisper"
             : JsonNamingPolicy.CamelCase.ConvertName(AsrProtocol.ToString()),
         ["asrBaseUrl"] = AsrBaseUrl,
@@ -440,6 +625,11 @@ public sealed class AppSettings : ObservableObject
         ["useLocalKokoroTextToSpeech"] = UseLocalKokoroTextToSpeech,
         ["kokoroSpeakerId"] = KokoroSpeakerId,
         ["kokoroSpeed"] = KokoroSpeed,
+        ["managedTtsModel"] = ManagedTtsModel is null
+            ? null
+            : JsonNamingPolicy.CamelCase.ConvertName(ManagedTtsModel.Value.ToString()),
+        ["managedTtsReferenceAudioPath"] = ManagedTtsReferenceAudioPath,
+        ["managedTtsReferenceText"] = ManagedTtsReferenceText,
         ["textToSpeechBaseUrl"] = SpeechBaseUrl,
         ["textToSpeechApiKey"] = SpeechApiKey,
         ["textToSpeechModel"] = SpeechModel,
