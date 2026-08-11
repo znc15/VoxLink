@@ -9,24 +9,39 @@ public sealed class AsrRecognizerFactory : IAsrRecognizerFactory
     private readonly HttpClient _httpClient;
     private readonly WhisperSpeechRecognizer _whisperRecognizer;
     private readonly IAsrWebSocketFactory _webSocketFactory;
+    private readonly ILocalModelManager _localModelManager;
+    private readonly LocalModelOrchestrator? _managedOrchestrator;
+    private readonly bool _ownsLocalModelManager;
     private bool _disposed;
 
     public AsrRecognizerFactory(HttpClient httpClient)
-        : this(httpClient, new WhisperSpeechRecognizer(), new ClientAsrWebSocketFactory())
+        : this(
+            httpClient,
+            new WhisperSpeechRecognizer(),
+            new ClientAsrWebSocketFactory(),
+            new LocalModelManager(),
+            ownsLocalModelManager: true)
     {
     }
 
     internal AsrRecognizerFactory(
         HttpClient httpClient,
         WhisperSpeechRecognizer whisperRecognizer,
-        IAsrWebSocketFactory webSocketFactory)
+        IAsrWebSocketFactory webSocketFactory,
+        ILocalModelManager localModelManager,
+        bool ownsLocalModelManager = false,
+        LocalModelOrchestrator? managedOrchestrator = null)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(whisperRecognizer);
         ArgumentNullException.ThrowIfNull(webSocketFactory);
+        ArgumentNullException.ThrowIfNull(localModelManager);
         _httpClient = httpClient;
         _whisperRecognizer = whisperRecognizer;
         _webSocketFactory = webSocketFactory;
+        _localModelManager = localModelManager;
+        _managedOrchestrator = managedOrchestrator;
+        _ownsLocalModelManager = ownsLocalModelManager;
         _whisperRecognizer.ModelProgress += OnWhisperModelProgress;
     }
 
@@ -41,6 +56,10 @@ public sealed class AsrRecognizerFactory : IAsrRecognizerFactory
             AsrProtocol.LocalWhisper => new LocalWhisperAsrRecognizer(
                 _whisperRecognizer,
                 settings.WhisperModel),
+            AsrProtocol.LocalSenseVoice => new LocalSenseVoiceAsrRecognizer(_localModelManager),
+            AsrProtocol.LocalManagedMoss => new ManagedModelHostAsrRecognizer(
+                _managedOrchestrator
+                ?? throw new InvalidOperationException("托管模型编排器未配置，无法使用 MOSS。")),
             AsrProtocol.DashScopeStreaming or AsrProtocol.SonioxStreaming =>
                 new StreamingCloudSpeechRecognizer(settings, _webSocketFactory),
             AsrProtocol.OpenAiMultipart or AsrProtocol.MiMoInputAudio =>
@@ -65,6 +84,17 @@ public sealed class AsrRecognizerFactory : IAsrRecognizerFactory
         _disposed = true;
         _whisperRecognizer.ModelProgress -= OnWhisperModelProgress;
         await _whisperRecognizer.DisposeAsync().ConfigureAwait(false);
+        if (_ownsLocalModelManager)
+        {
+            if (_localModelManager is IAsyncDisposable asyncDisposable)
+            {
+                await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+            }
+            else if (_localModelManager is IDisposable disposable)
+            {
+                disposable.Dispose();
+            }
+        }
     }
 
     private void OnWhisperModelProgress(object? sender, ModelProgressEventArgs eventArgs) =>

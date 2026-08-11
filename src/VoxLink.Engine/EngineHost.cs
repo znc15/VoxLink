@@ -15,10 +15,16 @@ internal sealed class EngineHost : IAsyncDisposable
     private readonly TranslationServiceFactory _translationFactory;
     private readonly HybridTextToSpeechService _textToSpeech;
     private readonly TranslationSession _session;
+    private readonly SemaphoreSlim _sessionModelGate = new(1, 1);
     private readonly VrChatOscSender _vrChatOsc = new();
     private readonly UiHost? _uiHost;
     private readonly ILocalModelManager _localModelManager;
     private readonly bool _ownsLocalModelManager;
+    private readonly IManagedModelRuntimeManager _managedRuntimeManager;
+    private readonly bool _ownsManagedRuntimeManager;
+    private readonly ILocalModelOrchestrator _localModelOrchestrator;
+    private readonly LocalModelOrchestrator? _defaultManagedOrchestrator;
+    private readonly bool _ownsLocalModelOrchestrator;
     private readonly object _lifecycleSync = new();
     private readonly CancellationTokenSource _shutdownCancellation = new();
     private readonly TaskCompletionSource _disposeCompletion =
@@ -49,18 +55,58 @@ internal sealed class EngineHost : IAsyncDisposable
         Action<string, object> notify,
         bool startUiHost,
         ILocalModelManager? localModelManager)
+        : this(
+            notify,
+            startUiHost,
+            localModelManager,
+            managedRuntimeManager: null,
+            localModelOrchestrator: null)
+    {
+    }
+
+    internal EngineHost(
+        Action<string, object> notify,
+        bool startUiHost,
+        ILocalModelManager? localModelManager,
+        IManagedModelRuntimeManager? managedRuntimeManager,
+        ILocalModelOrchestrator? localModelOrchestrator)
     {
         _notify = notify;
         _localModelManager = localModelManager ?? new LocalModelManager();
         _ownsLocalModelManager = localModelManager is null;
+        _managedRuntimeManager = managedRuntimeManager ?? new ManagedModelRuntimeManager();
+        _ownsManagedRuntimeManager = managedRuntimeManager is null;
+        if (localModelOrchestrator is null)
+        {
+            _localModelOrchestrator = new LocalModelOrchestrator(
+                _localModelManager,
+                _managedRuntimeManager);
+            _ownsLocalModelOrchestrator = true;
+            _defaultManagedOrchestrator = (LocalModelOrchestrator)_localModelOrchestrator;
+        }
+        else
+        {
+            _localModelOrchestrator = localModelOrchestrator;
+            _ownsLocalModelOrchestrator = false;
+        }
+
         _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
         _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("VoxLink.Engine/1.0");
-        _asrFactory = new AsrRecognizerFactory(_httpClient);
-        _translationFactory = new TranslationServiceFactory(_httpClient, _localModelManager);
+        _asrFactory = new AsrRecognizerFactory(
+            _httpClient,
+            new WhisperSpeechRecognizer(),
+            new ClientAsrWebSocketFactory(),
+            _localModelManager,
+            managedOrchestrator: _defaultManagedOrchestrator);
+        _translationFactory = new TranslationServiceFactory(
+            _httpClient,
+            _localModelManager,
+            _defaultManagedOrchestrator);
         _textToSpeech = new HybridTextToSpeechService(
             _httpClient,
             enableEdgeTts: true,
-            _localModelManager);
+            _localModelManager,
+            _defaultManagedOrchestrator);
         _session = new TranslationSession(_asrFactory, _translationFactory, _textToSpeech);
         _vrChatOsc.SendFailed += OnVrChatOscSendFailed;
         if (startUiHost)
@@ -74,6 +120,7 @@ internal sealed class EngineHost : IAsyncDisposable
         _session.WarningOccurred += OnWarningOccurred;
         _session.ModelProgress += OnModelProgress;
         _localModelManager.ModelProgress += OnLocalModelProgress;
+        _managedRuntimeManager.RuntimeProgress += OnManagedRuntimeProgress;
     }
 
     public bool ShouldShutdown { get; private set; }
@@ -85,14 +132,39 @@ internal sealed class EngineHost : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         using var request = EnterRequest();
+        if (method.Equals("shutdown", StringComparison.Ordinal))
+        {
+            _shutdownCancellation.Cancel();
+            return await HandleCoreAsync(
+                method,
+                parameters,
+                serializerOptions,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken,
             _shutdownCancellation.Token);
-        return await HandleCoreAsync(
-            method,
-            parameters,
-            serializerOptions,
-            linkedCancellation.Token).ConfigureAwait(false);
+        try
+        {
+            return await HandleCoreAsync(
+                method,
+                parameters,
+                serializerOptions,
+                linkedCancellation.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (ManagedRuntimeException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (IsManagedRuntimeMethod(method))
+        {
+            throw new ManagedRuntimeException("托管模型运行时操作失败，请重试或修复运行时。", exception);
+        }
     }
 
     private async Task<object?> HandleCoreAsync(
@@ -104,177 +176,320 @@ internal sealed class EngineHost : IAsyncDisposable
         switch (method)
         {
             case "initialize":
+                return await RunSessionModelOperationAsync(
+                    () =>
+                    {
+                        ApplySettings(ReadSettings(parameters, serializerOptions));
+                        return Task.FromResult<object?>(GetBootstrap());
+                    },
+                    cancellationToken);
             case "configure":
-                ApplySettings(ReadSettings(parameters, serializerOptions));
-                return GetBootstrap();
+                return await RunSessionModelOperationAsync(
+                    () =>
+                    {
+                        ApplySettings(
+                            ReadSettings(parameters, serializerOptions),
+                            applyTextToSpeech: !_session.IsRunning);
+                        return Task.FromResult<object?>(GetBootstrap());
+                    },
+                    cancellationToken);
             case "getBootstrap":
                 return GetBootstrap();
             case "startSession":
-                ApplySettings(ReadSettings(parameters, serializerOptions));
-                await _session.StartAsync(_settings, cancellationToken);
-                return new { running = _session.IsRunning };
+            {
+                var running = await RunSessionModelOperationAsync(async () =>
+                {
+                    ApplySettings(ReadSettings(parameters, serializerOptions));
+                    await _session.StartAsync(_settings, cancellationToken);
+                    return _session.IsRunning;
+                }, cancellationToken);
+                return new { running };
+            }
             case "stopSession":
-                await _session.StopAsync();
+            {
+                await RunSessionModelOperationAsync(async () =>
+                {
+                    await _session.StopAsync();
+                    _textToSpeech.Configure(_settings);
+                    return false;
+                }, cancellationToken);
                 return new { running = false };
+            }
             case "translate":
             {
-                ApplyOptionalSettings(parameters, serializerOptions);
-                var text = ReadString(parameters, "text");
-                return await _session.TranslateTypedTextAsync(text, _settings, cancellationToken);
+                return await RunSessionModelOperationAsync(async () =>
+                {
+                    ApplyOptionalSettings(parameters, serializerOptions);
+                    var text = ReadString(parameters, "text");
+                    return await _session.TranslateTypedTextAsync(
+                        text, _settings, cancellationToken);
+                }, cancellationToken);
             }
             case "generate":
             {
-                ApplyOptionalSettings(parameters, serializerOptions);
-                var prompt = ReadString(parameters, "prompt");
-                var chatService = _translationFactory.CreateChatService(_settings);
-                string generated;
-                try
+                return await RunSessionModelOperationAsync(async () =>
                 {
-                    generated = await chatService.GenerateAsync(prompt, cancellationToken);
-                }
-                finally
-                {
-                    (chatService as IDisposable)?.Dispose();
-                }
-                if (_settings.VrChatChatboxEnabled)
-                {
-                    _vrChatOsc.TryQueue(VrChatOscSender.ComposeTranslation(
-                        generated,
-                        prompt,
-                        _settings.VrChatIncludeSourceText));
-                }
-                if (ReadBool(parameters, "speak"))
-                {
-                    var speech = ResolveGeneratedSpeech(prompt, generated, _settings);
-                    await _textToSpeech.SpeakAsync(
-                        speech.Text,
-                        speech.Language,
-                        _settings.VoiceOutputDeviceId,
-                        cancellationToken);
-                }
+                    ApplyOptionalSettings(parameters, serializerOptions);
+                    var effectiveSettings = _session.GetEffectiveSettingsSnapshot(_settings);
+                    var prompt = ReadString(parameters, "prompt");
+                    var chatService = _translationFactory.CreateChatService(effectiveSettings);
+                    if (chatService is null)
+                    {
+                        throw new InvalidOperationException("当前翻译模型不支持文本生成。");
+                    }
 
-                return new { text = generated };
+                    string generated;
+                    try
+                    {
+                        generated = await chatService.GenerateAsync(prompt, cancellationToken);
+                    }
+                    finally
+                    {
+                        await DisposeServiceAsync(chatService);
+                    }
+                    if (effectiveSettings.VrChatChatboxEnabled)
+                    {
+                        _vrChatOsc.TryQueue(VrChatOscSender.ComposeTranslation(
+                            generated,
+                            prompt,
+                            effectiveSettings.VrChatIncludeSourceText));
+                    }
+                    if (ReadBool(parameters, "speak"))
+                    {
+                        var speech = ResolveGeneratedSpeech(
+                            prompt, generated, effectiveSettings);
+                        await _textToSpeech.SpeakAsync(
+                            speech.Text,
+                            speech.Language,
+                            effectiveSettings.VoiceOutputDeviceId,
+                            cancellationToken);
+                    }
+
+                    return (object?)new { text = generated };
+                }, cancellationToken);
             }
             case "speak":
             {
-                ApplyOptionalSettings(parameters, serializerOptions);
-                var text = ReadString(parameters, "text");
-                var languageCode = TryReadString(parameters, "languageCode")
-                    ?? _settings.OtherLanguageCode;
-                await _textToSpeech.SpeakAsync(
-                    text,
-                    LanguageCatalog.Get(languageCode),
-                    _settings.VoiceOutputDeviceId,
-                    cancellationToken);
-                return new { spoken = true };
+                return await RunSessionModelOperationAsync(async () =>
+                {
+                    ApplyOptionalSettings(parameters, serializerOptions);
+                    var effectiveSettings = _session.GetEffectiveSettingsSnapshot(_settings);
+                    var text = ReadString(parameters, "text");
+                    var languageCode = TryReadString(parameters, "languageCode")
+                        ?? effectiveSettings.OtherLanguageCode;
+                    await _textToSpeech.SpeakAsync(
+                        text,
+                        LanguageCatalog.Get(languageCode),
+                        effectiveSettings.VoiceOutputDeviceId,
+                        cancellationToken);
+                    return (object?)new { spoken = true };
+                }, cancellationToken);
             }
             case "prepareModel":
-                ApplyOptionalSettings(parameters, serializerOptions);
-                await _asrFactory.PrepareAsync(_settings, cancellationToken);
-                return new { ready = true };
+                return await RunSessionModelOperationAsync(async () =>
+                {
+                    ApplyOptionalSettings(parameters, serializerOptions);
+                    await _asrFactory.PrepareAsync(_settings, cancellationToken);
+                    return (object?)new { ready = true };
+                }, cancellationToken);
             case "listLocalModels":
                 return HandleListLocalModels();
             case "installLocalModel":
             {
                 var modelId = ReadString(parameters, "modelId");
-                _translationFactory.UnloadIdleLocalRuntimes();
-                _textToSpeech.UnloadIdleLocalRuntimes();
-                await _localModelManager.InstallAsync(modelId, cancellationToken);
-                return new
+                return await RunSessionModelOperationAsync(async () =>
                 {
-                    installed = true,
-                    installState = _localModelManager.GetStatus(modelId)
-                        .ToString().ToLowerInvariant()
-                };
+                    _translationFactory.UnloadIdleLocalRuntimes();
+                    _textToSpeech.UnloadIdleLocalRuntimes();
+                    await _localModelManager.InstallAsync(modelId, cancellationToken);
+                    return (object?)new
+                    {
+                        installed = true,
+                        installState = _localModelManager.GetStatus(modelId)
+                            .ToString().ToLowerInvariant()
+                    };
+                }, cancellationToken);
             }
             case "removeLocalModel":
             {
                 var modelId = ReadString(parameters, "modelId");
-                _translationFactory.UnloadIdleLocalRuntimes();
-                _textToSpeech.UnloadIdleLocalRuntimes();
-                var removed = await _localModelManager.RemoveAsync(modelId, cancellationToken);
-                return new { removed };
+                return await RunSessionModelOperationAsync(async () =>
+                {
+                    if (await _session.UsesLocalModelAsync(modelId, cancellationToken))
+                    {
+                        throw new InvalidOperationException("当前会话仍在使用该模型，请先停止翻译。");
+                    }
+                    _translationFactory.UnloadIdleLocalRuntimes();
+                    _textToSpeech.UnloadIdleLocalRuntimes();
+                    var removed = await _localModelManager.RemoveAsync(modelId, cancellationToken);
+                    return (object?)new { removed };
+                }, cancellationToken);
+            }
+            case "listManagedRuntimes":
+                return HandleListManagedRuntimes();
+            case "probeManagedRuntime":
+            {
+                var runtimeProfileId = ReadString(parameters, "runtimeProfileId");
+                return await _managedRuntimeManager.ProbeAsync(
+                    runtimeProfileId,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            case "prepareManagedRuntime":
+            {
+                var runtimeProfileId = ReadString(parameters, "runtimeProfileId");
+                return await RunSessionModelOperationAsync(
+                    async () => await _managedRuntimeManager.PrepareAsync(
+                        runtimeProfileId,
+                        cancellationToken).ConfigureAwait(false),
+                    cancellationToken);
+            }
+            case "cancelManagedRuntimePreparation":
+            {
+                var runtimeProfileId = ReadString(parameters, "runtimeProfileId");
+                var cancelled = _managedRuntimeManager.CancelPreparation(runtimeProfileId);
+                return new { cancelled };
+            }
+            case "removeManagedRuntime":
+            {
+                var runtimeProfileId = ReadString(parameters, "runtimeProfileId");
+                return await RunSessionModelOperationAsync(async () =>
+                {
+                    if (_session.IsRunning)
+                    {
+                        throw new InvalidOperationException("当前翻译会话正在运行，请先停止翻译。");
+                    }
+
+                    var removed = await _managedRuntimeManager.RemoveAsync(
+                        runtimeProfileId,
+                        cancellationToken).ConfigureAwait(false);
+                    return (object?)new { removed };
+                }, cancellationToken);
             }
             case "testTranslation":
             {
-                ApplyOptionalSettings(parameters, serializerOptions);
-                var translator = _translationFactory.Create(_settings);
-                string translated;
-                try
+                return await RunSessionModelOperationAsync(async () =>
                 {
-                    translated = await translator.TranslateAsync(
-                        "Connection test",
-                        LanguageCatalog.Get("en"),
-                        LanguageCatalog.Get("zh"),
-                        cancellationToken);
-                }
-                finally
-                {
-                    (translator as IDisposable)?.Dispose();
-                }
-                return new { translated };
+                    ApplyOptionalSettings(parameters, serializerOptions);
+                    var translator = _translationFactory.Create(_settings);
+                    string translated;
+                    try
+                    {
+                        translated = await translator.TranslateAsync(
+                            "Connection test",
+                            LanguageCatalog.Get("en"),
+                            LanguageCatalog.Get("zh"),
+                            cancellationToken);
+                    }
+                    finally
+                    {
+                        await DisposeServiceAsync(translator);
+                    }
+                    return (object?)new { translated };
+                }, cancellationToken);
             }
             case "testSpeech":
-                ApplyOptionalSettings(parameters, serializerOptions);
-                await _textToSpeech.SpeakAsync(
-                    "语音服务连接测试",
-                    LanguageCatalog.Get("zh"),
-                    outputDeviceId: string.Empty,
-                    cancellationToken);
-                return new { spoken = true, outputDevice = "default" };
+                return await RunSessionModelOperationAsync(async () =>
+                {
+                    ApplyOptionalSettings(parameters, serializerOptions);
+                    await _textToSpeech.SpeakAsync(
+                        "语音服务连接测试",
+                        LanguageCatalog.Get("zh"),
+                        outputDeviceId: string.Empty,
+                        cancellationToken);
+                    return (object?)new { spoken = true, outputDevice = "default" };
+                }, cancellationToken);
             case "testVoiceOutput":
             {
-                ApplyOptionalSettings(parameters, serializerOptions);
-                var language = _settings.OutboundSpeechContent == OutboundSpeechContent.Original
-                    ? LanguageCatalog.Get(_settings.MyLanguageCode)
-                    : LanguageCatalog.Get(_settings.OtherLanguageCode);
-                await _textToSpeech.SpeakAsync(
-                    VoiceOutputTestText(language),
-                    language,
-                    _settings.VoiceOutputDeviceId,
-                    cancellationToken);
-                return new { spoken = true, deviceId = _settings.VoiceOutputDeviceId };
+                return await RunSessionModelOperationAsync(async () =>
+                {
+                    ApplyOptionalSettings(parameters, serializerOptions);
+                    var language = _settings.OutboundSpeechContent == OutboundSpeechContent.Original
+                        ? LanguageCatalog.Get(_settings.MyLanguageCode)
+                        : LanguageCatalog.Get(_settings.OtherLanguageCode);
+                    await _textToSpeech.SpeakAsync(
+                        VoiceOutputTestText(language),
+                        language,
+                        _settings.VoiceOutputDeviceId,
+                        cancellationToken);
+                    return (object?)new
+                    {
+                        spoken = true,
+                        deviceId = _settings.VoiceOutputDeviceId
+                    };
+                }, cancellationToken);
             }
             case "testVrChatOsc":
             {
-                ApplyOptionalSettings(parameters, serializerOptions);
-                if (_vrChatOscConfigurationError is not null)
+                return await RunSessionModelOperationAsync(async () =>
                 {
-                    throw new InvalidOperationException(
-                        "VRChat OSC 配置无效。",
-                        _vrChatOscConfigurationError);
-                }
+                    ApplyOptionalSettings(parameters, serializerOptions);
+                    if (_vrChatOscConfigurationError is not null)
+                    {
+                        throw new InvalidOperationException(
+                            "VRChat OSC 配置无效。",
+                            _vrChatOscConfigurationError);
+                    }
 
-                var text = TryReadString(parameters, "text") ?? "VoxLink VRChat OSC test";
-                await _vrChatOsc.SendTestAsync(text, cancellationToken: cancellationToken);
-                return new
-                {
-                    sent = true,
-                    address = _settings.VrChatOscAddress,
-                    port = _settings.VrChatOscPort
-                };
+                    var text = TryReadString(parameters, "text")
+                        ?? "VoxLink VRChat OSC test";
+                    await _vrChatOsc.SendTestAsync(
+                        text, cancellationToken: cancellationToken);
+                    return (object?)new
+                    {
+                        sent = true,
+                        address = _settings.VrChatOscAddress,
+                        port = _settings.VrChatOscPort
+                    };
+                }, cancellationToken);
             }
             case "testVrOverlay":
-            {
-                ApplyOptionalSettings(parameters, serializerOptions);
-                var status = _uiHost?.TestVrOverlay() ?? "SteamVR 字幕宿主未启动";
-                return new { status };
-            }
+                return await RunSessionModelOperationAsync(
+                    () =>
+                    {
+                        ApplyOptionalSettings(parameters, serializerOptions);
+                        var status = _uiHost?.TestVrOverlay() ?? "SteamVR 字幕宿主未启动";
+                        return Task.FromResult<object?>(new { status });
+                    },
+                    cancellationToken);
             case "testDesktopOverlay":
-                ApplyOptionalSettings(parameters, serializerOptions);
-                return new
-                {
-                    status = _uiHost?.TestDesktopOverlay() ?? "桌面字幕宿主未启动"
-                };
+                return await RunSessionModelOperationAsync(
+                    () =>
+                    {
+                        ApplyOptionalSettings(parameters, serializerOptions);
+                        var status = _uiHost?.TestDesktopOverlay() ?? "桌面字幕宿主未启动";
+                        return Task.FromResult<object?>(new { status });
+                    },
+                    cancellationToken);
             case "shutdown":
-                await _session.StopAsync();
-                ShouldShutdown = true;
-                return new { shutdown = true };
+                return await RunSessionModelOperationAsync(async () =>
+                {
+                    await _session.StopAsync();
+                    ShouldShutdown = true;
+                    return (object?)new { shutdown = true };
+                }, cancellationToken);
             default:
                 throw new InvalidOperationException($"未知引擎命令：{method}");
         }
     }
 
+    private static bool IsManagedRuntimeMethod(string method) =>
+        method is "listManagedRuntimes"
+            or "probeManagedRuntime"
+            or "prepareManagedRuntime"
+            or "cancelManagedRuntimePreparation"
+            or "removeManagedRuntime";
+
+    private static async Task DisposeServiceAsync(object service)
+    {
+        if (service is IAsyncDisposable asyncDisposable)
+        {
+            await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+        }
+        else if (service is IDisposable disposable)
+        {
+            disposable.Dispose();
+        }
+    }
     public string Redact(string message) => SecretRedactor.Redact(message, GetSecrets());
 
     public async ValueTask DisposeAsync()
@@ -315,12 +530,23 @@ internal sealed class EngineHost : IAsyncDisposable
             _session.WarningOccurred -= OnWarningOccurred;
             _session.ModelProgress -= OnModelProgress;
             _localModelManager.ModelProgress -= OnLocalModelProgress;
+            _managedRuntimeManager.RuntimeProgress -= OnManagedRuntimeProgress;
             _vrChatOsc.SendFailed -= OnVrChatOscSendFailed;
             await _session.DisposeAsync().ConfigureAwait(false);
-            _translationFactory.Dispose();
+            await _translationFactory.DisposeAsync().ConfigureAwait(false);
             await _vrChatOsc.DisposeAsync().ConfigureAwait(false);
             _uiHost?.Dispose();
             _httpClient.Dispose();
+            if (_ownsLocalModelOrchestrator)
+            {
+                await _localModelOrchestrator.DisposeAsync().ConfigureAwait(false);
+            }
+
+            if (_ownsManagedRuntimeManager)
+            {
+                await _managedRuntimeManager.DisposeAsync().ConfigureAwait(false);
+            }
+
             if (_ownsLocalModelManager)
             {
                 if (_localModelManager is IAsyncDisposable asyncManager)
@@ -332,6 +558,7 @@ internal sealed class EngineHost : IAsyncDisposable
                     disposableManager.Dispose();
                 }
             }
+            _sessionModelGate.Dispose();
             _shutdownCancellation.Dispose();
             _disposeCompletion.TrySetResult();
         }
@@ -367,11 +594,29 @@ internal sealed class EngineHost : IAsyncDisposable
         drained?.TrySetResult();
     }
 
-    private void ApplySettings(AppSettings settings)
+    private async Task<T> RunSessionModelOperationAsync<T>(
+        Func<Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        await _sessionModelGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await operation().ConfigureAwait(false);
+        }
+        finally
+        {
+            _sessionModelGate.Release();
+        }
+    }
+
+    private void ApplySettings(AppSettings settings, bool applyTextToSpeech = true)
     {
         NormalizeSettings(settings);
         _settings = settings.Clone();
-        _textToSpeech.Configure(_settings);
+        if (applyTextToSpeech)
+        {
+            _textToSpeech.Configure(_settings);
+        }
         try
         {
             _vrChatOsc.Configure(
@@ -442,13 +687,15 @@ internal sealed class EngineHost : IAsyncDisposable
         if (parameters.ValueKind == JsonValueKind.Object
             && parameters.TryGetProperty("settings", out _))
         {
-            ApplySettings(ReadSettings(parameters, serializerOptions));
+            ApplySettings(
+                ReadSettings(parameters, serializerOptions),
+                applyTextToSpeech: !_session.IsRunning);
         }
     }
 
     private object GetBootstrap() => new
     {
-        engineVersion = "1.0.0",
+        engineVersion = typeof(EngineHost).Assembly.GetName().Version?.ToString(3) ?? "unknown",
         running = _session.IsRunning,
         languages = LanguageCatalog.All,
         captureDevices = _audioDevices.GetCaptureDevices(),
@@ -732,6 +979,30 @@ internal sealed class EngineHost : IAsyncDisposable
             })
             .ToArray()
     };
+
+    private object HandleListManagedRuntimes() => new
+    {
+        runtimes = _managedRuntimeManager.List()
+            .Select(definition => new
+            {
+                id = definition.Id,
+                platform = definition.Platform.ToString().ToLowerInvariant(),
+                pythonVersion = definition.PythonVersion,
+                requiresNvidiaGpu = definition.RequiresNvidiaGpu,
+                minimumGpuMemoryBytes = definition.MinimumGpuMemoryBytes
+            })
+            .ToArray()
+    };
+
+    private void OnManagedRuntimeProgress(
+        object? sender,
+        ManagedRuntimeProgressEventArgs eventArgs) =>
+        _notify("runtimeProgress", new
+        {
+            runtimeProfileId = eventArgs.RuntimeProfileId,
+            status = eventArgs.Status,
+            progress = eventArgs.Progress
+        });
 
     private void OnModelProgress(object? sender, ModelProgressEventArgs eventArgs) =>
         _notify("modelProgress", CreateModelProgressPayload(

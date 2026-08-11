@@ -336,7 +336,12 @@ internal sealed class StreamingCloudSpeechRecognizer(
 
             foreach (var (name, value) in _settings.AsrHeaders)
             {
-                if (!IsRestrictedHeader(name) && !string.IsNullOrWhiteSpace(value))
+                if (CustomHttpHeaderValidator.IsRestricted(name))
+                {
+                    continue;
+                }
+                CustomHttpHeaderValidator.Validate(name, value);
+                if (!string.IsNullOrWhiteSpace(value))
                 {
                     _socket.SetRequestHeader(name, value);
                 }
@@ -644,11 +649,6 @@ internal sealed class StreamingCloudSpeechRecognizer(
             return new InvalidOperationException(message, exception);
         }
 
-        private static bool IsRestrictedHeader(string name) =>
-            name.Equals("Authorization", StringComparison.OrdinalIgnoreCase)
-            || name.Equals("Content-Type", StringComparison.OrdinalIgnoreCase)
-            || name.Equals("Content-Length", StringComparison.OrdinalIgnoreCase)
-            || name.Equals("Host", StringComparison.OrdinalIgnoreCase);
 
         private static string ReadString(JsonElement json, string name, string fallback = "") =>
             json.ValueKind == JsonValueKind.Object

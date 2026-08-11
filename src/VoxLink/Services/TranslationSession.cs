@@ -74,6 +74,65 @@ public sealed class TranslationSession : IAsyncDisposable
 
     public bool IsRunning => _isRunning;
 
+    public AppSettings GetEffectiveSettingsSnapshot(AppSettings fallback)
+    {
+        ArgumentNullException.ThrowIfNull(fallback);
+        var settings = _settings;
+        return (_isRunning && settings is not null ? settings : fallback).Clone();
+    }
+
+    public async Task<bool> UsesLocalModelAsync(
+        string modelId,
+        CancellationToken cancellationToken = default)
+    {
+        await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var settings = _settings;
+            if (!_isRunning || settings is null)
+            {
+                return false;
+            }
+
+            if (modelId == LocalModelIds.MiniCpm51BGguf)
+            {
+                return settings.TranslationProvider == TranslationProvider.LocalMiniCpm;
+            }
+
+            if (modelId == LocalModelIds.HyMt1518B)
+            {
+                return settings.TranslationProvider == TranslationProvider.ManagedHyMt;
+            }
+
+            if (modelId == LocalModelIds.M2M100418M)
+            {
+                return settings.TranslationProvider == TranslationProvider.ManagedM2M100;
+            }
+
+            if (modelId == LocalModelIds.Small100)
+            {
+                return settings.TranslationProvider == TranslationProvider.ManagedSmall100;
+            }
+            if (modelId == LocalModelIds.Kokoro82M)
+            {
+                return settings.UseLocalKokoroTextToSpeech;
+            }
+
+            var whisperModelId = settings.WhisperModel.Trim().ToLowerInvariant() switch
+            {
+                "base" => LocalModelIds.WhisperBase,
+                "small" => LocalModelIds.WhisperSmall,
+                _ => LocalModelIds.WhisperTiny
+            };
+            return settings.AsrProvider == AsrProvider.LocalWhisper
+                && string.Equals(modelId, whisperModelId, StringComparison.Ordinal);
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
+    }
+
     public async Task StartAsync(AppSettings settings, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -132,59 +191,61 @@ public sealed class TranslationSession : IAsyncDisposable
             throw new ArgumentException("请输入要翻译的内容。", nameof(text));
         }
 
-        if (_textToSpeech is IConfigurableTextToSpeechService configurableSpeech)
+        var effectiveSettings = GetEffectiveSettingsSnapshot(settings);
+        if (!_isRunning && _textToSpeech is IConfigurableTextToSpeechService configurableSpeech)
         {
-            configurableSpeech.Configure(settings);
+            configurableSpeech.Configure(effectiveSettings);
         }
 
-        var source = LanguageCatalog.Get(settings.MyLanguageCode);
-        var target = LanguageCatalog.Get(settings.OtherLanguageCode);
-        var translator = _translationFactory.Create(settings);
+        var source = LanguageCatalog.Get(effectiveSettings.MyLanguageCode);
+        var target = LanguageCatalog.Get(effectiveSettings.OtherLanguageCode);
+        var translator = _translationFactory.Create(effectiveSettings);
         ITextGenerationService? refinementService = null;
         try
         {
-            if (settings.EnableTranslationRefinement)
-        {
-            refinementService = _translationFactory.CreateChatService(settings);
-        }
+            if (effectiveSettings.EnableTranslationRefinement)
+            {
+                refinementService = _translationFactory.CreateChatService(effectiveSettings);
+            }
 
-        RaiseStatus("正在翻译输入文本", SessionActivity.Translating);
-        var message = await TranslateFinalTextAsync(
-            TranslationDirection.Typed,
-            ChineseTextNormalizer.Normalize(text.Trim(), source),
-            source,
-            target,
-            settings,
-            translator,
-            refinementService,
-            speaker: null,
-            cancellationToken).ConfigureAwait(false);
-        MessageReceived?.Invoke(this, message);
-
-        if (ShouldSpeakTranslation(message, settings))
-        {
-            var (speechText, speechLanguage) = ResolveSpeech(message, settings, source, target);
-            speechText = await PolishSpeechTextAsync(
-                speechText, speechLanguage, message.Direction, settings, cancellationToken).ConfigureAwait(false);
-            RaiseStatus("正在输出语音", SessionActivity.Speaking);
-            await _textToSpeech.SpeakAsync(
-                speechText,
-                speechLanguage,
-                settings.VoiceOutputDeviceId,
+            RaiseStatus("正在翻译输入文本", SessionActivity.Translating);
+            var message = await TranslateFinalTextAsync(
+                TranslationDirection.Typed,
+                ChineseTextNormalizer.Normalize(text.Trim(), source),
+                source,
+                target,
+                effectiveSettings,
+                translator,
+                refinementService,
+                speaker: null,
                 cancellationToken).ConfigureAwait(false);
-        }
+            MessageReceived?.Invoke(this, message);
 
-        RaiseReadyStatus();
+            if (ShouldSpeakTranslation(message, effectiveSettings))
+            {
+                var (speechText, speechLanguage) = ResolveSpeech(
+                    message, effectiveSettings, source, target);
+                speechText = await PolishSpeechTextAsync(
+                    speechText,
+                    speechLanguage,
+                    message.Direction,
+                    effectiveSettings,
+                    cancellationToken).ConfigureAwait(false);
+                RaiseStatus("正在输出语音", SessionActivity.Speaking);
+                await _textToSpeech.SpeakAsync(
+                    speechText,
+                    speechLanguage,
+                    effectiveSettings.VoiceOutputDeviceId,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            RaiseReadyStatus();
             return message;
         }
         finally
         {
-            if (!ReferenceEquals(refinementService, translator))
-            {
-                (refinementService as IDisposable)?.Dispose();
-            }
-
-            (translator as IDisposable)?.Dispose();
+            await DisposeDistinctServicesAsync(
+                translator);
         }
     }
 
@@ -371,7 +432,7 @@ public sealed class TranslationSession : IAsyncDisposable
             await speakerLabeler.DisposeAsync().ConfigureAwait(false);
         }
 
-        DisposeDistinctServices(translator, refinementService, speechRefinementService);
+        await DisposeDistinctServicesAsync(translator, refinementService, speechRefinementService);
         _translationFactory.UnloadIdleLocalRuntimes();
 
         cancellation?.Dispose();
@@ -985,12 +1046,21 @@ public sealed class TranslationSession : IAsyncDisposable
         }
     }
 
-    private static void DisposeDistinctServices(params object?[] services)
+    private static async Task DisposeDistinctServicesAsync(params object?[] services)
     {
         var disposed = new HashSet<object>(ReferenceEqualityComparer.Instance);
         foreach (var service in services)
         {
-            if (service is IDisposable disposable && disposed.Add(service))
+            if (service is null || !disposed.Add(service))
+            {
+                continue;
+            }
+
+            if (service is IAsyncDisposable asyncDisposable)
+            {
+                await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+            }
+            else if (service is IDisposable disposable)
             {
                 disposable.Dispose();
             }

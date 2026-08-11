@@ -1,0 +1,11 @@
+# VoxLink managed WSL2 Linux 310 CosyVoice2 stack (T5).
+#
+# BLOCKED upstream for the binary-only supply chain: the pinned CosyVoice
+# inference stack requires omegaconf 2.3.x -> antlr4-python3-runtime==4.9.*
+# (sdist-only, no cp310 manylinux wheel) and openai-whisper (sdist-only).
+# A hash-locked --only-binary=:all: install cannot satisfy these today.
+# The CosyVoice2 adapter reports the precise missing-dependency state until
+# either upstream publishes wheels or the adapter moves to the ONNX exports
+# (flow.decoder.estimator.fp32.onnx / speech_tokenizer_v2.onnx) that do not
+# import the repo's torch flow module.
+packaging==25.0 --hash=sha256:29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484

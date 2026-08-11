@@ -18,6 +18,10 @@
           Link="openvr_api.dll"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" />
+    <None Include="ModelHost\**\*"
+          Exclude="ModelHost\**\__pycache__\**;ModelHost\**\*.pyc;ModelHost\**\.ruff_cache\**"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -4,6 +4,9 @@ public enum TranslationProvider
 {
     GoogleWeb,
     LocalMiniCpm,
+    ManagedHyMt,
+    ManagedM2M100,
+    ManagedSmall100,
     OpenAiCompatible,
     DashScope,
     DeepSeek,
@@ -24,6 +27,8 @@ public enum AsrProvider
 public enum AsrProtocol
 {
     LocalWhisper,
+    LocalSenseVoice,
+    LocalManagedMoss,
     DashScopeStreaming,
     SonioxStreaming,
     OpenAiMultipart,
@@ -41,6 +46,12 @@ public enum OutboundSpeechContent
 {
     Translation,
     Original
+}
+
+public enum ManagedTtsModel
+{
+    DotsTts,
+    Qwen3Tts
 }
 
 public sealed class AppSettings
@@ -110,6 +121,12 @@ public sealed class AppSettings
     public bool UseRemoteTextToSpeech { get; set; }
 
     public bool UseLocalKokoroTextToSpeech { get; set; }
+
+    public ManagedTtsModel? ManagedTtsModel { get; set; }
+
+    public string ManagedTtsReferenceAudioPath { get; set; } = string.Empty;
+
+    public string ManagedTtsReferenceText { get; set; } = string.Empty;
 
     public int KokoroSpeakerId { get; set; } = 3;
 

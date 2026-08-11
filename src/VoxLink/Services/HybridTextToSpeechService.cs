@@ -17,6 +17,10 @@ public sealed class HybridTextToSpeechService :
     private readonly HttpClient _httpClient;
     private readonly RemoteTextToSpeechClient _remoteClient;
     private readonly LocalKokoroTtsRuntime? _localKokoroRuntime;
+    private readonly LocalModelOrchestrator? _managedOrchestrator;
+    private ManagedModelHostTtsSynthesizer? _managedTts;
+
+    public ManagedTtsModel? ManagedModel => _managedTts?.Model;
     private readonly bool _enableEdgeTts;
     private readonly SemaphoreSlim _speechGate = new(1, 1);
     private readonly TaskCompletionSource _disposeCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -40,11 +44,13 @@ public sealed class HybridTextToSpeechService :
     internal HybridTextToSpeechService(
         HttpClient httpClient,
         bool enableEdgeTts,
-        ILocalModelManager? localModelManager)
+        ILocalModelManager? localModelManager,
+        LocalModelOrchestrator? managedOrchestrator = null)
     {
         _httpClient = httpClient;
         _remoteClient = new RemoteTextToSpeechClient(httpClient);
         _localKokoroRuntime = localModelManager is null ? null : new LocalKokoroTtsRuntime(localModelManager);
+        _managedOrchestrator = managedOrchestrator;
         _enableEdgeTts = enableEdgeTts;
     }
 
@@ -71,6 +77,25 @@ public sealed class HybridTextToSpeechService :
         if (!snapshot.UseLocalKokoroTextToSpeech)
         {
             _localKokoroRuntime?.UnloadWhenIdle();
+        }
+        lock (_playbackSync)
+        {
+            var desiredManagedModel = snapshot.ManagedTtsModel;
+            if (desiredManagedModel is ManagedTtsModel desired && _managedOrchestrator is not null)
+            {
+                if (_managedTts is null || _managedTts.Model != desired)
+                {
+                    _managedTts?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                    _managedTts = new ManagedModelHostTtsSynthesizer(
+                        _managedOrchestrator,
+                        desired);
+                }
+            }
+            else
+            {
+                _managedTts?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                _managedTts = null;
+            }
         }
     }
 
@@ -159,6 +184,24 @@ public sealed class HybridTextToSpeechService :
                     return;
                 }
 
+                if (settings.ManagedTtsModel is { } managedModel)
+                {
+                    var managed = _managedTts
+                        ?? throw new InvalidOperationException("托管语音模型未配置。");
+                    var (wavPath, _) = await managed.SynthesizeAsync(
+                        text,
+                        language,
+                        string.IsNullOrWhiteSpace(settings.ManagedTtsReferenceAudioPath)
+                            ? null
+                            : settings.ManagedTtsReferenceAudioPath,
+                        string.IsNullOrWhiteSpace(settings.ManagedTtsReferenceText)
+                            ? null
+                            : settings.ManagedTtsReferenceText,
+                        linkedCancellation.Token);
+                    using var reader = new AudioFileReader(wavPath);
+                    await PlayAsync(reader, outputDeviceId, linkedCancellation.Token);
+                    return;
+                }
                 if (settings.UseRemoteTextToSpeech)
                 {
                     try
@@ -270,6 +313,8 @@ public sealed class HybridTextToSpeechService :
                     _activeSpeech?.Dispose();
                     _activeSpeech = null;
                     _localKokoroRuntime?.Dispose();
+                    _managedTts?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                    _managedTts = null;
                     _isSpeaking = false;
                 }
             }

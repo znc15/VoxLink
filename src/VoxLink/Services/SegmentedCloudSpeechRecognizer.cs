@@ -138,9 +138,15 @@ internal sealed class SegmentedCloudSpeechRecognizer(
 
         foreach (var (name, value) in _settings.AsrHeaders)
         {
-            if (!IsRestrictedHeader(name) && !string.IsNullOrWhiteSpace(value))
+            if (CustomHttpHeaderValidator.IsRestricted(name))
             {
-                request.Headers.TryAddWithoutValidation(name, value);
+                continue;
+            }
+            CustomHttpHeaderValidator.Validate(name, value);
+            if (!string.IsNullOrWhiteSpace(value)
+                && !request.Headers.TryAddWithoutValidation(name, value))
+            {
+                throw new InvalidOperationException($"无法添加自定义请求头：{name}");
             }
         }
 
@@ -275,11 +281,6 @@ internal sealed class SegmentedCloudSpeechRecognizer(
         return text.Length == 0 ? null : text.ToString();
     }
 
-    private static bool IsRestrictedHeader(string name) =>
-        name.Equals("Authorization", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("Content-Type", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("Content-Length", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("Host", StringComparison.OrdinalIgnoreCase);
 
     private static string Trim(string value, int maximumLength) =>
         value.Length <= maximumLength ? value : value[..maximumLength] + "…";

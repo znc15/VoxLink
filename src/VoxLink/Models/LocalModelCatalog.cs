@@ -22,15 +22,12 @@ public static class LocalModelIds
 }
 
 /// <summary>
-/// 本地模型调研目录（≤2B）。Stable 条目均固定下载 revision、字节数与 SHA-256，
-/// 并通过 Windows 原生运行时接入；CatalogOnly 条目只展示核验后的兼容性信息。
-/// 安装状态始终以磁盘工件校验结果为准。
+/// 所有可安装条目都固定下载 revision、字节数与 SHA-256；Stable 使用随应用发布或
+/// 隔离的 Windows 运行时，Experimental 还要求许可证、WSL/GPU或授权声音资料。
+/// 安装状态始终以磁盘工件校验结果为准，运行环境就绪状态由 orchestrator 单独报告。
 /// </summary>
-public static class LocalModelCatalog
+public static partial class LocalModelCatalog
 {
-    /// <summary>下一里程碑提示（CatalogOnly 条目的不可用原因统一引用）。</summary>
-    private const string NextMilestone = "计划在下一里程碑接入对应运行时后提供一键部署";
-
     private static IReadOnlyList<LocalModelArtifact> KokoroArtifacts { get; } =
     [
         ArchiveArtifact("model.int8.onnx", 114_299_010, "bda15858163726a492d02a9a727bc263551b86ac77f90812c4b30ff41d380e26"),
@@ -74,24 +71,14 @@ public static class LocalModelCatalog
             0.244,
             487_601_967,
             "中文识别质量更好，建议内存 ≥ 4 GB。"),
-        new()
-        {
-            Id = LocalModelIds.WhisperLargeV3Turbo,
-            Name = "Whisper large-v3-turbo",
-            Category = LocalModelCategory.Asr,
-            SupportLevel = LocalModelSupportLevel.CatalogOnly,
-            Runtime = LocalModelRuntimeKind.WhisperCpp,
-            InstallKind = LocalModelInstallKind.WhisperGgml,
-            Parameters = "约 809M",
-            NumericParameterBillions = 0.809,
-            License = "MIT",
-            Languages = "多语言（约 100 种，中文/英语为主）",
-            Requirements = "CPU 推理，建议内存 ≥ 6 GB",
-            SourceUrl = "https://huggingface.co/openai/whisper-large-v3-turbo",
-            Description = "large-v3 的解码器精简版，质量接近 large-v3 而速度显著提升，是本地 ASR 的高质量候选。",
-            UnavailableReason = "当前本地 Whisper 集成仅内置 tiny/base/small 的固定源下载与 SHA-256 校验，large-v3-turbo 安装器待后续里程碑接入。",
-            WhisperModelName = null
-        },
+        Whisper(
+            LocalModelIds.WhisperLargeV3Turbo,
+            "Whisper large-v3-turbo",
+            "large-v3-turbo",
+            "约 809M",
+            0.809,
+            1_624_555_275,
+            "large-v3 的解码器精简版，质量接近 large-v3，适合高质量本地识别；建议内存 ≥ 6 GB。"),
         new()
         {
             Id = LocalModelIds.MiniCpm51BGguf,
@@ -122,51 +109,60 @@ public static class LocalModelCatalog
             Id = LocalModelIds.HyMt1518B,
             Name = "腾讯混元翻译 HY-MT1.5-1.8B",
             Category = LocalModelCategory.Translation,
-            SupportLevel = LocalModelSupportLevel.CatalogOnly,
-            Runtime = LocalModelRuntimeKind.LlamaCppGguf,
-            InstallKind = LocalModelInstallKind.Archive,
-            Parameters = "约 1.8B（官方口径）",
+            SupportLevel = LocalModelSupportLevel.Experimental,
+            Runtime = LocalModelRuntimeKind.ManagedPython,
+            InstallKind = LocalModelInstallKind.ManifestFiles,
+            Parameters = "约 1.8B（BF16）",
             NumericParameterBillions = 1.8,
             License = "Tencent HY Community License（非 OSI；不适用于欧盟、英国和韩国）",
             Languages = "33 种语言互译 + 5 种方言变体（含粤语、繁体中文、藏语等）",
-            Requirements = "官方 safetensors/Python 推理；原生 Windows 无受支持的一键运行时",
+            Requirements = "应用托管 Windows Python 3.12/transformers 4.56，建议内存 ≥ 8 GB",
             SourceUrl = "https://huggingface.co/tencent/HY-MT1.5-1.8B",
-            Description = "腾讯混元翻译 1.5 系列的 1.8B 规格，支持术语干预与混合语言场景；许可证含明确地域限制。",
-            UnavailableReason = "Tencent HY Community License 有地域限制，且官方权重需要 Python/transformers；本项目不提供虚假的原生 Windows 安装入口。"
+            Description = "腾讯混元翻译 1.5 系列的 1.8B 规格，支持术语干预与混合语言场景；安装前必须确认许可证和适用地区。",
+            RuntimeProfileId = ManagedRuntimeCatalog.WindowsTranslation,
+            LicenseAgreementId = "tencent-hy-community-license-d7d9db858500ac90",
+            RequiredFreeSpaceBytes = 10L * 1024 * 1024 * 1024,
+            Artifacts = HyMtArtifacts()
         },
         new()
         {
             Id = LocalModelIds.DotsTts,
             Name = "dots.tts",
             Category = LocalModelCategory.Tts,
-            SupportLevel = LocalModelSupportLevel.CatalogOnly,
-            Runtime = LocalModelRuntimeKind.None,
-            InstallKind = LocalModelInstallKind.Archive,
-            Parameters = "约 2B（官方口径）",
+            SupportLevel = LocalModelSupportLevel.Experimental,
+            Runtime = LocalModelRuntimeKind.ManagedWslCuda,
+            InstallKind = LocalModelInstallKind.ManifestFiles,
+            Parameters = "约 2B",
             NumericParameterBillions = 2.0,
             License = "Apache-2.0",
             Languages = "中文/英语，支持 3 秒参考音频克隆音色",
-            Requirements = "官方 Python/PyTorch 推理；NVIDIA GPU 显存约 5.3–10.5 GB（随音频长度增长）",
+            Requirements = "私有 WSL2 + NVIDIA GPU（建议显存 ≥ 11 GB）+ 应用托管 Python 3.10",
             SourceUrl = "https://huggingface.co/rednote-hilab/dots.tts-base",
-            Description = "小红书 rednote-hilab 的 2B 端到端自回归 TTS：语义编码器 + LLM + 流匹配声学头，48 kHz AudioVAE，支持授权参考音频的声音克隆。",
-            UnavailableReason = "官方链路依赖 Python/PyTorch 与 NVIDIA GPU，未提供可供 VoxLink 原生 Windows CPU 使用的 ONNX/sherpa 工件，因此仅展示兼容性信息。"
+            Description = "2B 端到端声音克隆 TTS；必须使用本人或已获明确授权的参考音频和准确文本。",
+            RuntimeProfileId = ManagedRuntimeCatalog.WslDotsTts,
+            RequiresVoiceProfile = true,
+            AllowsLargeArtifacts = true,
+            RequiredFreeSpaceBytes = 14L * 1024 * 1024 * 1024,
+            Artifacts = DotsTtsArtifacts()
         },
         new()
         {
             Id = LocalModelIds.MossTranscribeDiarize,
             Name = "MOSS-Transcribe-Diarize",
             Category = LocalModelCategory.Asr,
-            SupportLevel = LocalModelSupportLevel.CatalogOnly,
-            Runtime = LocalModelRuntimeKind.None,
-            InstallKind = LocalModelInstallKind.Archive,
+            SupportLevel = LocalModelSupportLevel.Experimental,
+            Runtime = LocalModelRuntimeKind.ManagedWslCuda,
+            InstallKind = LocalModelInstallKind.ManifestFiles,
             Parameters = "约 0.9B",
             NumericParameterBillions = 0.9,
             License = "Apache-2.0",
             Languages = "50+ 种语言（中文/英语重点），输出说话人标签与时间戳",
-            Requirements = "官方推荐 SGLang Omni（CUDA 13）或 vLLM（CUDA 12/13）服务",
+            Requirements = "私有 WSL2 + NVIDIA GPU（显存 ≥ 6 GB）+ 应用托管 Python 3.12",
             SourceUrl = "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize",
-            Description = "OpenMOSS 的 0.9B 长音频模型，可同时输出转写、说话人分离、时间戳与声学事件。",
-            UnavailableReason = "官方部署依赖 Python 与 CUDA 服务栈，当前无适合 VoxLink 无 Python 原生 Windows 侧车的受支持运行时，因此仅展示目录信息。"
+            Description = "长音频转写、匿名说话人分离、时间戳与声学事件模型；speaker 标签不表示实名身份。",
+            RuntimeProfileId = ManagedRuntimeCatalog.WslMoss,
+            RequiredFreeSpaceBytes = 8L * 1024 * 1024 * 1024,
+            Artifacts = MossArtifacts()
         },
         new()
         {
@@ -196,85 +192,105 @@ public static class LocalModelCatalog
             Id = LocalModelIds.CosyVoice205B,
             Name = "CosyVoice2-0.5B",
             Category = LocalModelCategory.Tts,
-            SupportLevel = LocalModelSupportLevel.CatalogOnly,
-            Runtime = LocalModelRuntimeKind.None,
-            InstallKind = LocalModelInstallKind.Archive,
+            SupportLevel = LocalModelSupportLevel.Experimental,
+            Runtime = LocalModelRuntimeKind.ManagedWslCuda,
+            InstallKind = LocalModelInstallKind.ManifestFiles,
             Parameters = "约 0.5B",
             NumericParameterBillions = 0.5,
             License = "Apache-2.0",
             Languages = "中文/英语/日语/韩语/粤语，支持零样本音色克隆与指令控制",
-            Requirements = "PyTorch/transformers 推理，建议内存 ≥ 6 GB",
+            Requirements = "私有 WSL2 + NVIDIA GPU（建议显存 ≥ 8 GB）+ 应用托管 Python 3.10",
             SourceUrl = "https://huggingface.co/FunAudioLLM/CosyVoice2-0.5B",
-            Description = "阿里通义 FunAudioLLM 的流式 TTS 模型，中英日韩粤多语种、3 秒零样本克隆，适合高质量的本地译文朗读。",
-            UnavailableReason = "依赖 PyTorch 推理链路且为多文件权重，下载校验与运行时均未接入，" + NextMilestone + "。"
+            Description = "流式多语声音克隆 TTS；必须使用本人或已获明确授权的参考音频和准确文本。",
+            RuntimeProfileId = ManagedRuntimeCatalog.WslCosyVoice2,
+            RequiresVoiceProfile = true,
+            RequiredFreeSpaceBytes = 12L * 1024 * 1024 * 1024,
+            Artifacts = CosyVoice2Artifacts()
         },
         new()
         {
             Id = LocalModelIds.M2M100418M,
             Name = "M2M-100 418M",
             Category = LocalModelCategory.Translation,
-            SupportLevel = LocalModelSupportLevel.CatalogOnly,
-            Runtime = LocalModelRuntimeKind.None,
-            InstallKind = LocalModelInstallKind.Archive,
+            SupportLevel = LocalModelSupportLevel.Stable,
+            Runtime = LocalModelRuntimeKind.ManagedPython,
+            InstallKind = LocalModelInstallKind.ManifestFiles,
             Parameters = "约 418M",
             NumericParameterBillions = 0.418,
             License = "MIT",
             Languages = "100 种语言直接互译（无需 pivot 语言）",
-            Requirements = "fairseq/transformers CPU 推理，建议内存 ≥ 4 GB",
+            Requirements = "应用托管 Windows Python 3.12/transformers，建议内存 ≥ 4 GB",
             SourceUrl = "https://huggingface.co/facebook/m2m100_418M",
-            Description = "Facebook AI 的 massively multilingual 翻译基线模型，覆盖 100 种语言直译，适合作为小语种离线兜底翻译。",
-            UnavailableReason = "需要 transformers/fairseq 运行时与多文件权重校验清单，尚未接入，" + NextMilestone + "。"
+            Description = "覆盖 100 种语言直接互译的本地专用翻译模型。",
+            RuntimeProfileId = ManagedRuntimeCatalog.WindowsTranslation,
+            RequiredFreeSpaceBytes = 6L * 1024 * 1024 * 1024,
+            Artifacts = M2M100Artifacts()
         },
         new()
         {
             Id = LocalModelIds.Small100,
             Name = "SMaLL-100",
             Category = LocalModelCategory.Translation,
-            SupportLevel = LocalModelSupportLevel.CatalogOnly,
-            Runtime = LocalModelRuntimeKind.None,
-            InstallKind = LocalModelInstallKind.Archive,
+            SupportLevel = LocalModelSupportLevel.Stable,
+            Runtime = LocalModelRuntimeKind.ManagedPython,
+            InstallKind = LocalModelInstallKind.ManifestFiles,
             Parameters = "约 0.33B",
             NumericParameterBillions = 0.33,
             License = "MIT",
             Languages = "100+ 种语言（M2M-100 蒸馏，低资源语言优化）",
-            Requirements = "transformers CPU 推理，建议内存 ≥ 4 GB",
+            Requirements = "应用托管 Windows Python 3.12/transformers，建议内存 ≥ 4 GB",
             SourceUrl = "https://huggingface.co/alirezamsh/small100",
-            Description = "M2M-100 的蒸馏版本（EMNLP 2022），质量接近 M2M-100 而体积更小、推理更快约 4 倍，适合低配置机器的离线多语翻译。",
-            UnavailableReason = "需要 transformers 运行时与多文件权重校验清单，尚未接入，" + NextMilestone + "。"
+            Description = "M2M-100蒸馏模型，适合低配置机器的离线多语翻译。",
+            RuntimeProfileId = ManagedRuntimeCatalog.WindowsTranslation,
+            RequiredFreeSpaceBytes = 5L * 1024 * 1024 * 1024,
+            Artifacts = Small100Artifacts()
         },
         new()
         {
             Id = LocalModelIds.SenseVoiceSmall,
             Name = "SenseVoice-Small",
             Category = LocalModelCategory.Asr,
-            SupportLevel = LocalModelSupportLevel.CatalogOnly,
-            Runtime = LocalModelRuntimeKind.None,
+            SupportLevel = LocalModelSupportLevel.Stable,
+            Runtime = LocalModelRuntimeKind.SherpaOnnxSenseVoice,
             InstallKind = LocalModelInstallKind.Archive,
-            Parameters = "约 234M（与 Whisper-Small 同量级）",
+            Parameters = "约 234M（int8）",
             NumericParameterBillions = 0.234,
             License = "MIT",
             Languages = "中文/英语/日语/韩语/粤语，附带情感与音频事件识别",
-            Requirements = "FunASR/ONNX 推理，CPU 即可",
-            SourceUrl = "https://huggingface.co/FunAudioLLM/SenseVoiceSmall",
-            Description = "阿里 FunAudioLLM 的非自回归多语 ASR，中文字错率优于同量级 Whisper 且推理延迟极低，是本地中文 ASR 的高潜力候选。",
-            UnavailableReason = "需要 FunASR/ONNX Runtime 接入与多文件权重校验清单，尚未接入，" + NextMilestone + "。"
+            Requirements = "sherpa-onnx CPU 推理，建议内存 ≥ 2 GB",
+            SourceUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models",
+            Description = "FunAudioLLM SenseVoice-Small 的 sherpa-onnx int8 导出，在 Windows CPU 上执行低延迟离线识别。",
+            Archive = new LocalModelArchiveSource(
+                "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2",
+                null,
+                165_783_878,
+                "7305f7905bfcf77fa0b39388a313f3da35c68d971661a65475b56fb2162c8e63",
+                "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09"),
+            Artifacts =
+            [
+                ArchiveArtifact("model.int8.onnx", 237_115_547, "12ca1a2ae7ecf3e0019ef2822307ee0b5cadc9196569e379b4c4026f8205276d"),
+                ArchiveArtifact("tokens.txt", 315_894, "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc")
+            ]
         },
         new()
         {
             Id = LocalModelIds.Qwen3Tts17B,
             Name = "Qwen3-TTS 1.7B (Base)",
             Category = LocalModelCategory.Tts,
-            SupportLevel = LocalModelSupportLevel.CatalogOnly,
-            Runtime = LocalModelRuntimeKind.None,
-            InstallKind = LocalModelInstallKind.Archive,
+            SupportLevel = LocalModelSupportLevel.Experimental,
+            Runtime = LocalModelRuntimeKind.ManagedWslCuda,
+            InstallKind = LocalModelInstallKind.ManifestFiles,
             Parameters = "约 1.7B",
             NumericParameterBillions = 1.7,
             License = "Apache-2.0",
             Languages = "中文/英语/日语/韩语等 10 种语言",
-            Requirements = "PyTorch/transformers 推理，建议内存 ≥ 8 GB",
+            Requirements = "私有 WSL2 + NVIDIA GPU（建议显存 ≥ 8 GB）+ 应用托管 Python 3.12",
             SourceUrl = "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base",
-            Description = "通义千问 Qwen3-TTS 系列 1.7B 规格基础权重（12 Hz 音频 tokenizer），另有 CustomVoice/VoiceDesign 变体，适合高质量多语本地朗读。",
-            UnavailableReason = "依赖 PyTorch 推理链路且为多文件权重，下载校验与运行时均未接入，" + NextMilestone + "。"
+            Description = "十语种高质量声音克隆 TTS；必须使用本人或已获明确授权的参考音频和准确文本。",
+            RuntimeProfileId = ManagedRuntimeCatalog.WslQwen3Tts,
+            RequiresVoiceProfile = true,
+            RequiredFreeSpaceBytes = 12L * 1024 * 1024 * 1024,
+            Artifacts = Qwen3TtsArtifacts()
         }
     ];
 

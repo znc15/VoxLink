@@ -3,7 +3,9 @@ using System.Formats.Tar;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Text.Json;
 using SharpCompress.Common;
 using SharpCompress.Compressors;
 using SharpCompress.Compressors.BZip2;
@@ -43,6 +45,7 @@ public interface ILocalModelManager
 public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncDisposable
 {
     public const long MaxArtifactBytes = 4L * 1024 * 1024 * 1024;
+    public const long MaxReviewedArtifactBytes = 8L * 1024 * 1024 * 1024;
     public const long MaxArchiveExpandedBytes = 8L * 1024 * 1024 * 1024;
 
     internal static readonly IReadOnlyList<string> AllowedHosts =
@@ -64,6 +67,7 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
     private readonly string _rootDirectory;
     private readonly bool _ownsHttpClient;
     private readonly TimeSpan _downloadReadTimeout;
+    private readonly Func<string, long> _getAvailableFreeSpaceBytes;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _operationGates =
         new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _whisperInstallGate = new(1, 1);
@@ -95,7 +99,8 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
         IWhisperModelInstaller whisperInstaller,
         HttpClient httpClient,
         bool ownsHttpClient = false,
-        TimeSpan? downloadReadTimeout = null)
+        TimeSpan? downloadReadTimeout = null,
+        Func<string, long>? getAvailableFreeSpaceBytes = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
         ArgumentNullException.ThrowIfNull(catalog);
@@ -107,6 +112,7 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
         _httpClient = httpClient;
         _ownsHttpClient = ownsHttpClient;
         _downloadReadTimeout = downloadReadTimeout ?? DefaultDownloadReadTimeout;
+        _getAvailableFreeSpaceBytes = getAvailableFreeSpaceBytes ?? GetAvailableFreeSpaceBytes;
         if (_downloadReadTimeout <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(
@@ -159,6 +165,8 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
                 return;
             }
 
+            EnsureSufficientDiskSpace(definition);
+
             lock (_stateSync)
             {
                 ThrowIfInUse(definition.Id);
@@ -171,7 +179,8 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
                 case LocalModelInstallKind.WhisperGgml:
                     await InstallWhisperAsync(definition, operationToken).ConfigureAwait(false);
                     break;
-                case LocalModelInstallKind.SingleFile when definition.Artifacts.Count > 0:
+                case LocalModelInstallKind.SingleFile or LocalModelInstallKind.ManifestFiles
+                    when definition.Artifacts.Count > 0:
                     await InstallArtifactsAsync(definition, operationToken).ConfigureAwait(false);
                     break;
                 case LocalModelInstallKind.Archive when definition.Archive is not null
@@ -456,7 +465,8 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
         }
 
         var temporaryPresent = definition.Artifacts.Any(artifact => File.Exists(
-            Path.Combine(modelDirectory, ValidateSafeRelativePath(artifact.RelativePath)) + ".download"));
+            Path.Combine(modelDirectory, ValidateSafeRelativePath(artifact.RelativePath)) + ".download"))
+            || definition.Archive is not null && File.Exists(GetArchiveDownloadPath(definition.Id));
         return present > 0 || temporaryPresent
             ? LocalModelInstallState.Partial
             : LocalModelInstallState.NotInstalled;
@@ -493,10 +503,10 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
     {
         var archive = definition.Archive
             ?? throw new InvalidOperationException($"模型 {definition.Name} 缺少归档来源。");
-        ValidateExpectedSize(archive.ExpectedSize);
+        ValidateExpectedSize(definition, archive.ExpectedSize);
         var installToken = Guid.NewGuid().ToString("N");
         Directory.CreateDirectory(_rootDirectory);
-        var archivePath = Path.Combine(_rootDirectory, $".{definition.Id}-{installToken}.archive.download");
+        var archivePath = GetArchiveDownloadPath(definition.Id);
         var stagingDirectory = Path.Combine(_rootDirectory, $".{definition.Id}-{installToken}.staging");
         var backupDirectory = Path.Combine(_rootDirectory, $".{definition.Id}-{installToken}.backup");
         var modelDirectory = GetModelDirectory(definition.Id);
@@ -550,11 +560,16 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
             }
 
             TryDeleteDirectory(backupDirectory);
+            ResetPartialDownload(archivePath, archivePath + ".resume.json");
             ReportProgress(definition, "模型安装完成并通过校验", 1);
+        }
+        catch (InvalidDataException)
+        {
+            ResetPartialDownload(archivePath, archivePath + ".resume.json");
+            throw;
         }
         finally
         {
-            TryDeleteFile(archivePath);
             TryDeleteDirectory(stagingDirectory);
             if (Directory.Exists(backupDirectory) && !Directory.Exists(modelDirectory))
             {
@@ -574,31 +589,23 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
         int artifactIndex,
         CancellationToken cancellationToken)
     {
-        ValidateExpectedSize(artifact.ExpectedSize);
+        ValidateExpectedSize(definition, artifact.ExpectedSize);
         var temporaryPath = targetPath + ".download";
         Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
-        try
-        {
-            await DownloadVerifiedAsync(
-                definition,
-                artifact.PrimaryUrl,
-                artifact.MirrorUrl,
-                artifact.ExpectedSize,
-                artifact.Sha256,
-                temporaryPath,
-                $"模型工件 {artifactIndex + 1}/{definition.Artifacts.Count}",
-                cancellationToken).ConfigureAwait(false);
-            File.Move(temporaryPath, targetPath, overwrite: true);
-            ReportProgress(
-                definition,
-                $"模型工件 {artifactIndex + 1}/{definition.Artifacts.Count} 下载完成",
-                Math.Min(0.99, (artifactIndex + 1d) / definition.Artifacts.Count));
-        }
-        catch
-        {
-            TryDeleteFile(temporaryPath);
-            throw;
-        }
+        await DownloadVerifiedAsync(
+            definition,
+            artifact.PrimaryUrl,
+            artifact.MirrorUrl,
+            artifact.ExpectedSize,
+            artifact.Sha256,
+            temporaryPath,
+            $"模型工件 {artifactIndex + 1}/{definition.Artifacts.Count}",
+            cancellationToken).ConfigureAwait(false);
+        File.Move(temporaryPath, targetPath, overwrite: true);
+        ReportProgress(
+            definition,
+            $"模型工件 {artifactIndex + 1}/{definition.Artifacts.Count} 下载完成",
+            Math.Min(0.99, (artifactIndex + 1d) / definition.Artifacts.Count));
     }
 
     private async Task DownloadVerifiedAsync(
@@ -611,7 +618,7 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
         string label,
         CancellationToken cancellationToken)
     {
-        ValidateExpectedSize(expectedSize);
+        ValidateExpectedSize(definition, expectedSize);
         ReportProgress(definition, $"正在准备下载{label}…", 0);
         var failure = await TryDownloadFromUrlAsync(
             definition,
@@ -621,7 +628,9 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
             temporaryPath,
             label,
             cancellationToken).ConfigureAwait(false);
-        if (failure is not null && !string.IsNullOrWhiteSpace(mirrorUrl))
+        if (failure is not null
+            && !File.Exists(temporaryPath + ".resume.json")
+            && !string.IsNullOrWhiteSpace(mirrorUrl))
         {
             ReportProgress(definition, "主下载源不可用，正在尝试备用源…", 0);
             failure = await TryDownloadFromUrlAsync(
@@ -649,84 +658,280 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
         string label,
         CancellationToken cancellationToken)
     {
+        var resumePath = temporaryPath + ".resume.json";
+        var validatedUrl = ValidateDownloadUrl(url).AbsoluteUri;
         try
         {
-            using var response = await SendFollowingSafeRedirectsAsync(url, cancellationToken)
-                .ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-            if (response.Content.Headers.ContentLength is { } declaredLength
-                && declaredLength != expectedSize)
+            var offset = 0L;
+            string? resumeETag = null;
+            if (File.Exists(temporaryPath))
             {
-                throw new InvalidDataException($"{label} Content-Length 与声明大小不一致。");
+                var existingLength = new FileInfo(temporaryPath).Length;
+                if (existingLength == expectedSize)
+                {
+                    await VerifyFileAsync(temporaryPath, expectedSize, sha256, cancellationToken)
+                        .ConfigureAwait(false);
+                    TryDeleteFile(resumePath);
+                    return null;
+                }
+
+                var metadata = await TryReadResumeMetadataAsync(resumePath, cancellationToken)
+                    .ConfigureAwait(false);
+                if (existingLength > 0
+                    && existingLength < expectedSize
+                    && metadata is { ETag.Length: > 0 }
+                    && string.Equals(metadata.Sha256, sha256, StringComparison.Ordinal)
+                    && string.Equals(metadata.SourceUrl, validatedUrl, StringComparison.Ordinal)
+                    && metadata.ETag is { } etag)
+                {
+                    offset = existingLength;
+                    resumeETag = etag;
+                }
+                else
+                {
+                    ResetPartialDownload(temporaryPath, resumePath);
+                }
             }
 
-            await using var source = await response.Content.ReadAsStreamAsync(cancellationToken)
-                .ConfigureAwait(false);
-            await using var output = new FileStream(
-                temporaryPath,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.None,
-                1024 * 1024,
-                useAsync: true);
-            var buffer = new byte[1024 * 1024];
-            long copied = 0;
             while (true)
             {
-                using var readTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                readTimeout.CancelAfter(_downloadReadTimeout);
-                int read;
-                try
+                using var response = await SendFollowingSafeRedirectsAsync(
+                    url,
+                    offset > 0 ? offset : null,
+                    resumeETag,
+                    cancellationToken).ConfigureAwait(false);
+                if (offset > 0 && response.StatusCode != HttpStatusCode.PartialContent)
                 {
-                    read = await source.ReadAsync(buffer, readTimeout.Token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException exception) when (
-                    !cancellationToken.IsCancellationRequested
-                    && readTimeout.IsCancellationRequested)
-                {
-                    throw new TimeoutException($"{label}下载连续 {_downloadReadTimeout.TotalSeconds:0.#} 秒没有收到数据。", exception);
-                }
-                if (read == 0)
-                {
-                    break;
+                    ResetPartialDownload(temporaryPath, resumePath);
+                    offset = 0;
+                    resumeETag = null;
+                    continue;
                 }
 
-                await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
-                copied += read;
-                if (copied > expectedSize || copied > MaxArtifactBytes)
+                response.EnsureSuccessStatusCode();
+                ValidateDownloadResponse(response, offset, expectedSize, label);
+                var responseETag = GetStrongETag(response);
+                if (offset > 0
+                    && !string.Equals(responseETag, resumeETag, StringComparison.Ordinal))
                 {
-                    throw new InvalidDataException($"{label}大小超出预期。");
+                    ResetPartialDownload(temporaryPath, resumePath);
+                    offset = 0;
+                    resumeETag = null;
+                    continue;
                 }
 
-                ReportProgress(
+                if (offset == 0)
+                {
+                    if (responseETag is null)
+                    {
+                        TryDeleteFile(resumePath);
+                    }
+                    else
+                    {
+                        await WriteResumeMetadataAsync(
+                            resumePath,
+                            new DownloadResumeMetadata(responseETag, sha256, validatedUrl),
+                            cancellationToken).ConfigureAwait(false);
+                    }
+                }
+
+                await CopyDownloadResponseAsync(
                     definition,
-                    $"正在下载{label}（{copied / 1024 / 1024} MB）…",
-                    Math.Min(0.89, 0.89 * copied / expectedSize));
+                    response,
+                    temporaryPath,
+                    expectedSize,
+                    offset,
+                    label,
+                    cancellationToken).ConfigureAwait(false);
+                await VerifyFileAsync(temporaryPath, expectedSize, sha256, cancellationToken)
+                    .ConfigureAwait(false);
+                TryDeleteFile(resumePath);
+                return null;
             }
-
-            await output.FlushAsync(cancellationToken).ConfigureAwait(false);
-            output.Close();
-            await VerifyFileAsync(temporaryPath, expectedSize, sha256, cancellationToken)
-                .ConfigureAwait(false);
-            return null;
+        }
+        catch (InvalidDataException exception)
+        {
+            ResetPartialDownload(temporaryPath, resumePath);
+            return exception;
         }
         catch (Exception exception) when (
-            exception is HttpRequestException or IOException or TaskCanceledException or TimeoutException or InvalidDataException
+            exception is HttpRequestException or IOException or TaskCanceledException or TimeoutException
             && !cancellationToken.IsCancellationRequested)
         {
-            TryDeleteFile(temporaryPath);
             return exception;
         }
     }
 
+    private static void ValidateDownloadResponse(
+        HttpResponseMessage response,
+        long offset,
+        long expectedSize,
+        string label)
+    {
+        var expectedContentLength = expectedSize - offset;
+        if (response.Content.Headers.ContentLength is { } contentLength
+            && contentLength != expectedContentLength)
+        {
+            throw new InvalidDataException($"{label} Content-Length 与声明大小不一致。");
+        }
+
+        if (offset == 0)
+        {
+            if (response.StatusCode != HttpStatusCode.OK)
+            {
+                throw new InvalidDataException($"{label}完整下载返回了意外状态码。");
+            }
+
+            return;
+        }
+
+        var range = response.Content.Headers.ContentRange;
+        if (range?.From != offset
+            || range.To != expectedSize - 1
+            || range.Length != expectedSize)
+        {
+            throw new InvalidDataException($"{label} Content-Range 与断点位置不一致。");
+        }
+    }
+
+    private static string? GetStrongETag(HttpResponseMessage response)
+    {
+        var etag = response.Headers.ETag;
+        return etag is null || etag.IsWeak ? null : etag.ToString();
+    }
+
+    private async Task CopyDownloadResponseAsync(
+        LocalModelDefinition definition,
+        HttpResponseMessage response,
+        string temporaryPath,
+        long expectedSize,
+        long offset,
+        string label,
+        CancellationToken cancellationToken)
+    {
+        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken)
+            .ConfigureAwait(false);
+        await using var output = new FileStream(
+            temporaryPath,
+            offset > 0 ? FileMode.Append : FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            1024 * 1024,
+            useAsync: true);
+        var buffer = new byte[1024 * 1024];
+        var copied = offset;
+        while (true)
+        {
+            using var readTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            readTimeout.CancelAfter(_downloadReadTimeout);
+            int read;
+            try
+            {
+                read = await source.ReadAsync(buffer, readTimeout.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException exception) when (
+                !cancellationToken.IsCancellationRequested
+                && readTimeout.IsCancellationRequested)
+            {
+                throw new TimeoutException(
+                    $"{label}下载连续 {_downloadReadTimeout.TotalSeconds:0.#} 秒没有收到数据。",
+                    exception);
+            }
+
+            if (read == 0)
+            {
+                break;
+            }
+
+            await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+            copied += read;
+            var maximum = definition.AllowsLargeArtifacts
+                ? MaxReviewedArtifactBytes
+                : MaxArtifactBytes;
+            if (copied > expectedSize || copied > maximum)
+            {
+                throw new InvalidDataException($"{label}大小超出预期。");
+            }
+
+            ReportProgress(
+                definition,
+                $"正在下载{label}（{copied / 1024 / 1024} MB）…",
+                Math.Min(0.89, 0.89 * copied / expectedSize));
+        }
+
+        await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<DownloadResumeMetadata?> TryReadResumeMetadataAsync(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            var json = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+            return JsonSerializer.Deserialize<DownloadResumeMetadata>(json);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            TryDeleteFile(path);
+            return null;
+        }
+    }
+
+    private static async Task WriteResumeMetadataAsync(
+        string path,
+        DownloadResumeMetadata metadata,
+        CancellationToken cancellationToken)
+    {
+        var temporaryPath = path + ".tmp";
+        try
+        {
+            var json = JsonSerializer.Serialize(metadata);
+            await File.WriteAllTextAsync(temporaryPath, json, cancellationToken).ConfigureAwait(false);
+            File.Move(temporaryPath, path, overwrite: true);
+        }
+        finally
+        {
+            TryDeleteFile(temporaryPath);
+        }
+    }
+
+    private static void ResetPartialDownload(string temporaryPath, string resumePath)
+    {
+        TryDeleteFile(temporaryPath);
+        TryDeleteFile(resumePath);
+    }
+
+    private sealed record DownloadResumeMetadata(string ETag, string Sha256, string SourceUrl);
+
     private async Task<HttpResponseMessage> SendFollowingSafeRedirectsAsync(
         string url,
+        long? rangeOffset,
+        string? ifRangeETag,
         CancellationToken cancellationToken)
     {
         var current = ValidateDownloadUrl(url);
         for (var redirect = 0; redirect <= MaxRedirects; redirect++)
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, current);
+            if (rangeOffset is not null)
+            {
+                request.Headers.Range = new RangeHeaderValue(rangeOffset, null);
+                request.Headers.IfRange = new RangeConditionHeaderValue(
+                    EntityTagHeaderValue.Parse(ifRangeETag
+                        ?? throw new InvalidOperationException("断点续传缺少 ETag。")));
+            }
+
             var response = await _httpClient.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
@@ -907,6 +1112,9 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
         return Path.GetFullPath(modelDirectory);
     }
 
+    private string GetArchiveDownloadPath(string modelId) =>
+        Path.Combine(_rootDirectory, $".{ValidateSafeRelativePath(modelId)}.archive.download");
+
     private static void EnsurePathIsUnderRoot(string path, string root)
     {
         var fullPath = Path.GetFullPath(path);
@@ -920,14 +1128,18 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
 
     private bool RemoveModelDirectory(string modelId)
     {
+        var removed = false;
         var modelDirectory = GetModelDirectory(modelId);
-        if (!Directory.Exists(modelDirectory))
+        if (Directory.Exists(modelDirectory))
         {
-            return false;
+            Directory.Delete(modelDirectory, recursive: true);
+            removed = true;
         }
 
-        Directory.Delete(modelDirectory, recursive: true);
-        return true;
+        var archivePath = GetArchiveDownloadPath(modelId);
+        removed |= TryDeleteFile(archivePath);
+        removed |= TryDeleteFile(archivePath + ".resume.json");
+        return removed;
     }
 
     private LocalModelDefinition RequireDefinition(string modelId)
@@ -984,12 +1196,38 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
         definition.WhisperModelName
         ?? throw new InvalidOperationException($"模型 {definition.Name} 缺少对应的 Whisper 模型名。");
 
-    private static void ValidateExpectedSize(long expectedSize)
+    private static void ValidateExpectedSize(
+        LocalModelDefinition definition,
+        long expectedSize)
     {
-        if (expectedSize <= 0 || expectedSize > MaxArtifactBytes)
+        var maximum = definition.AllowsLargeArtifacts
+            ? MaxReviewedArtifactBytes
+            : MaxArtifactBytes;
+        if (expectedSize <= 0 || expectedSize > maximum)
         {
             throw new InvalidOperationException("模型工件大小声明超出允许范围。");
         }
+    }
+
+    private void EnsureSufficientDiskSpace(LocalModelDefinition definition)
+    {
+        var required = definition.RequiredFreeSpaceBytes > 0
+            ? definition.RequiredFreeSpaceBytes
+            : checked(definition.DownloadBytes * 2);
+        var available = _getAvailableFreeSpaceBytes(_rootDirectory);
+        if (available < required)
+        {
+            throw new IOException(
+                $"安装 {definition.Name} 至少需要 {required / 1024 / 1024} MB 可用空间，" +
+                $"当前仅有 {available / 1024 / 1024} MB。");
+        }
+    }
+
+    private static long GetAvailableFreeSpaceBytes(string path)
+    {
+        var root = Path.GetPathRoot(Path.GetFullPath(path))
+            ?? throw new InvalidOperationException("无法确定模型目录所在磁盘。");
+        return new DriveInfo(root).AvailableFreeSpace;
     }
 
     private static bool IsRedirect(HttpStatusCode statusCode) => statusCode is

@@ -313,6 +313,11 @@ public sealed class WhisperSpeechRecognizer : ISpeechRecognizer
             GgmlType.Small,
             487_601_967,
             "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b"),
+        "large-v3-turbo" => new(
+            "large-v3-turbo",
+            GgmlType.LargeV3Turbo,
+            1_624_555_275,
+            "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69"),
         _ => new(
             "tiny",
             GgmlType.Tiny,

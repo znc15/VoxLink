@@ -5,31 +5,62 @@ namespace VoxLink.Services;
 
 /// <summary>
 /// 翻译/文本生成服务工厂。注入 <see cref="ILocalModelManager"/> 后可创建
-/// 本地 MiniCPM5 服务：<see cref="CreateChatPool"/> 返回共享的引用计数池
-/// （权重懒加载、单并发），服务客户端存活期间复用，最后一个客户端释放后卸载。
+/// 本地 MiniCPM5 服务；注入 <see cref="LocalModelOrchestrator"/> 后可创建
+/// 应用托管翻译模型服务（HY-MT / M2M-100 / SMaLL-100）。
 /// </summary>
-public sealed class TranslationServiceFactory(HttpClient httpClient, ILocalModelManager? localModelManager = null) : IDisposable
+public sealed class TranslationServiceFactory : IAsyncDisposable
 {
+    private readonly HttpClient _httpClient;
+    private readonly ILocalModelManager? _localModelManager;
+    private readonly LocalModelOrchestrator? _managedOrchestrator;
     private readonly object _poolSync = new();
+    private readonly List<ManagedModelHostTranslationService> _managedServices = [];
     private LocalMiniCpmRuntimePool? _miniCpmPool;
     private bool _disposed;
 
+    public TranslationServiceFactory(
+        HttpClient httpClient,
+        ILocalModelManager? localModelManager = null)
+        : this(httpClient, localModelManager, managedOrchestrator: null)
+    {
+    }
+
+    internal TranslationServiceFactory(
+        HttpClient httpClient,
+        ILocalModelManager? localModelManager,
+        LocalModelOrchestrator? managedOrchestrator)
+    {
+        _httpClient = httpClient;
+        _localModelManager = localModelManager;
+        _managedOrchestrator = managedOrchestrator;
+    }
+
+    /// <summary>旧版宿主外壳使用的同步释放入口。</summary>
+    public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
     public ITranslationService Create(AppSettings settings) =>
-        settings.TranslationProvider switch
+        CreateManaged(settings) ?? settings.TranslationProvider switch
         {
             TranslationProvider.LocalMiniCpm => CreateChatPool(settings).CreateClient(),
             TranslationProvider.GoogleWeb => new FailoverTranslationService(
-                new MyMemoryTranslationService(httpClient),
-                new GoogleWebTranslationService(httpClient)),
+                new MyMemoryTranslationService(_httpClient),
+                new GoogleWebTranslationService(_httpClient)),
             _ => CreateChatService(settings)
+                ?? throw new InvalidOperationException(
+                    "文本生成需要选择 DashScope、DeepSeek、本地 MiniCPM 或自定义 AI 服务。")
         };
 
-    public ITextGenerationService CreateChatService(AppSettings settings) =>
-        settings.TranslationProvider switch
+    /// <summary>
+    /// 创建文本生成（润色）服务。托管翻译模型是纯翻译模型，不支持指令润色，
+    /// 返回 null 表示不可用（会话已在空值时安全降级）。
+    /// </summary>
+    public ITextGenerationService? CreateChatService(AppSettings settings) =>
+        CreateManaged(settings) is not null
+            ? null
+            : settings.TranslationProvider switch
         {
             TranslationProvider.LocalMiniCpm => CreateChatPool(settings).CreateClient(),
             TranslationProvider.DashScope => new OpenAiTranslationService(
-                httpClient,
+                _httpClient,
                 "https://dashscope.aliyuncs.com/compatible-mode/v1",
                 settings.OpenAiApiKey,
                 string.IsNullOrWhiteSpace(settings.OpenAiModel)
@@ -38,7 +69,7 @@ public sealed class TranslationServiceFactory(HttpClient httpClient, ILocalModel
                     : settings.OpenAiModel,
                 settings.OpenAiHeaders),
             TranslationProvider.DeepSeek => new OpenAiTranslationService(
-                httpClient,
+                _httpClient,
                 "https://api.deepseek.com",
                 settings.OpenAiApiKey,
                 string.IsNullOrWhiteSpace(settings.OpenAiModel)
@@ -67,18 +98,31 @@ public sealed class TranslationServiceFactory(HttpClient httpClient, ILocalModel
     }
 
     /// <summary>强制卸载本地运行时（引擎关闭时调用）。</summary>
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
+        List<ManagedModelHostTranslationService> managed;
         lock (_poolSync)
         {
+            if (_disposed)
+            {
+                return;
+            }
+
             _disposed = true;
             _miniCpmPool?.Dispose();
+            managed = [.. _managedServices];
+            _managedServices.Clear();
+        }
+
+        foreach (var service in managed)
+        {
+            await service.DisposeAsync().ConfigureAwait(false);
         }
     }
 
     internal LocalMiniCpmRuntimePool CreateChatPool(AppSettings settings)
     {
-        var manager = localModelManager
+        var manager = _localModelManager
             ?? throw new InvalidOperationException("本地模型管理器未配置，无法使用本地 MiniCPM。");
         lock (_poolSync)
         {
@@ -87,11 +131,36 @@ public sealed class TranslationServiceFactory(HttpClient httpClient, ILocalModel
         }
     }
 
+    private ITranslationService? CreateManaged(AppSettings settings)
+    {
+        var modelId = settings.TranslationProvider switch
+        {
+            TranslationProvider.ManagedHyMt => LocalModelIds.HyMt1518B,
+            TranslationProvider.ManagedM2M100 => LocalModelIds.M2M100418M,
+            TranslationProvider.ManagedSmall100 => LocalModelIds.Small100,
+            _ => null
+        };
+        if (modelId is null)
+        {
+            return null;
+        }
+
+        var orchestrator = _managedOrchestrator
+            ?? throw new InvalidOperationException("托管模型编排器未配置，无法使用托管翻译模型。");
+        lock (_poolSync)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            var service = new ManagedModelHostTranslationService(orchestrator, modelId);
+            _managedServices.Add(service);
+            return service;
+        }
+    }
+
     private OpenAiTranslationService CreateOpenAiCompatible(
         AppSettings settings,
         string defaultBaseUrl,
         string defaultModel) => new(
-            httpClient,
+            _httpClient,
             string.IsNullOrWhiteSpace(settings.OpenAiBaseUrl) ? defaultBaseUrl : settings.OpenAiBaseUrl,
             settings.OpenAiApiKey,
             string.IsNullOrWhiteSpace(settings.OpenAiModel) ? defaultModel : settings.OpenAiModel,

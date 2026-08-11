@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using VoxLink.Services;
 
 namespace VoxLink.Engine;
 
@@ -62,8 +63,8 @@ internal static class Program
         {
             WriteEvent("fatal", new
             {
-                message = host?.Redact(exception.GetBaseException().Message)
-                    ?? exception.GetBaseException().Message
+                message = host?.Redact(GetPublicErrorMessage(exception))
+                    ?? GetPublicErrorMessage(exception)
             });
             return 1;
         }
@@ -89,12 +90,20 @@ internal static class Program
             return document.RootElement.ValueKind == JsonValueKind.Object
                 && document.RootElement.TryGetProperty("method", out var method)
                 && method.ValueKind == JsonValueKind.String
-                && method.GetString() == "installLocalModel";
+                && method.GetString() is "installLocalModel" or "prepareManagedRuntime";
         }
         catch (JsonException)
         {
             return false;
         }
+    }
+
+    internal static string GetPublicErrorMessage(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        return exception is ManagedRuntimeException
+            ? exception.Message
+            : exception.GetBaseException().Message;
     }
 
     private static async Task HandleLineAsync(EngineHost host, string line)
@@ -139,7 +148,7 @@ internal static class Program
         }
         catch (Exception exception)
         {
-            var message = host.Redact(exception.GetBaseException().Message);
+            var message = host.Redact(GetPublicErrorMessage(exception));
             if (id.ValueKind == JsonValueKind.Undefined)
             {
                 WriteEvent("protocolError", new { message });

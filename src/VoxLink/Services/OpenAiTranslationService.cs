@@ -76,12 +76,20 @@ public sealed class OpenAiTranslationService(
         {
             foreach (var (name, value) in customHeaders)
             {
-                if (IsRestrictedHeader(name) || string.IsNullOrWhiteSpace(value))
+                if (CustomHttpHeaderValidator.IsRestricted(name))
                 {
                     continue;
                 }
 
-                request.Headers.TryAddWithoutValidation(name, value);
+                CustomHttpHeaderValidator.Validate(name, value);
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    continue;
+                }
+                if (!request.Headers.TryAddWithoutValidation(name, value))
+                {
+                    throw new InvalidOperationException($"无法添加自定义请求头：{name}");
+                }
             }
         }
 
@@ -161,11 +169,6 @@ public sealed class OpenAiTranslationService(
 
         return value;
     }
-    private static bool IsRestrictedHeader(string name) =>
-        name.Equals("Authorization", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("Content-Type", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("Content-Length", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("Host", StringComparison.OrdinalIgnoreCase);
 
     private static string Trim(string value, int maxLength) =>
         value.Length <= maxLength ? value : value[..maxLength] + "…";

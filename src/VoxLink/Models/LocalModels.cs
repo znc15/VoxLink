@@ -25,13 +25,17 @@ public enum LocalModelRuntimeKind
     None,
     WhisperCpp,
     LlamaCppGguf,
-    SherpaOnnxKokoro
+    SherpaOnnxSenseVoice,
+    SherpaOnnxKokoro,
+    ManagedPython,
+    ManagedWslCuda
 }
 
 /// <summary>安装形态：单文件、压缩包或复用现有 Whisper ggml 目录。</summary>
 public enum LocalModelInstallKind
 {
     SingleFile,
+    ManifestFiles,
     Archive,
     WhisperGgml
 }
@@ -88,6 +92,20 @@ public sealed record LocalModelDefinition
     /// <summary>CatalogOnly 条目不可一键部署的原因。</summary>
     public string? UnavailableReason { get; init; }
 
+    /// <summary>需要额外准备的应用托管运行环境；null 表示使用随应用发布的原生运行时。</summary>
+    public string? RuntimeProfileId { get; init; }
+
+    /// <summary>安装前必须明确接受的固定许可证 ID；null 表示无需额外确认。</summary>
+    public string? LicenseAgreementId { get; init; }
+
+    /// <summary>启用前是否必须选择已授权的加密声音资料。</summary>
+    public bool RequiresVoiceProfile { get; init; }
+
+    /// <summary>仅对经过固定清单审查的模型允许单工件超过默认 4 GiB。</summary>
+    public bool AllowsLargeArtifacts { get; init; }
+
+    /// <summary>安装前要求的可用磁盘空间；0 时按下载量的两倍计算。</summary>
+    public long RequiredFreeSpaceBytes { get; init; }
     /// <summary>需要下载到磁盘并校验的工件；安装状态以这些文件为准。</summary>
     public IReadOnlyList<LocalModelArtifact> Artifacts { get; init; } = [];
 
