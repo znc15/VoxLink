@@ -57,7 +57,6 @@ public sealed class EngineHostTests
         Assert.Equal(
             typeof(EngineHost).Assembly.GetName().Version?.ToString(3),
             json.GetProperty("engineVersion").GetString());
-        Assert.Equal("1.3.0", json.GetProperty("engineVersion").GetString());
     }
 
     [Fact]
