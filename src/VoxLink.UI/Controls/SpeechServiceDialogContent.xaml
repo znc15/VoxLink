@@ -6,7 +6,7 @@
     xmlns:controls="using:VoxLink.UI.Controls">
     <ScrollViewer MaxHeight="560">
         <StackPanel MinWidth="430" Spacing="12">
-            <TextBlock x:Name="NoConfigText" Text="当前服务无需额外配置。" />
+            <TextBlock x:Name="NoConfigText" Text="系统语音不用额外配置，直接用。" />
             <StackPanel x:Name="KokoroPanel" Spacing="10" Visibility="Collapsed">
                 <NumberBox
                     x:Name="SpeakerBox"

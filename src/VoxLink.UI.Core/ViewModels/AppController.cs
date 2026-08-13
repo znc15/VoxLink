@@ -62,6 +62,14 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         LocalModelIds.MiniCpm51BGguf,
         LocalModelIds.Kokoro82M
     ];
+
+    /// <summary>实验性或与其他模型功能重复的模型，收进「更多模型」折叠区。</summary>
+    private static readonly HashSet<string> ExperimentalLocalModelIds = new(StringComparer.Ordinal)
+    {
+        LocalModelIds.MossTranscribeDiarize,
+        LocalModelIds.HyMt1518B,
+        LocalModelIds.Small100
+    };
     public AppController(
         IEngineGateway engine,
         ISettingsRepository settingsRepository,
@@ -112,6 +120,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     public ObservableCollection<LocalModelItem> SpeechRecognitionModels { get; } = [];
     public ObservableCollection<LocalModelItem> TranslationModels { get; } = [];
     public ObservableCollection<LocalModelItem> SpeechSynthesisModels { get; } = [];
+    public ObservableCollection<LocalModelItem> ExperimentalLocalModels { get; } = [];
     public bool HasBusyLocalModels => LocalModels.Any(model => model.IsBusy);
     public bool RecommendedLocalModelsReady =>
         IsInstalled(LocalModelIds.WhisperBase)
@@ -732,6 +741,65 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             }
         });
 
+    public Task TestLocalModelAsync(string modelId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
+        return RunOperationAsync(async () =>
+        {
+            if (IsRunning)
+            {
+                throw new EngineException("请先停止翻译，再测试模型。");
+            }
+
+            var model = FindLocalModel(modelId);
+            if (model is null || !model.IsInstallable || model.IsBusy)
+            {
+                throw new EngineException("该模型当前不可测试。");
+            }
+
+            if (!model.Installed)
+            {
+                throw new EngineException($"{model.Name} 还没安装，先安装再测试。");
+            }
+
+            model.BeginOperation("正在测试…");
+            OnPropertyChanged(nameof(HasBusyLocalModels));
+            try
+            {
+                var result = await _engine.RequestAsync(
+                    "testLocalModel",
+                    new Dictionary<string, object?> { ["modelId"] = model.Id },
+                    TimeSpan.FromMinutes(10));
+                var ok = result is { ValueKind: JsonValueKind.Object } value
+                    && value.TryGetProperty("ok", out var okValue)
+                    && okValue.ValueKind is JsonValueKind.True or JsonValueKind.False
+                    && okValue.GetBoolean();
+                var detail = result is { ValueKind: JsonValueKind.Object } response
+                    ? ReadString(response, "detail")
+                    : string.Empty;
+                if (ok)
+                {
+                    model.CompleteOperation("installed", $"测试通过：{detail}");
+                    LocalModelResultMessage = $"{model.Name} 测试通过：{detail}";
+                }
+                else
+                {
+                    model.FailOperation("测试未通过，可重试");
+                    ErrorMessage = $"{model.Name} 测试未通过：{detail}";
+                }
+            }
+            catch (Exception exception) when (IsRecoverableOperationException(exception))
+            {
+                model.FailOperation("测试失败，可重试");
+                throw;
+            }
+            finally
+            {
+                OnPropertyChanged(nameof(HasBusyLocalModels));
+            }
+        });
+    }
+
     private async Task<bool> RunLocalModelOperationAsync(string modelId, bool install)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
@@ -946,6 +1014,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         SpeechRecognitionModels.Clear();
         TranslationModels.Clear();
         SpeechSynthesisModels.Clear();
+        ExperimentalLocalModels.Clear();
         foreach (var item in parsedModels)
         {
             LocalModels.Add(item);
@@ -956,6 +1025,12 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             }
 
             InstallableLocalModels.Add(item);
+            if (ExperimentalLocalModelIds.Contains(item.Id))
+            {
+                ExperimentalLocalModels.Add(item);
+                continue;
+            }
+
             switch (item.Category)
             {
                 case "asr":

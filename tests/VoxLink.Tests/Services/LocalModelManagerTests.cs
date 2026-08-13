@@ -269,14 +269,17 @@ public sealed class LocalModelManagerTests : IDisposable
             { ModelId: "test-model", Category: LocalModelCategory.Translation, Progress: 1 });
     }
 
-    [Fact]
-    public void GetStatus_ArtifactBased_FollowsDiskTruth()
+    [Theory]
+    [InlineData(LocalModelInstallKind.SingleFile)]
+    [InlineData(LocalModelInstallKind.ManifestFiles)]
+    [InlineData(LocalModelInstallKind.Archive)]
+    public void GetStatus_ArtifactBasedKinds_FollowDiskTruth(LocalModelInstallKind installKind)
     {
         var artifactA = DummyArtifact(relativePath: "a.bin");
         var artifactB = DummyArtifact(relativePath: "b.bin");
         using var manager = CreateManager(
             new ScriptedHttpHandler(),
-            [TestDefinition(artifacts: [artifactA, artifactB])]);
+            [TestDefinition(installKind: installKind, artifacts: [artifactA, artifactB])]);
 
         Assert.Equal(LocalModelInstallState.NotInstalled, manager.GetStatus("test-model"));
 

@@ -137,13 +137,13 @@ internal sealed record ManagedRuntimeLayout(
     string? ExpectedWslAdapterScriptSha256 = null)
 {
     internal const string PackagedHostScriptSha256 =
-        "fdd0dc360b3ccd69ed36eacf84b0cf1798cadf78fb67b3902108fec6ad67bedc";
+        "8f898f00ec8f27af9e1a5310fc2ea60e0a1c8a6f6f69a504a00c35f6e22ae716";
     internal const string PackagedProbeScriptSha256 =
         "69ffafcc3920cdeabd0c98b3c2551c36ba1890eae15530e224730a7b050cdcc3";
     internal const string PackagedAdapterScriptSha256 =
         "4e4d509838c5dca1c5ce6316fa22bc1482143ff34fd9ffb8443fc03b1851dc5a";
     internal const string PackagedWslAdapterScriptSha256 =
-        "b07ab2676390afdc8ec54ba45c916fe9eb33064ab49d7a18f1243f25e189886f";
+        "61c8cb44a675d94db3c07ac6f64612b358f3a4c47d37d51516702a6491895b54";
 
     public static ManagedRuntimeLayout CreateDefault() => new(
         Path.Combine(

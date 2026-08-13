@@ -10,16 +10,16 @@
                 x:Name="UploadInfoBar"
                 IsClosable="False"
                 IsOpen="True"
-                Message="云端识别需要发送原始音频，必须由你明确允许。"
+                Message="云端识别会把原始音频发给服务商，需要你明确允许。"
                 Severity="Warning" />
             <PasswordBox
                 x:Name="ApiKeyBox"
                 Header="API Key"
                 PasswordRevealMode="Peek"
-                PlaceholderText="预置服务通常只需填写此项" />
+                PlaceholderText="预置服务一般只填这里就行" />
             <ToggleSwitch
                 x:Name="AllowUploadSwitch"
-                Header="允许向当前服务上传原始音频"
+                Header="允许把原始音频发给当前服务"
                 OffContent="禁止上传"
                 OnContent="允许上传" />
             <Expander x:Name="AdvancedExpander" Header="高级设置">

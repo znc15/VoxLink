@@ -80,6 +80,7 @@ public sealed class LocalModelItem : ObservableObject
     public bool CanInstall => IsInstallable && !Installed && !IsBusy;
     public bool CanRemove => IsInstallable && Installed && !IsBusy;
     public bool CanActivate => IsInstallable && Installed && !IsActive && !IsBusy;
+    public bool CanTest => IsInstallable && Installed && !IsBusy;
     public bool CanRunPrimaryAction => !IsActive && !IsBusy && IsInstallable;
     public string InstallActionLabel => IsPartial ? "重试" : "安装";
     public string PrimaryActionLabel => IsActive
@@ -196,6 +197,7 @@ public sealed class LocalModelItem : ObservableObject
         OnPropertyChanged(nameof(CanInstall));
         OnPropertyChanged(nameof(CanRemove));
         OnPropertyChanged(nameof(CanActivate));
+        OnPropertyChanged(nameof(CanTest));
         OnPropertyChanged(nameof(CanRunPrimaryAction));
         OnPropertyChanged(nameof(InstallActionLabel));
         OnPropertyChanged(nameof(PrimaryActionLabel));

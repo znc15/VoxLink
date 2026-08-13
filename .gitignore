@@ -17,3 +17,6 @@ flutter-releases-windows.json
 
 # 本地工具（便携版 Inno Setup 编译器）
 scripts/tools/
+
+# Python 运行缓存（ModelHost 脚本执行产物）
+__pycache__/

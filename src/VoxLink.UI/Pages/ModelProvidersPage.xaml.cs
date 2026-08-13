@@ -79,12 +79,12 @@ public sealed partial class ModelProvidersPage : Page
             : TranslationBackend.PublicFree;
         TranslationStatusText.Text = translation switch
         {
-            TranslationBackend.PublicFree => "免密在线",
+            TranslationBackend.PublicFree => "免费在线",
             TranslationBackend.LocalMiniCpm => LocalStatus(LocalModelIds.MiniCpm51BGguf),
             TranslationBackend.ManagedHyMt => LocalStatus(LocalModelIds.HyMt1518B),
             TranslationBackend.ManagedM2M100 => LocalStatus(LocalModelIds.M2M100418M),
             TranslationBackend.ManagedSmall100 => LocalStatus(LocalModelIds.Small100),
-            _ => "云端文本服务"
+            _ => "云端 AI"
         };
 
         AsrStatusText.Text = Controller.Settings.UseCloudAsr
@@ -94,7 +94,7 @@ public sealed partial class ModelProvidersPage : Page
         SpeechStatusText.Text = Controller.Settings.SpeechServiceMode switch
         {
             SpeechServiceMode.Kokoro => LocalStatus(LocalModelIds.Kokoro82M),
-            SpeechServiceMode.Remote => "远程语音",
+            SpeechServiceMode.Remote => "云端语音",
             _ => "系统语音"
         };
 
@@ -220,22 +220,29 @@ public sealed partial class ModelProvidersPage : Page
 
     private async void ConfigureTranslation_Click(object sender, RoutedEventArgs args)
     {
-        if (Controller.Settings.TranslationBackend is TranslationBackend.PublicFree
-            or TranslationBackend.LocalMiniCpm)
+        var backend = Controller.Settings.TranslationBackend;
+        if (backend is TranslationBackend.LocalMiniCpm
+            or TranslationBackend.ManagedHyMt
+            or TranslationBackend.ManagedM2M100
+            or TranslationBackend.ManagedSmall100)
         {
             await ShowSimpleDialogAsync(
-                Controller.Settings.TranslationBackend == TranslationBackend.LocalMiniCpm
-                    ? "本地翻译"
-                    : "公共免密翻译",
-                Controller.Settings.TranslationBackend == TranslationBackend.LocalMiniCpm
-                    ? "模型在“本地模型”页管理，安装后会随 VoxLink 一起启动。"
-                    : "无需 API Key 或其他配置。");
+                TranslationServiceLabel(backend),
+                "本地模型装好就能用，不用填 Key 和地址；安装管理在「本地模型」页。");
+            return;
+        }
+
+        if (backend == TranslationBackend.PublicFree)
+        {
+            await ShowSimpleDialogAsync(
+                "公共免密翻译",
+                "不用 API Key，也不用填任何配置。");
             return;
         }
 
         var content = new TranslationServiceDialogContent(Controller);
         if (await ShowSettingsDialogAsync(
-                "翻译设置",
+                $"{TranslationServiceLabel(backend)} · 翻译设置",
                 content,
                 Controller.IsRunning ? "保存（重启后生效）" : "保存并测试",
                 content.Validate) == ContentDialogResult.Primary)
@@ -257,15 +264,16 @@ public sealed partial class ModelProvidersPage : Page
         if (!Controller.Settings.UseCloudAsr)
         {
             await ShowSimpleDialogAsync(
-                "本地语音识别",
-                "选择模型即可。未安装时，VoxLink 会在启动翻译前自动下载并校验。"
+                TryReadTag(AsrProviderBox, out var localTag) ? AsrServiceLabel(localTag) : "本地语音识别",
+                "选好模型就能用；没装的模型会在启动前自动下载。"
             );
             return;
         }
 
         var content = new AsrServiceDialogContent(Controller);
+        var asrLabel = TryReadTag(AsrProviderBox, out var asrTag) ? AsrServiceLabel(asrTag) : "语音识别";
         if (await ShowSettingsDialogAsync(
-                "语音识别设置",
+                $"{asrLabel} · 语音识别设置",
                 content,
                 Controller.IsRunning ? "保存（重启后生效）" : "保存并校验",
                 content.Validate) == ContentDialogResult.Primary)
@@ -285,8 +293,9 @@ public sealed partial class ModelProvidersPage : Page
     private async void ConfigureSpeech_Click(object sender, RoutedEventArgs args)
     {
         var content = new SpeechServiceDialogContent(Controller);
+        var speechLabel = TryReadTag(SpeechServiceBox, out var speechTag) ? SpeechServiceLabel(speechTag) : "语音合成";
         var result = await ShowSettingsDialogAsync(
-            "语音合成设置",
+            $"{speechLabel} · 语音合成设置",
             content,
             content.HasEditableSettings
                 ? Controller.IsRunning ? "保存（重启后生效）" : "保存并试听"
@@ -305,6 +314,42 @@ public sealed partial class ModelProvidersPage : Page
             }
         }
     }
+
+    private static string TranslationServiceLabel(TranslationBackend backend) => backend switch
+    {
+        TranslationBackend.PublicFree => "公共免密翻译",
+        TranslationBackend.DashScope => "DashScope 通义千问",
+        TranslationBackend.DeepSeek => "DeepSeek",
+        TranslationBackend.OpenAiCompatible => "OpenAI 兼容",
+        TranslationBackend.Custom => "自定义服务",
+        TranslationBackend.LocalMiniCpm => "本地 MiniCPM5-1B",
+        TranslationBackend.ManagedHyMt => "本地 HY-MT1.5",
+        TranslationBackend.ManagedM2M100 => "本地 M2M-100",
+        TranslationBackend.ManagedSmall100 => "本地 SMaLL-100",
+        _ => "翻译"
+    };
+
+    private static string AsrServiceLabel(string tag) => tag switch
+    {
+        "WhisperTiny" => "Whisper tiny",
+        "WhisperBase" => "Whisper base",
+        "WhisperSmall" => "Whisper small",
+        "LocalManagedMoss" => "本地 MOSS",
+        "Soniox" => "Soniox",
+        "SiliconFlow" => "硅基流动",
+        "MiMo" => "小米 MiMo",
+        "OpenAiCompatible" => "OpenAI 兼容",
+        "Custom" => "自定义服务",
+        _ => "语音识别"
+    };
+
+    private static string SpeechServiceLabel(string tag) => tag switch
+    {
+        "SystemFallback" => "系统语音",
+        "Kokoro" => "本地 Kokoro-82M",
+        "Remote" => "远程语音服务",
+        _ => "语音合成"
+    };
 
     private void OpenLocalModels_Click(object sender, RoutedEventArgs args) => Controller.RequestLocalModels();
 

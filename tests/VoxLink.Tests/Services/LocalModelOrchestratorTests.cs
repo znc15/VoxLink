@@ -150,6 +150,42 @@ public sealed class LocalModelOrchestratorTests
         Assert.Equal(1, scenario.RuntimeLease!.DisposeCount);
     }
 
+    [Fact]
+    public async Task StartHost_RuntimeNotReady_PreparesBeforeAcquiring()
+    {
+        using var scenario = new HostScenario();
+        scenario.Runtime.ProbeState = ManagedRuntimeState.NotPrepared;
+        await using var orchestrator = CreateOrchestrator(scenario.Model, scenario.Runtime);
+
+        var session = await orchestrator.StartHostAsync(
+            LocalModelIds.Small100,
+            requireInferenceCapability: false);
+
+        Assert.NotNull(session);
+        // 未就绪 → 先幂等准备，再获取租约启动宿主。
+        Assert.Equal(1, scenario.Runtime.PrepareCount);
+        Assert.Equal(1, scenario.Runtime.ProbeCount);
+        Assert.Equal(1, scenario.Runtime.AcquireCount);
+        await session.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task StartHost_RuntimeReady_DoesNotPrepare()
+    {
+        using var scenario = new HostScenario();
+        await using var orchestrator = CreateOrchestrator(scenario.Model, scenario.Runtime);
+
+        var session = await orchestrator.StartHostAsync(
+            LocalModelIds.Small100,
+            requireInferenceCapability: false);
+
+        Assert.NotNull(session);
+        Assert.Equal(0, scenario.Runtime.PrepareCount);
+        Assert.Equal(1, scenario.Runtime.ProbeCount);
+        Assert.Equal(1, scenario.Runtime.AcquireCount);
+        await session.DisposeAsync();
+    }
+
     // ---- 编排器销毁 ----
 
     [Fact]
@@ -487,8 +523,11 @@ public sealed class LocalModelOrchestratorTests
 
         public Func<string, string, IManagedRuntimeLease>? LeaseFactory { get; init; }
 
+        public ManagedRuntimeState ProbeState { get; set; } = ManagedRuntimeState.Ready;
+
         public int ProbeCount { get; private set; }
         public int AcquireCount { get; private set; }
+        public int PrepareCount { get; private set; }
         public int DisposeCount { get; private set; }
         public string? LastProbeProfile { get; private set; }
         public string? LastAcquireProfile { get; private set; }
@@ -537,21 +576,24 @@ public sealed class LocalModelOrchestratorTests
             {
                 RuntimeProfileId = runtimeProfileId,
                 Platform = ManagedRuntimePlatform.WindowsPython,
-                State = ManagedRuntimeState.Ready,
-                Status = ManagedRuntimeState.Ready.ToString()
+                State = ProbeState,
+                Status = ProbeState.ToString()
             };
         }
 
         public Task<ManagedRuntimeProbe> PrepareAsync(
             string runtimeProfileId,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(new ManagedRuntimeProbe
+            CancellationToken cancellationToken = default)
+        {
+            PrepareCount++;
+            return Task.FromResult(new ManagedRuntimeProbe
             {
                 RuntimeProfileId = runtimeProfileId,
                 Platform = ManagedRuntimePlatform.WindowsPython,
                 State = ManagedRuntimeState.Ready,
                 Status = ManagedRuntimeState.Ready.ToString()
             });
+        }
 
         public async Task<IManagedRuntimeLease> AcquireUsageAsync(
             string runtimeProfileId,

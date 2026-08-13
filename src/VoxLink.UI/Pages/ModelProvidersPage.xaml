@@ -13,7 +13,7 @@
         <StackPanel Style="{StaticResource PageStackStyle}">
             <StackPanel Spacing="3">
                 <TextBlock Style="{StaticResource PageTitleStyle}" Text="模型服务" />
-                <TextBlock Style="{StaticResource CaptionStyle}" Text="选择要使用的服务，其他设置按需打开" />
+                <TextBlock Style="{StaticResource CaptionStyle}" Text="翻译、识别、语音，各选一个就能用" />
             </StackPanel>
 
             <InfoBar
@@ -31,25 +31,36 @@
                 x:Name="RestartInfoBar"
                 IsClosable="False"
                 IsOpen="False"
-                Message="当前会话仍使用原服务，停止并重新启动后应用新选择。"
+                Message="当前会话还在用旧服务，停掉重开就切换了。"
                 Severity="Informational"
-                Title="需要重新启动会话" />
+                Title="重启会话后生效" />
 
             <Border Style="{StaticResource PanelBorderStyle}">
-                <Grid ColumnSpacing="12">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="150" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel VerticalAlignment="Center" Spacing="2">
-                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="翻译" />
-                        <TextBlock x:Name="TranslationStatusText" Style="{StaticResource CaptionStyle}" Text="无需配置" />
-                    </StackPanel>
+                <Grid RowSpacing="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Style="{StaticResource SectionTitleStyle}" Text="翻译" />
+                            <TextBlock x:Name="TranslationStatusText" Style="{StaticResource CaptionStyle}" Text="无需配置" />
+                        </StackPanel>
+                        <Button
+                            x:Name="ConfigureTranslationButton"
+                            Grid.Column="1"
+                            Click="ConfigureTranslation_Click"
+                            Content="设置" />
+                    </Grid>
                     <ComboBox
                         x:Name="TranslationBackendBox"
-                        Grid.Column="1"
+                        Grid.Row="1"
                         HorizontalAlignment="Stretch"
+                        MaxDropDownHeight="320"
                         SelectionChanged="TranslationBackendBox_SelectionChanged">
                         <ComboBoxItem Content="公共免密" Tag="PublicFree" />
                         <ComboBoxItem x:Name="MiniCpmOption" Content="本地 MiniCPM5-1B" Tag="LocalMiniCpm" />
@@ -60,29 +71,35 @@
                         <ComboBoxItem Content="OpenAI 兼容" Tag="OpenAiCompatible" />
                         <ComboBoxItem Content="自定义服务" Tag="Custom" />
                     </ComboBox>
-                    <Button
-                        x:Name="ConfigureTranslationButton"
-                        Grid.Column="2"
-                        Click="ConfigureTranslation_Click"
-                        Content="设置" />
                 </Grid>
             </Border>
 
             <Border Style="{StaticResource PanelBorderStyle}">
-                <Grid ColumnSpacing="12">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="150" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel VerticalAlignment="Center" Spacing="2">
-                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="语音识别" />
-                        <TextBlock x:Name="AsrStatusText" Style="{StaticResource CaptionStyle}" Text="本地处理" />
-                    </StackPanel>
+                <Grid RowSpacing="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Style="{StaticResource SectionTitleStyle}" Text="语音识别" />
+                            <TextBlock x:Name="AsrStatusText" Style="{StaticResource CaptionStyle}" Text="本地处理" />
+                        </StackPanel>
+                        <Button
+                            x:Name="ConfigureAsrButton"
+                            Grid.Column="1"
+                            Click="ConfigureAsr_Click"
+                            Content="设置" />
+                    </Grid>
                     <ComboBox
                         x:Name="AsrProviderBox"
-                        Grid.Column="1"
+                        Grid.Row="1"
                         HorizontalAlignment="Stretch"
+                        MaxDropDownHeight="320"
                         SelectionChanged="AsrProviderBox_SelectionChanged">
                         <ComboBoxItem x:Name="WhisperTinyOption" Content="Whisper tiny（最快）" Tag="WhisperTiny" />
                         <ComboBoxItem x:Name="WhisperBaseOption" Content="Whisper base（推荐）" Tag="WhisperBase" />
@@ -94,39 +111,40 @@
                         <ComboBoxItem Content="OpenAI 兼容" Tag="OpenAiCompatible" />
                         <ComboBoxItem Content="自定义服务" Tag="Custom" />
                     </ComboBox>
-                    <Button
-                        x:Name="ConfigureAsrButton"
-                        Grid.Column="2"
-                        Click="ConfigureAsr_Click"
-                        Content="设置" />
                 </Grid>
             </Border>
 
             <Border Style="{StaticResource PanelBorderStyle}">
-                <Grid ColumnSpacing="12">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="150" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel VerticalAlignment="Center" Spacing="2">
-                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="语音合成" />
-                        <TextBlock x:Name="SpeechStatusText" Style="{StaticResource CaptionStyle}" Text="系统语音" />
-                    </StackPanel>
+                <Grid RowSpacing="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                            <TextBlock Style="{StaticResource SectionTitleStyle}" Text="语音合成" />
+                            <TextBlock x:Name="SpeechStatusText" Style="{StaticResource CaptionStyle}" Text="系统语音" />
+                        </StackPanel>
+                        <Button
+                            x:Name="ConfigureSpeechButton"
+                            Grid.Column="1"
+                            Click="ConfigureSpeech_Click"
+                            Content="设置" />
+                    </Grid>
                     <ComboBox
                         x:Name="SpeechServiceBox"
-                        Grid.Column="1"
+                        Grid.Row="1"
                         HorizontalAlignment="Stretch"
+                        MaxDropDownHeight="320"
                         SelectionChanged="SpeechServiceBox_SelectionChanged">
                         <ComboBoxItem Content="系统语音" Tag="SystemFallback" />
                         <ComboBoxItem x:Name="KokoroOption" Content="本地 Kokoro-82M" Tag="Kokoro" />
                         <ComboBoxItem Content="远程语音服务" Tag="Remote" />
                     </ComboBox>
-                    <Button
-                        x:Name="ConfigureSpeechButton"
-                        Grid.Column="2"
-                        Click="ConfigureSpeech_Click"
-                        Content="设置" />
                 </Grid>
             </Border>
 

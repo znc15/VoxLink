@@ -206,6 +206,12 @@ _model_root: str = ""
 
 
 def main() -> int:
+    # `python -I` 隐含 -E，会忽略 PYTHONUTF8 等环境变量，stdout 默认用 Windows
+    # locale 编码（GBK）；协议要求 UTF-8，这里用运行时 API 强制，不受 -E 影响。
+    if sys.stdout is not None:
+        sys.stdout.reconfigure(encoding="utf-8")
+    if sys.stderr is not None:
+        sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--runtime-profile", required=True)
     parser.add_argument("--model-root", required=True)

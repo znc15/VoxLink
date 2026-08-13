@@ -976,6 +976,184 @@ public sealed class AppControllerTests
     }
 
     [Fact]
+    public async Task RefreshLocalModels_PartitionsExperimentalModelsIntoMoreSection()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson("whisper-base", category: "asr", installState: "installed"),
+                LocalModelJson(LocalModelIds.MossTranscribeDiarize, category: "asr"),
+                LocalModelJson(LocalModelIds.HyMt1518B, category: "translation", installState: "installed"),
+                LocalModelJson(LocalModelIds.M2M100418M, category: "translation"),
+                LocalModelJson(LocalModelIds.Small100, category: "translation"),
+                LocalModelJson(LocalModelIds.Kokoro82M, category: "tts", installState: "installed"))
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+
+        await controller.InitializeAsync();
+
+        // 常用模型进入分类列表，实验性/重复模型进「更多模型」。
+        Assert.Collection(
+            controller.SpeechRecognitionModels,
+            model => Assert.Equal("whisper-base", model.Id));
+        Assert.Collection(
+            controller.TranslationModels,
+            model => Assert.Equal(LocalModelIds.M2M100418M, model.Id));
+        Assert.Collection(
+            controller.SpeechSynthesisModels,
+            model => Assert.Equal(LocalModelIds.Kokoro82M, model.Id));
+        Assert.Collection(
+            controller.ExperimentalLocalModels,
+            model => Assert.Equal(LocalModelIds.MossTranscribeDiarize, model.Id),
+            model => Assert.Equal(LocalModelIds.HyMt1518B, model.Id),
+            model => Assert.Equal(LocalModelIds.Small100, model.Id));
+
+        // 实验性集合复用主集合实例，进度更新同步生效。
+        Assert.Same(controller.ExperimentalLocalModels[0], controller.LocalModels[1]);
+    }
+
+    [Fact]
+    public async Task TestLocalModelAsync_Success_ReportsDetailAndClearsBusy()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.MiniCpm51BGguf, category: "translation", installState: "installed")),
+            TestResponse = JsonSerializer.SerializeToElement(new { ok = true, detail = "Hello, world!" })
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+
+        await controller.TestLocalModelAsync(LocalModelIds.MiniCpm51BGguf);
+
+        Assert.Contains("testLocalModel", gateway.Requests);
+        var model = controller.LocalModels.Single();
+        Assert.Equal("测试通过：Hello, world!", model.OperationStatus);
+        Assert.Contains("测试通过：Hello, world!", controller.LocalModelResultMessage);
+        Assert.False(model.IsBusy);
+        Assert.False(controller.HasBusyLocalModels);
+        Assert.Null(controller.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task TestLocalModelAsync_SoftFailure_ReportsDetailAsError()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.WhisperBase, category: "asr", installState: "installed")),
+            TestResponse = JsonSerializer.SerializeToElement(
+                new { ok = false, detail = "没听清，请对着麦克风说一句话再试" })
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+
+        await controller.TestLocalModelAsync(LocalModelIds.WhisperBase);
+
+        Assert.Contains("测试未通过：没听清", controller.ErrorMessage);
+        var model = controller.LocalModels.Single();
+        Assert.Equal("测试未通过，可重试", model.OperationStatus);
+        Assert.False(model.IsBusy);
+        Assert.Null(controller.LocalModelResultMessage);
+    }
+
+    [Fact]
+    public async Task TestLocalModelAsync_NotInstalled_ShowsErrorWithoutEngineCall()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.MiniCpm51BGguf, category: "translation"))
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+
+        await controller.TestLocalModelAsync(LocalModelIds.MiniCpm51BGguf);
+
+        Assert.Contains("还没安装", controller.ErrorMessage);
+        Assert.DoesNotContain("testLocalModel", gateway.Requests);
+    }
+
+    [Fact]
+    public async Task TestLocalModelAsync_UnknownModelId_ShowsError()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.Kokoro82M, category: "tts", installState: "installed"))
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+
+        await controller.TestLocalModelAsync("missing-model");
+
+        Assert.Contains("不可测试", controller.ErrorMessage);
+        Assert.DoesNotContain("testLocalModel", gateway.Requests);
+    }
+
+    [Fact]
+    public async Task TestLocalModelAsync_WhileSessionRunning_Rejected()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.WhisperTiny, category: "asr", installState: "installed"))
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+        await controller.ToggleSessionAsync();
+        Assert.True(controller.IsRunning);
+
+        await controller.TestLocalModelAsync(LocalModelIds.WhisperTiny);
+
+        Assert.Contains("请先停止翻译", controller.ErrorMessage);
+        Assert.DoesNotContain("testLocalModel", gateway.Requests);
+    }
+
+    [Fact]
+    public async Task TestLocalModelAsync_EngineFailure_MarksModelRetryable()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.Kokoro82M, category: "tts", installState: "installed")),
+            FailNextMethod = "testLocalModel"
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+        await controller.InitializeAsync();
+
+        await controller.TestLocalModelAsync(LocalModelIds.Kokoro82M);
+
+        Assert.Contains("模拟引擎失败", controller.ErrorMessage);
+        var model = controller.LocalModels.Single();
+        Assert.Equal("测试失败，可重试", model.OperationStatus);
+        Assert.False(model.IsBusy);
+        Assert.False(controller.HasBusyLocalModels);
+        Assert.Null(controller.LocalModelResultMessage);
+    }
+
+    [Fact]
     public async Task RefreshLocalModels_ReplacesCollectionsDeterministically()
     {
         var gateway = new FakeEngineGateway
@@ -1933,6 +2111,8 @@ public sealed class AppControllerTests
             JsonSerializer.SerializeToElement(new { installState = "installed" });
         public JsonElement? RemoveResponse { get; set; } =
             JsonSerializer.SerializeToElement(new { removed = true });
+        public JsonElement? TestResponse { get; set; } =
+            JsonSerializer.SerializeToElement(new { ok = true, detail = "测试通过" });
         public string? FailNextMethod { get; set; }
         public Exception NextFailure { get; set; } = new EngineException("模拟引擎失败");
         public bool BlockInstall { get; init; }
@@ -1972,13 +2152,14 @@ public sealed class AppControllerTests
                 await InstallRelease.Task.WaitAsync(cancellationToken);
             }
 
-            if (method is "listLocalModels" or "installLocalModel" or "removeLocalModel")
+            if (method is "listLocalModels" or "installLocalModel" or "removeLocalModel" or "testLocalModel")
             {
                 return method switch
                 {
                     "listLocalModels" => ModelsResponse,
                     "installLocalModel" => InstallResponse,
-                    _ => RemoveResponse
+                    "removeLocalModel" => RemoveResponse,
+                    _ => TestResponse
                 };
             }
 

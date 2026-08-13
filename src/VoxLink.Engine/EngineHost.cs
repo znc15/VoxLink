@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
 using VoxLink.Audio;
@@ -324,6 +325,13 @@ internal sealed class EngineHost : IAsyncDisposable
                     var removed = await _localModelManager.RemoveAsync(modelId, cancellationToken);
                     return (object?)new { removed };
                 }, cancellationToken);
+            }
+            case "testLocalModel":
+            {
+                var modelId = ReadString(parameters, "modelId");
+                return await RunSessionModelOperationAsync(
+                    () => TestLocalModelAsync(parameters, serializerOptions, modelId, cancellationToken),
+                    cancellationToken);
             }
             case "listManagedRuntimes":
                 return HandleListManagedRuntimes();
@@ -993,6 +1001,195 @@ internal sealed class EngineHost : IAsyncDisposable
             })
             .ToArray()
     };
+
+    /// <summary>
+    /// 本地模型冒烟测试：按类别真实跑一次最小推理（翻译/播放/识别），
+    /// 结果通过 { ok, detail } 返回给界面展示。
+    /// </summary>
+    private async Task<object> TestLocalModelAsync(
+        JsonElement parameters,
+        JsonSerializerOptions serializerOptions,
+        string modelId,
+        CancellationToken cancellationToken)
+    {
+        var definition = _localModelManager.List().FirstOrDefault(item =>
+            item.Id.Equals(modelId, StringComparison.Ordinal))
+            ?? throw new InvalidOperationException($"未找到本地模型：{modelId}。");
+        if (!definition.IsInstallable)
+        {
+            throw new InvalidOperationException($"{definition.Name} 不支持一键部署，无法测试。");
+        }
+
+        if (_localModelManager.GetStatus(modelId) != LocalModelInstallState.Installed)
+        {
+            throw new InvalidOperationException($"{definition.Name} 还没安装，先安装再测试。");
+        }
+
+        ApplyOptionalSettings(parameters, serializerOptions);
+        return definition.Category switch
+        {
+            LocalModelCategory.Translation => await TestLocalTranslationAsync(definition, cancellationToken),
+            LocalModelCategory.Tts => await TestLocalTtsAsync(cancellationToken),
+            LocalModelCategory.Asr => await TestLocalAsrAsync(definition, cancellationToken),
+            _ => throw new InvalidOperationException($"{definition.Name} 暂不支持测试。")
+        };
+    }
+
+    private async Task<object> TestLocalTranslationAsync(
+        LocalModelDefinition definition,
+        CancellationToken cancellationToken)
+    {
+        var testSettings = _settings.Clone();
+        testSettings.TranslationProvider = definition.Id switch
+        {
+            LocalModelIds.MiniCpm51BGguf => TranslationProvider.LocalMiniCpm,
+            LocalModelIds.HyMt1518B => TranslationProvider.ManagedHyMt,
+            LocalModelIds.M2M100418M => TranslationProvider.ManagedM2M100,
+            LocalModelIds.Small100 => TranslationProvider.ManagedSmall100,
+            _ => throw new InvalidOperationException("该模型不是本地翻译模型。")
+        };
+        var translator = _translationFactory.Create(testSettings);
+        string translated;
+        try
+        {
+            translated = await translator.TranslateAsync(
+                "你好，世界！",
+                LanguageCatalog.Get("zh"),
+                LanguageCatalog.Get("en"),
+                cancellationToken);
+        }
+        finally
+        {
+            await DisposeServiceAsync(translator);
+        }
+
+        if (string.IsNullOrWhiteSpace(translated))
+        {
+            throw new InvalidOperationException("翻译模型返回了空结果。");
+        }
+
+        return (object)new { ok = true, detail = translated };
+    }
+
+    private async Task<object> TestLocalTtsAsync(CancellationToken cancellationToken)
+    {
+        var testSettings = _settings.Clone();
+        testSettings.UseRemoteTextToSpeech = false;
+        testSettings.UseLocalKokoroTextToSpeech = true;
+        _textToSpeech.Configure(testSettings);
+        try
+        {
+            await _textToSpeech.SpeakAsync(
+                "本地语音测试",
+                LanguageCatalog.Get("zh"),
+                outputDeviceId: string.Empty,
+                cancellationToken);
+        }
+        finally
+        {
+            _textToSpeech.Configure(_settings);
+        }
+
+        return (object)new { ok = true, detail = "已播放测试语音，请确认能听到声音" };
+    }
+
+    private async Task<object> TestLocalAsrAsync(
+        LocalModelDefinition definition,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(_settings.MicrophoneDeviceId))
+        {
+            throw new InvalidOperationException("请先在「音频设备」页选择麦克风，再测试语音识别。");
+        }
+
+        var testSettings = _settings.Clone();
+        if (definition.Id == LocalModelIds.MossTranscribeDiarize)
+        {
+            testSettings.AsrProtocol = AsrProtocol.LocalManagedMoss;
+        }
+        else
+        {
+            testSettings.AsrProtocol = AsrProtocol.LocalWhisper;
+            testSettings.WhisperModel = definition.WhisperModelName ?? "base";
+        }
+
+        await using var recognizer = _asrFactory.Create(testSettings);
+        await recognizer.PrepareAsync(cancellationToken);
+        var samples = await CaptureMicrophoneSamplesAsync(
+            _settings.MicrophoneDeviceId,
+            TimeSpan.FromSeconds(4),
+            cancellationToken);
+        var result = await recognizer.TranscribeAsync(
+            AudioUtterance.FromSamples(samples, LocalAsrTestSampleRate),
+            LanguageCatalog.Get(_settings.MyLanguageCode),
+            cancellationToken);
+        var text = result.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return (object)new { ok = false, detail = "没听清，请对着麦克风说一句话再试" };
+        }
+
+        return (object)new { ok = true, detail = text };
+    }
+
+    private const int LocalAsrTestSampleRate = 16000;
+
+    /// <summary>采集一段时间的麦克风 PCM（16 kHz 单声道），用于本地识别模型测试。</summary>
+    private async Task<float[]> CaptureMicrophoneSamplesAsync(
+        string deviceId,
+        TimeSpan duration,
+        CancellationToken cancellationToken)
+    {
+        await using var capture = new WasapiSpeechCapture(
+            deviceId,
+            loopback: false,
+            threshold: 0.005,
+            silenceDurationMs: 650,
+            smartSentenceSegmentation: false);
+        var chunks = new List<float[]>();
+        long collectedSamples = 0;
+        void OnChunk(object? sender, float[] samples)
+        {
+            chunks.Add(samples);
+            collectedSamples += samples.Length;
+        }
+
+        capture.PcmChunkReady += OnChunk;
+        try
+        {
+            capture.Start();
+            var deadline = DateTimeOffset.UtcNow + duration;
+            while (DateTimeOffset.UtcNow < deadline && !cancellationToken.IsCancellationRequested)
+            {
+                if (collectedSamples >= LocalAsrTestSampleRate * duration.TotalSeconds)
+                {
+                    break;
+                }
+
+                await Task.Delay(100, cancellationToken);
+            }
+        }
+        finally
+        {
+            capture.PcmChunkReady -= OnChunk;
+            capture.Stop();
+        }
+
+        if (collectedSamples == 0)
+        {
+            throw new InvalidOperationException("没有采集到麦克风音频，请检查麦克风是否可用。");
+        }
+
+        var samples = new float[collectedSamples];
+        var offset = 0;
+        foreach (var chunk in chunks)
+        {
+            chunk.CopyTo(samples, offset);
+            offset += chunk.Length;
+        }
+
+        return samples;
+    }
 
     private void OnManagedRuntimeProgress(
         object? sender,

@@ -310,6 +310,75 @@ public sealed class EngineHostTests
     }
 
     [Fact]
+    public async Task TestLocalModel_UnknownModelId_ThrowsFriendlyError()
+    {
+        var manager = new RecordingLocalModelManager();
+        await using var host = new EngineHost((_, _) => { }, startUiHost: false, manager);
+        var parameters = JsonSerializer.SerializeToElement(new { modelId = "missing-model" });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            host.HandleAsync(
+                "testLocalModel", parameters, SerializerOptions, CancellationToken.None));
+
+        Assert.Contains("未找到本地模型", exception.Message);
+    }
+
+    [Fact]
+    public async Task TestLocalModel_NotInstalled_ThrowsFriendlyError()
+    {
+        var manager = new RecordingLocalModelManager();
+        await using var host = new EngineHost((_, _) => { }, startUiHost: false, manager);
+        var parameters = JsonSerializer.SerializeToElement(new { modelId = "test-local-model" });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            host.HandleAsync(
+                "testLocalModel", parameters, SerializerOptions, CancellationToken.None));
+
+        Assert.Contains("还没安装", exception.Message);
+    }
+
+    [Fact]
+    public async Task TestLocalModel_CatalogOnlyModel_ThrowsFriendlyError()
+    {
+        var manager = new RecordingLocalModelManager
+        {
+            SupportLevel = LocalModelSupportLevel.CatalogOnly
+        };
+        await using var host = new EngineHost((_, _) => { }, startUiHost: false, manager);
+        var parameters = JsonSerializer.SerializeToElement(new { modelId = "test-local-model" });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            host.HandleAsync(
+                "testLocalModel", parameters, SerializerOptions, CancellationToken.None));
+
+        Assert.Contains("不支持一键部署", exception.Message);
+    }
+
+    [Fact]
+    public async Task TestLocalModel_InstalledButInferenceFails_PropagatesErrorWithoutHanging()
+    {
+        var manager = new RecordingLocalModelManager
+        {
+            ModelId = LocalModelIds.MiniCpm51BGguf,
+            AcquireUsageException = new InvalidOperationException("模型文件已损坏")
+        };
+        await using var host = new EngineHost((_, _) => { }, startUiHost: false, manager);
+        var parameters = JsonSerializer.SerializeToElement(
+            new { modelId = LocalModelIds.MiniCpm51BGguf });
+        await host.HandleAsync(
+            "installLocalModel", parameters, SerializerOptions, CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            host.HandleAsync(
+                "testLocalModel",
+                parameters,
+                SerializerOptions,
+                new CancellationTokenSource(TimeSpan.FromSeconds(30)).Token));
+
+        Assert.Contains("模型文件已损坏", exception.Message);
+    }
+
+    [Fact]
     public async Task RemoveLocalModel_SerializesWithConcurrentSessionStart()
     {
         var manager = new RecordingLocalModelManager { BlockRemove = true };
@@ -756,6 +825,9 @@ public sealed class EngineHostTests
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool BlockInstall { get; init; }
         public bool BlockRemove { get; init; }
+        public LocalModelSupportLevel SupportLevel { get; init; } = LocalModelSupportLevel.Stable;
+        public Exception? AcquireUsageException { get; init; }
+        public string ModelId { get; init; } = "test-local-model";
         public TaskCompletionSource RemoveStarted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource RemoveRelease { get; } =
@@ -766,10 +838,10 @@ public sealed class EngineHostTests
         [
             new()
             {
-                Id = "test-local-model",
+                Id = ModelId,
                 Name = "Test local model",
                 Category = LocalModelCategory.Translation,
-                SupportLevel = LocalModelSupportLevel.Stable,
+                SupportLevel = SupportLevel,
                 Runtime = LocalModelRuntimeKind.LlamaCppGguf,
                 InstallKind = LocalModelInstallKind.SingleFile,
                 Parameters = "1B",
@@ -819,7 +891,7 @@ public sealed class EngineHostTests
         }
 
         public ILocalModelLease AcquireUsage(string modelId) =>
-            throw new NotSupportedException();
+            AcquireUsageException is not null ? throw AcquireUsageException : throw new NotSupportedException();
 
         public ValueTask DisposeAsync()
         {

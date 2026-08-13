@@ -99,7 +99,7 @@ MiniCPM/Kokoro 运行时通过 `ILocalModelLease` 持有已验证模型目录。
 
 MiniCPM 使用 LLamaSharp/llama.cpp CPU 后端：`LocalMiniCpmRuntimePool` 共享 `LLamaWeights`、每个客户端使用独立 context，并以单并发 gate 限制推理。它是通用指令模型，VoxLink 仅通过受控提示词将其用于本地翻译、译文润色和口语化改写。最后一个客户端归还后可卸载权重。Kokoro 使用 sherpa-onnx Windows x64 原生运行时，生成 24 kHz 单声道浮点 PCM，再复用 NAudio/WASAPI 设备路由；speaker 限制为 0–102，速度为 0.5–2.0。选择本地 Kokoro 后，模型加载或生成失败直接返回错误，禁止静默回退到远程、Edge、Google 或 Windows TTS。
 
-Engine RPC 增加 `listLocalModels`、`installLocalModel` 和 `removeLocalModel`。列表返回展示元数据、安装状态和安全的项目主页 `sourceUrl`，但不暴露实际下载 URL、SHA-256 或磁盘路径。`modelProgress` 事件新增可空 `modelId`/`category`；采用 `WhenWritingNull`，因此旧 Whisper/说话人下载会省略这两个字段并保持全局进度语义，本地目录进度则按模型更新。`installLocalModel` 可在 Engine stdin 读循环外后台执行，避免大文件下载阻塞 configure/stop/shutdown；stdout 仍由统一锁串行写入，EngineHost 关闭会取消并排空后台请求。
+Engine RPC 增加 `listLocalModels`、`installLocalModel`、`removeLocalModel` 和 `testLocalModel`。列表返回展示元数据、安装状态和安全的项目主页 `sourceUrl`，但不暴露实际下载 URL、SHA-256 或磁盘路径。`testLocalModel` 按模型类别跑一次真实最小推理并返回 `{ ok, detail }`：翻译模型用固定句子「你好，世界！」做 zh→en 并回显译文；语音合成播放固定测试语音；语音识别录 4 秒麦克风 PCM（16 kHz 单声道）转写并回显文本。命令先校验目录存在、可部署且已安装，未选择麦克风时给出明确提示；测试全程与会话共享模型操作门闩，不会隐式切换或修改任何服务选择。`modelProgress` 事件新增可空 `modelId`/`category`；采用 `WhenWritingNull`，因此旧 Whisper/说话人下载会省略这两个字段并保持全局进度语义，本地目录进度则按模型更新。`installLocalModel` 可在 Engine stdin 读循环外后台执行，避免大文件下载阻塞 configure/stop/shutdown；stdout 仍由统一锁串行写入，EngineHost 关闭会取消并排空后台请求。
 
 ## 说话人标签
 
@@ -127,6 +127,7 @@ Chatbox 通过 UDP OSC `/chatbox/input` 输出。可选 MuteSelf 监听器在独
 - **自动故障转移**：默认翻译使用免密端点故障转移；未选择本地 Kokoro 时，TTS 依次尝试远程、Edge、Google 和 Windows；本地 Kokoro 失败不参与回退；Whisper 模型下载使用镜像和官方源。
 - **敏感数据隔离**：普通配置和 DPAPI secrets 分离；PasswordBox 与请求头编辑器不把秘密写入 XAML Key 或普通可绑定对象。服务配置 `ContentDialog` 使用暂存值，只有点击保存后才提交，取消不会修改或发送秘密。
 - **最少配置优先**：「模型服务」主页面只显示三类当前服务；预置云服务默认只要求 API Key，地址、模型、协议和请求头折叠到高级设置。本地模型使用固定安全默认值，可安装后直接启动。
+- **本地模型可测试**：安装后的模型通过 `testLocalModel` 真实跑一次最小推理（翻译/播放/识别）再返回结果，界面每行提供「测试」按钮；测试不修改任何服务选择，失败只标记该模型可重试。应用托管模型首次推理自动幂等准备运行时（`LocalModelOrchestrator.StartHostAsync` 探测未就绪时调用 `PrepareAsync`），无需用户手动触发。
 - **字段存在性感知迁移**：新仓库缺失时，`SettingsRepository` 只读迁移旧 Flutter 普通设置和 DPAPI 安全存储；缺失 `useAiTranslation`/`useCloudAsr` 时按已选 provider 一次性推断开关。升级后的矛盾组合以旧开关代表的实际行为安全规范为公共翻译、本地 Whisper 或 Kokoro 优先三态，并保留地址、模型、DPAPI 密钥与请求头。
 - **显式关闭协调**：关闭先阻止新操作，停止并释放 capture、stream、recognizer 和 sidecar，再等待设置保存收敛。
 - **SteamVR 可选输出**：OpenVR 在 WPF STA 线程按需初始化；SteamVR 缺失、未运行、无头显或运行时错误只关闭 VR 输出，不影响桌面字幕和翻译。
@@ -139,8 +140,8 @@ Chatbox 通过 UDP OSC `/chatbox/input` 输出。可选 MuteSelf 监听器在独
 - `src/VoxLink.UI/MainWindow.xaml`：Mica 标题栏、NavigationView 和响应式导航壳
 - `src/VoxLink.UI/Controls/OnboardingDialog.xaml`：首次启动语言、设备与 VRChat 路由测试
 - `src/VoxLink.UI/Pages/LivePage.xaml`：输入、会话控制、partial/final 与双目标消息显示
-- `src/VoxLink.UI/Pages/ModelProvidersPage.xaml`：只显示翻译、ASR、TTS 三类当前服务和简洁状态；复杂参数由按需配置弹窗承载
-- `src/VoxLink.UI/Pages/LocalModelsPage.xaml`：按语音识别、翻译、语音合成分类的五个真实可运行模型及一键安装/启用/启动
+- `src/VoxLink.UI/Pages/ModelProvidersPage.xaml`：只显示翻译、ASR、TTS 三类当前服务和简洁状态；每类一「标题+状态 / 设置按钮」一行、下拉选择框一行；配置弹窗标题带服务名，与下拉选择一一对应；复杂参数由按需配置弹窗承载
+- `src/VoxLink.UI/Pages/LocalModelsPage.xaml`：常用模型按语音识别、翻译、语音合成分类的一键安装/启用/启动/测试列表；需要 WSL/GPU 或功能重复的实验性模型（MOSS、HY-MT、SMaLL-100）收进「更多模型（实验性）」折叠区
 - `src/VoxLink.UI/Controls/*ServiceDialogContent.xaml`：翻译、ASR、TTS 的按需配置弹窗；预置服务默认只露出必要字段，高级字段折叠
 - `src/VoxLink.UI/Pages/AudioPage.xaml`：独立音源、设备、语音活动检测与智能断句
 - `src/VoxLink.UI/Pages/AdvancedPage.xaml`：仅转写、全局快捷键、窗口退出与外观

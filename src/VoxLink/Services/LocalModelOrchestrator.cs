@@ -78,6 +78,22 @@ internal sealed class LocalModelOrchestrator : ILocalModelOrchestrator
         try
         {
             modelLease = _modelManager.AcquireUsage(definition.Id);
+            if (definition.RuntimeProfileId is { } runtimeProfileId)
+            {
+                // 首次使用自动幂等准备运行时（PrepareAsync 内部会先探测，就绪则直接返回），
+                // 覆盖会话启动、本地模型测试等所有托管推理入口；需要用户操作的
+                // 场景（如缺失 WSL2）由 PrepareAsync 原样返回未就绪，Acquire 阶段报错。
+                var probe = await _runtimeManager.ProbeAsync(
+                    runtimeProfileId,
+                    linkedCancellation.Token).ConfigureAwait(false);
+                if (!probe.IsReady)
+                {
+                    await _runtimeManager.PrepareAsync(
+                        runtimeProfileId,
+                        linkedCancellation.Token).ConfigureAwait(false);
+                }
+            }
+
             runtimeLease = await _runtimeManager.AcquireUsageAsync(
                 definition.RuntimeProfileId!,
                 modelLease.ModelDirectory,

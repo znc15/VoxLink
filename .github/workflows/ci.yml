@@ -11,21 +11,25 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build-test:
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0  # full history so release-notes.ps1 can diff against previous tag
+
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
 
-      - name: Fetch Inno Setup compiler
-        shell: powershell
-        run: ./scripts/fetch-inno.ps1
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
 
       - name: Build
         shell: powershell
@@ -33,7 +37,41 @@ jobs:
 
       - name: Test
         shell: powershell
-        run: dotnet test VoxLink.slnx -c Release --no-build
+        run: dotnet test VoxLink.slnx -c Release --no-build --logger "trx;LogFileName=test-results.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: tests/**/TestResults/*.trx
+          if-no-files-found: ignore
+
+  publish:
+    needs: build-test
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Fetch Inno Setup compiler
+        shell: powershell
+        run: ./scripts/fetch-inno.ps1
 
       - name: Publish portable package and installer
         shell: powershell
@@ -50,8 +88,27 @@ jobs:
             artifacts/release/Setup-VoxLink-*.exe.sha256
           if-no-files-found: error
 
-      - name: Create GitHub Release (tagged builds only)
-        if: startsWith(github.ref, 'refs/tags/v')
+  release:
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # release-notes.ps1 diffs against the previous tag
+
+      - name: Assert tag matches project version
+        shell: pwsh
+        run: ./scripts/assert-version.ps1
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: VoxLink-win-x64
+          path: artifacts/release
+
+      - name: Create GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

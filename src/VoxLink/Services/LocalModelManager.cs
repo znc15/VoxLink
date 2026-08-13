@@ -1157,7 +1157,9 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
                 !string.IsNullOrWhiteSpace(definition.WhisperModelName) =>
                 _whisperInstaller.GetInstallState(definition.WhisperModelName),
             LocalModelInstallKind.WhisperGgml => LocalModelInstallState.NotInstalled,
-            LocalModelInstallKind.SingleFile or LocalModelInstallKind.Archive =>
+            LocalModelInstallKind.SingleFile
+                or LocalModelInstallKind.ManifestFiles
+                or LocalModelInstallKind.Archive =>
                 GetArtifactStatus(definition),
             _ => LocalModelInstallState.NotInstalled
         };

@@ -40,12 +40,20 @@ public sealed partial class LocalModelsPage : Page
         InstallRecommendedButton.IsEnabled =
             !Controller.IsRunning && !Controller.IsBusy && !Controller.HasBusyLocalModels;
         InstallRecommendedButton.Content = Controller.RecommendedLocalModelsReady
-            ? "启用并启动"
-            : "一键安装并启动";
+            ? "直接开用"
+            : "一键装好并启动";
     }
 
     private async void RefreshLocalModels_Click(object sender, RoutedEventArgs args) =>
         await Controller.RefreshLocalModelsAsync();
+
+    private async void TestModel_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is Button { DataContext: LocalModelItem model })
+        {
+            await Controller.TestLocalModelAsync(model.Id);
+        }
+    }
 
     private async void ModelPrimaryAction_Click(object sender, RoutedEventArgs args)
     {
@@ -168,7 +176,7 @@ public sealed partial class LocalModelsPage : Page
         var confirmation = new ContentDialog
         {
             Title = $"删除 {model.Name}？",
-            Content = "模型文件将从本机删除。正在运行时不会删除当前模型。",
+            Content = "会删掉本机上的模型文件；正在使用的模型不会被删。",
             PrimaryButtonText = "删除",
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close,

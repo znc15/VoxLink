@@ -10,7 +10,7 @@
                 x:Name="ApiKeyBox"
                 Header="API Key"
                 PasswordRevealMode="Peek"
-                PlaceholderText="预置服务通常只需填写此项" />
+                PlaceholderText="预置服务一般只填这里就行" />
             <ToggleSwitch x:Name="RefinementSwitch" Header="润色译文" OffContent="关闭" OnContent="开启" />
             <TextBox
                 x:Name="RefinementPromptBox"
