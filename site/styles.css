@@ -143,6 +143,7 @@ kbd {
 .nav-links { display: flex; gap: 36px; }
 .nav-links a { font-size: 14px; color: var(--text-2); transition: color 0.15s ease; }
 .nav-links a:hover { color: var(--accent); }
+.nav-links a[aria-current="page"] { color: var(--accent); font-weight: 600; }
 .header-actions { display: flex; gap: 12px; align-items: center; }
 
 /* 主题切换按钮 */
@@ -237,45 +238,6 @@ kbd {
 .hero-sub { margin-top: 24px; font-size: 17px; line-height: 1.75; color: var(--text-2); max-width: 560px; }
 .hero-ctas { display: flex; gap: 14px; margin-top: 32px; flex-wrap: wrap; }
 .hero-trust { margin-top: 24px; font-size: 13px; color: var(--text-3); }
-
-/* 最新 Release 信息卡 */
-.release-note {
-  margin-top: 28px;
-  padding: 16px 20px;
-  border-radius: 12px;
-  background: var(--card);
-  border: 1.5px solid var(--hairline);
-  border-left: 4px solid var(--accent-2);
-  max-width: 560px;
-  box-shadow: var(--shadow-card);
-  animation: releaseIn 0.5s cubic-bezier(0.22, 1, 0.36, 1);
-}
-@keyframes releaseIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.release-note-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--accent-2);
-}
-.release-date { font-size: 12px; font-weight: 400; color: var(--text-3); margin-left: auto; }
-.release-body {
-  margin-top: 8px;
-  font-size: 13px;
-  line-height: 1.65;
-  color: var(--text-2);
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.release-link { display: inline-block; margin-top: 10px; font-size: 13px; font-weight: 600; color: var(--accent); }
-.release-link:hover { text-decoration: underline; }
-.release-link::after { content: " →"; }
 
 /* Hero 真实截图（纯色描边相框） */
 .hero-visual { position: relative; }
@@ -471,6 +433,76 @@ kbd {
 .footer-divider { border-top: 1.5px solid var(--hairline); margin: 56px 0 24px; }
 .footer-bottom { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--text-3); }
 
+/* ---------- Changelog（更新日志页） ---------- */
+.page-top { padding-top: 72px; }
+.changelog-list { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+.changelog-item { padding: 28px 32px; }
+.changelog-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.changelog-version { font-size: 22px; font-weight: 700; color: var(--text); }
+.changelog-latest {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1.5px solid var(--accent);
+  border-radius: 12px;
+  padding: 3px 12px;
+}
+.changelog-date { font-size: 13px; color: var(--text-3); }
+.changelog-github { margin-left: auto; font-size: 13px; font-weight: 600; color: var(--accent); }
+.changelog-github:hover { text-decoration: underline; }
+.changelog-body {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1.5px dashed var(--hairline-strong);
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-2);
+}
+.changelog-body h2 { display: none; }
+.changelog-body h3 { font-size: 15px; font-weight: 700; color: var(--text); margin: 20px 0 8px; }
+.changelog-body h3:first-child { margin-top: 0; }
+.changelog-body blockquote {
+  margin: 10px 0 16px;
+  padding: 10px 16px;
+  background: var(--card-deep);
+  border-left: 3px solid var(--accent-2);
+  border-radius: 0 12px 12px 0;
+  font-size: 13px;
+  color: var(--text-3);
+}
+.changelog-body ul { margin: 4px 0 10px; }
+.changelog-body li { position: relative; padding-left: 18px; margin: 7px 0; }
+.changelog-body li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 9px;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.changelog-body li li::before { background: var(--accent-2); }
+.changelog-body code {
+  font-family: inherit;
+  font-size: 0.9em;
+  background: var(--chip-bg);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: 1px 6px;
+  color: var(--text);
+}
+.changelog-body details {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1.5px dashed var(--hairline-strong);
+}
+.changelog-body summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--accent); }
+.changelog-body details ul { margin-top: 8px; }
+.changelog-status { text-align: center; padding: 48px 0; font-size: 15px; color: var(--text-2); }
+.changelog-status-link { display: inline-block; margin-top: 12px; font-size: 14px; font-weight: 600; color: var(--accent); }
+.changelog-status-link:hover { text-decoration: underline; }
+
 /* ---------- Scroll reveal ---------- */
 .reveal {
   opacity: 0;
@@ -513,7 +545,7 @@ html {
 /* ---------- Responsive ---------- */
 @media (max-width: 1080px) {
   .hero-inner, .tech-inner { grid-template-columns: 1fr; gap: 56px; }
-  .hero-sub, .release-note { max-width: none; }
+  .hero-sub { max-width: none; }
   .bento-grid { grid-template-columns: repeat(2, 1fr); }
   .card-wide { grid-column: span 2; }
   .scenario-grid, .steps-grid { grid-template-columns: 1fr; max-width: 560px; }

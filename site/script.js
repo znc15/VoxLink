@@ -1,7 +1,7 @@
 // VoxLink Landing — interactions
 // 1) 主题切换（深色 / 亮色，localStorage 记忆）
-// 2) GitHub API 获取最新 Release（版本号 / 日期 / 更新说明）
-// 3) 滚动 reveal（IntersectionObserver）
+// 2) GitHub API 获取最新 Release（版本徽章；完整更新日志见 changelog.html）
+// 3) 滚动 reveal（IntersectionObserver，供 changelog.js 复用）
 // 4) Header 滚动描边 / 移动端导航
 
 (function () {
@@ -34,29 +34,6 @@
   /* ================= GitHub 最新 Release ================= */
   var REPO = "znc15/VoxLink";
   var badgeEl = document.getElementById("releaseBadge");
-  var noteEl = document.getElementById("releaseNote");
-  var titleEl = document.getElementById("releaseTitle");
-  var dateEl = document.getElementById("releaseDate");
-  var bodyEl = document.getElementById("releaseBody");
-  var linkEl = document.getElementById("releaseLink");
-
-  function stripMarkdown(md) {
-    if (!md) return "";
-    return md
-      .replace(/!\[[^\]]*\]\([^)]*\)/g, "")          // 图片
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")        // 链接 → 纯文本
-      .replace(/^#{1,6}\s*/gm, "")                    // 标题符号
-      .replace(/^\s*[-*+]\s+/gm, "")                  // 列表符号
-      .replace(/[*_`~]/g, "")                         // 行内标记
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-
-  function formatDate(iso) {
-    var d = new Date(iso);
-    if (isNaN(d.getTime())) return "";
-    return d.getFullYear() + " 年 " + (d.getMonth() + 1) + " 月 " + d.getDate() + " 日发布";
-  }
 
   function fetchJson(url) {
     return fetch(url, { headers: { Accept: "application/vnd.github+json" } }).then(function (res) {
@@ -65,29 +42,24 @@
     });
   }
 
-  // 优先 /releases/latest；404 或被限流时回退到 /releases 列表第一条
-  fetchJson("https://api.github.com/repos/" + REPO + "/releases/latest")
-    .catch(function () {
-      return fetchJson("https://api.github.com/repos/" + REPO + "/releases?per_page=1").then(function (list) {
-        if (!list || !list.length) throw new Error("no releases");
-        return list[0];
+  // 首页徽章：最新版本号 + MIT（更新日志在 changelog.html）
+  if (badgeEl) {
+    // 优先 /releases/latest；404 或被限流时回退到 /releases 列表第一条
+    fetchJson("https://api.github.com/repos/" + REPO + "/releases/latest")
+      .catch(function () {
+        return fetchJson("https://api.github.com/repos/" + REPO + "/releases?per_page=1").then(function (list) {
+          if (!list || !list.length) throw new Error("no releases");
+          return list[0];
+        });
+      })
+      .then(function (data) {
+        var tag = data.tag_name || data.name || "";
+        if (tag) badgeEl.textContent = tag + " 已发布 · MIT 开源";
+      })
+      .catch(function () {
+        // 拉取失败：保留静态默认文案
       });
-    })
-    .then(function (data) {
-      var tag = data.tag_name || data.name || "";
-      // 徽章：版本号 + MIT
-      if (tag) badgeEl.textContent = tag + " 已发布 · MIT 开源";
-      // 信息卡：标题 / 日期 / 摘要 / 链接
-      titleEl.textContent = "最新版本 " + (data.name || tag);
-      dateEl.textContent = formatDate(data.published_at);
-      var notes = stripMarkdown(data.body);
-      bodyEl.textContent = notes.length > 180 ? notes.slice(0, 180) + "…" : notes || "本次更新详情见 Release 页面。";
-      if (data.html_url) linkEl.href = data.html_url;
-      noteEl.hidden = false;
-    })
-    .catch(function () {
-      // 拉取失败：保留静态默认文案，不展示信息卡
-    });
+  }
 
   /* ================= 滚动 reveal ================= */
   var revealEls = document.querySelectorAll(".reveal");
@@ -99,9 +71,8 @@
 
   var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  if (reduceMotion || !("IntersectionObserver" in window)) {
-    revealEls.forEach(function (el) { el.classList.add("visible"); });
-  } else {
+  // 暴露给 changelog.js：动态插入的卡片同样走 reveal 动画
+  function observeReveal(els) {
     var observer = new IntersectionObserver(
       function (entries) {
         entries.forEach(function (entry) {
@@ -113,7 +84,17 @@
       },
       { threshold: 0.12, rootMargin: "0px 0px -40px 0px" }
     );
-    revealEls.forEach(function (el) { observer.observe(el); });
+    els.forEach(function (el) { observer.observe(el); });
+  }
+
+  if (reduceMotion || !("IntersectionObserver" in window)) {
+    revealEls.forEach(function (el) { el.classList.add("visible"); });
+    window.voxlinkObserveReveal = function (els) {
+      els.forEach(function (el) { el.classList.add("visible"); });
+    };
+  } else {
+    observeReveal(revealEls);
+    window.voxlinkObserveReveal = observeReveal;
   }
 
   /* ================= Header 滚动描边 ================= */
