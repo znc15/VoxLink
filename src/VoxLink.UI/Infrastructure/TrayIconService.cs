@@ -22,8 +22,9 @@ internal sealed class TrayIconService : IDisposable
     private const uint TpmReturnCmd = 0x0100;
     private const uint MfString = 0x0000;
     private const uint MfSeparator = 0x0800;
-    private const uint CommandRestore = 1;
-    private const uint CommandExit = 2;
+    private const uint MfChecked = 0x0008;
+    private const uint MfGrayed = 0x0001;
+    private const uint MfPopup = 0x0010;
 
     private readonly string _iconPath;
     private readonly WindowProc _windowProc;
@@ -66,7 +67,8 @@ internal sealed class TrayIconService : IDisposable
     }
 
     public event Action? RestoreRequested;
-    public event Action? ExitRequested;
+
+    public Func<IReadOnlyList<TrayMenuItem>>? MenuProvider { get; set; }
 
     public bool Visible
     {
@@ -212,16 +214,22 @@ internal sealed class TrayIconService : IDisposable
             return;
         }
 
+        var submenus = new List<IntPtr>();
+        var commands = new Dictionary<uint, Action>();
+        uint nextCommand = 1;
         try
         {
-            AppendMenuW(menu, MfString, CommandRestore, "打开 VoxLink");
-            AppendMenuW(menu, MfSeparator, 0, null);
-            AppendMenuW(menu, MfString, CommandExit, "退出 VoxLink");
+            AppendMenuItems(
+                menu,
+                MenuProvider?.Invoke() ?? [],
+                submenus,
+                commands,
+                ref nextCommand);
             GetCursorPos(out var point);
             SetForegroundWindow(_hwnd);
             PostMessageW(_hwnd, WmNull, IntPtr.Zero, IntPtr.Zero);
 
-            var command = TrackPopupMenu(
+            var command = (uint)TrackPopupMenu(
                 menu,
                 TpmRightButton | TpmReturnCmd,
                 point.X,
@@ -229,20 +237,75 @@ internal sealed class TrayIconService : IDisposable
                 0,
                 _hwnd,
                 IntPtr.Zero);
-            if (command == CommandRestore)
+            if (commands.TryGetValue(command, out var action))
             {
-                RestoreRequested?.Invoke();
-            }
-            else if (command == CommandExit)
-            {
-                ExitRequested?.Invoke();
+                action();
             }
         }
         finally
         {
+            foreach (var submenu in submenus)
+            {
+                DestroyMenu(submenu);
+            }
+
             DestroyMenu(menu);
         }
     }
+
+    private void AppendMenuItems(
+        IntPtr menu,
+        IReadOnlyList<TrayMenuItem> items,
+        List<IntPtr> submenus,
+        Dictionary<uint, Action> commands,
+        ref uint nextCommand)
+    {
+        foreach (var item in items)
+        {
+            if (item.IsSeparator)
+            {
+                AppendMenuW(menu, MfSeparator, IntPtr.Zero, null);
+                continue;
+            }
+
+            var flags = MfString;
+            if (item.Checked)
+            {
+                flags |= MfChecked;
+            }
+
+            if (!item.Enabled)
+            {
+                flags |= MfGrayed;
+            }
+
+            if (item.Children is { Count: > 0 })
+            {
+                var submenu = CreatePopupMenu();
+                if (submenu == IntPtr.Zero)
+                {
+                    continue;
+                }
+
+                submenus.Add(submenu);
+                AppendMenuW(menu, flags | MfPopup, submenu, item.Text);
+                AppendMenuItems(submenu, item.Children, submenus, commands, ref nextCommand);
+                continue;
+            }
+
+            var commandId = nextCommand++;
+            commands[commandId] = item.Command ?? (() => { });
+            AppendMenuW(menu, flags, new IntPtr(commandId), item.Text);
+        }
+    }
+
+    internal sealed record TrayMenuItem(
+        string Text = "",
+        Action? Command = null,
+        bool Checked = false,
+        bool Enabled = true,
+        IReadOnlyList<TrayMenuItem>? Children = null,
+        bool IsSeparator = false);
 
     private delegate IntPtr WindowProc(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
 
@@ -350,7 +413,7 @@ internal sealed class TrayIconService : IDisposable
     private static extern bool AppendMenuW(
         IntPtr hMenu,
         uint uFlags,
-        uint uIDNewItem,
+        IntPtr uIDNewItem,
         string? lpNewItem);
 
     [DllImport("user32.dll", SetLastError = true)]

@@ -27,6 +27,13 @@ public sealed class ManagedModelRuntimeManager : IManagedModelRuntimeManager
     {
     }
 
+    public ManagedModelRuntimeManager(string runtimeRootDirectory)
+        : this(
+            CreateDefaultProvisioners(ManagedRuntimeLayout.Create(runtimeRootDirectory)),
+            ManagedRuntimeCatalog.All)
+    {
+    }
+
     internal ManagedModelRuntimeManager(
         IEnumerable<IManagedRuntimeProvisioner> provisioners,
         IReadOnlyList<ManagedRuntimeDefinition>? catalog = null)

@@ -33,7 +33,7 @@
                 <StackPanel Spacing="16">
                     <StackPanel Spacing="3">
                         <TextBlock Style="{StaticResource SectionTitleStyle}" Text="桌面字幕悬浮窗" />
-                        <TextBlock Style="{StaticResource CaptionStyle}" Text="在屏幕底部居中显示字幕。悬浮窗不抢焦点，也不会出现在任务栏和 Alt+Tab 中，完全在后台运行。" />
+                        <TextBlock Style="{StaticResource CaptionStyle}" Text="默认固定在屏幕底部居中；关闭固定后可直接拖动或拉伸，位置和大小会自动保存。" />
                     </StackPanel>
 
                     <ToggleSwitch
@@ -41,6 +41,18 @@
                         IsOn="{x:Bind Controller.Settings.ShowOverlay, Mode=TwoWay}"
                         OffContent="关闭"
                         OnContent="开启" />
+
+                    <ToggleSwitch
+                        Header="置顶显示"
+                        IsOn="{x:Bind Controller.Settings.DesktopOverlayTopmost, Mode=TwoWay}"
+                        OffContent="不置顶"
+                        OnContent="置顶" />
+
+                    <ToggleSwitch
+                        Header="固定位置"
+                        IsOn="{x:Bind Controller.Settings.DesktopOverlayLockPosition, Mode=TwoWay}"
+                        OffContent="可拖动和调整大小"
+                        OnContent="固定" />
 
                     <Grid ColumnSpacing="10">
                         <Grid.ColumnDefinitions>

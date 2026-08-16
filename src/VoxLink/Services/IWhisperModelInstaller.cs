@@ -29,11 +29,18 @@ public interface IWhisperModelInstaller
 /// </summary>
 internal sealed class WhisperModelInstallerAdapter : IWhisperModelInstaller
 {
+    private readonly string? _modelDirectory;
+
+    public WhisperModelInstallerAdapter(string? modelDirectory = null)
+    {
+        _modelDirectory = modelDirectory;
+    }
+
     public event EventHandler<ModelProgressEventArgs>? ModelProgress;
 
     public async Task PrepareAsync(string modelName, CancellationToken cancellationToken = default)
     {
-        var recognizer = new WhisperSpeechRecognizer();
+        var recognizer = new WhisperSpeechRecognizer(_modelDirectory);
         recognizer.ModelProgress += OnModelProgress;
         try
         {
@@ -48,7 +55,7 @@ internal sealed class WhisperModelInstallerAdapter : IWhisperModelInstaller
 
     public LocalModelInstallState GetInstallState(string modelName)
     {
-        var modelPath = WhisperSpeechRecognizer.GetModelPath(modelName);
+        var modelPath = WhisperSpeechRecognizer.GetModelPath(modelName, _modelDirectory);
         if (!File.Exists(modelPath))
         {
             return HasTemporaryFile(modelPath)
@@ -64,7 +71,7 @@ internal sealed class WhisperModelInstallerAdapter : IWhisperModelInstaller
 
     public bool TryRemoveModel(string modelName)
     {
-        var modelPath = WhisperSpeechRecognizer.GetModelPath(modelName);
+        var modelPath = WhisperSpeechRecognizer.GetModelPath(modelName, _modelDirectory);
         var removed = TryDeleteFile(modelPath);
         removed |= TryDeleteFile(modelPath + ".download");
         return removed;

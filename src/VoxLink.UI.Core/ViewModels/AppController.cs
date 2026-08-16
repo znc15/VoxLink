@@ -1320,6 +1320,24 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 return;
             }
 
+            var launchArguments = new List<string>();
+            if (!string.IsNullOrWhiteSpace(Settings.LocalModelDirectory))
+            {
+                launchArguments.Add("--model-dir");
+                launchArguments.Add(Settings.LocalModelDirectory);
+            }
+
+            if (!string.IsNullOrWhiteSpace(Settings.ManagedRuntimeDirectory))
+            {
+                launchArguments.Add("--runtime-dir");
+                launchArguments.Add(Settings.ManagedRuntimeDirectory);
+            }
+
+            if (launchArguments.Count > 0)
+            {
+                _engine.SetLaunchArguments(launchArguments);
+            }
+
             await _engine.ConnectAsync(cancellationToken);
             if (_closing)
             {
@@ -1579,6 +1597,27 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 break;
             case "hotkey":
                 HandleHotkey(ReadString(engineEvent.Data, "action"));
+                break;
+            case "overlayPlacement":
+                var overlayLeft = ReadNullableDouble(engineEvent.Data, "left");
+                var overlayTop = ReadNullableDouble(engineEvent.Data, "top");
+                var overlayWidth = ReadNullableDouble(engineEvent.Data, "width");
+                if (overlayLeft is not null)
+                {
+                    Settings.DesktopOverlayLeft = overlayLeft;
+                }
+
+                if (overlayTop is not null)
+                {
+                    Settings.DesktopOverlayTop = overlayTop;
+                }
+
+                if (overlayWidth is not null)
+                {
+                    Settings.DesktopOverlayWidth = overlayWidth;
+                }
+
+                _ = SaveNowAsync();
                 break;
         }
     }

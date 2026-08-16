@@ -17,7 +17,7 @@ internal static class Program
     };
 
     [STAThread]
-    private static async Task<int> Main()
+    private static async Task<int> Main(string[] args)
     {
         Console.InputEncoding = Encoding.UTF8;
         Console.OutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
@@ -26,7 +26,10 @@ internal static class Program
         var backgroundRequests = new List<Task>();
         try
         {
-            host = new EngineHost(WriteEvent);
+            host = new EngineHost(
+                WriteEvent,
+                ReadArgumentValue(args, "--model-dir"),
+                ReadArgumentValue(args, "--runtime-dir"));
             WriteEvent("ready", new
             {
                 processId = Environment.ProcessId,
@@ -96,6 +99,19 @@ internal static class Program
         {
             return false;
         }
+    }
+
+    private static string? ReadArgumentValue(string[] args, string name)
+    {
+        for (var index = 0; index + 1 < args.Length; index++)
+        {
+            if (args[index].Equals(name, StringComparison.Ordinal))
+            {
+                return args[index + 1];
+            }
+        }
+
+        return null;
     }
 
     internal static string GetPublicErrorMessage(Exception exception)

@@ -24,6 +24,9 @@ public sealed partial class MainWindow : Window
     private const uint DefaultSize = 0x0040;
     private const int SmCxsmicon = 49;
     private const int SmCysmicon = 50;
+    private const int GwlExstyle = -20;
+    private const int WsExLayered = 0x00080000;
+    private const uint LwaAlpha = 0x2;
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr LoadImageW(
@@ -39,6 +42,20 @@ public sealed partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetLayeredWindowAttributes(
+        IntPtr hWnd,
+        uint crKey,
+        byte bAlpha,
+        uint dwFlags);
 
     private enum CloseChoice
     {
@@ -72,7 +89,7 @@ public sealed partial class MainWindow : Window
         AppWindow.Changed += AppWindow_Changed;
         _trayIcon = new TrayIconService(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         _trayIcon.RestoreRequested += TrayIcon_RestoreRequested;
-        _trayIcon.ExitRequested += TrayIcon_ExitRequested;
+        _trayIcon.MenuProvider = BuildTrayMenu;
         EnsureTrayIconVisibility();
         RootLayout.Loaded += RootLayout_Loaded;
         App.Controller.PropertyChanged += Controller_PropertyChanged;
@@ -144,6 +161,11 @@ public sealed partial class MainWindow : Window
                 "UI",
                 $"最小化到托盘已更新：{App.Controller.Settings.MinimizeToTray}。");
         }
+
+        if (args.PropertyName == nameof(AppSettings.WindowOpacity))
+        {
+            ApplyWindowOpacity();
+        }
     }
 
     private void AppTitleBar_PaneToggleRequested(TitleBar sender, object args) =>
@@ -211,7 +233,32 @@ public sealed partial class MainWindow : Window
     private async void RootLayout_Loaded(object sender, RoutedEventArgs args)
     {
         ApplyWindowIcon();
+        ApplyWindowOpacity();
         await TryShowOnboardingAsync();
+    }
+
+    private void ApplyWindowOpacity()
+    {
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            if (hwnd == IntPtr.Zero)
+            {
+                return;
+            }
+
+            var extendedStyle = GetWindowLongPtr(hwnd, GwlExstyle).ToInt64();
+            SetWindowLongPtr(hwnd, GwlExstyle, new IntPtr(extendedStyle | WsExLayered));
+            var alpha = (byte)Math.Clamp(
+                Math.Round(App.Controller.Settings.WindowOpacity * 255),
+                0,
+                255);
+            SetLayeredWindowAttributes(hwnd, 0, alpha, LwaAlpha);
+        }
+        catch
+        {
+            // 透明度设置失败不影响窗口启动。
+        }
     }
 
     /// <summary>
@@ -371,8 +418,186 @@ public sealed partial class MainWindow : Window
     private void TrayIcon_RestoreRequested() =>
         DispatcherQueue.TryEnqueue(RestoreFromTray);
 
-    private async void TrayIcon_ExitRequested() =>
-        await TryExitAsync();
+    private IReadOnlyList<TrayIconService.TrayMenuItem> BuildTrayMenu()
+    {
+        var settings = App.Controller.Settings;
+        var canSwitch = !App.Controller.IsBusy && !App.Controller.HasBusyLocalModels;
+        var models = App.Controller.LocalModels;
+        bool Installed(string modelId) => models.Any(model =>
+            model.Id.Equals(modelId, StringComparison.Ordinal) && model.Installed);
+
+        void CommitSettingsChange()
+        {
+            App.Controller.NotifySettingsChanged();
+            App.Controller.MarkSessionRestartRequired();
+        }
+
+        void SelectTranslation(TranslationBackend backend)
+        {
+            settings.SelectTranslationBackend(backend);
+            CommitSettingsChange();
+        }
+
+        void SelectAsr(AsrProvider provider)
+        {
+            settings.SelectAsrProvider(provider);
+            CommitSettingsChange();
+        }
+
+        void SelectSpeech(SpeechServiceMode mode)
+        {
+            settings.SelectSpeechService(mode);
+            CommitSettingsChange();
+        }
+
+        void ActivateLocal(string modelId) =>
+            _ = App.Controller.InstallAndActivateLocalModelAsync(modelId);
+
+        var translationItems = new List<TrayIconService.TrayMenuItem>
+        {
+            new(
+                "公共免密",
+                () => SelectTranslation(TranslationBackend.PublicFree),
+                Checked: !settings.UseAiTranslation
+                    || settings.TranslationBackend == TranslationBackend.PublicFree),
+            new(
+                "本地 MiniCPM5-1B",
+                () => ActivateLocal(LocalModelIds.MiniCpm51BGguf),
+                Checked: settings.UseAiTranslation
+                    && settings.TranslationBackend == TranslationBackend.LocalMiniCpm,
+                Enabled: canSwitch && Installed(LocalModelIds.MiniCpm51BGguf)),
+            new(
+                "本地 HY-MT1.5-1.8B",
+                () => ActivateLocal(LocalModelIds.HyMt1518B),
+                Checked: settings.UseAiTranslation
+                    && settings.TranslationBackend == TranslationBackend.ManagedHyMt,
+                Enabled: canSwitch && Installed(LocalModelIds.HyMt1518B)),
+            new(
+                "本地 M2M-100 418M",
+                () => ActivateLocal(LocalModelIds.M2M100418M),
+                Checked: settings.UseAiTranslation
+                    && settings.TranslationBackend == TranslationBackend.ManagedM2M100,
+                Enabled: canSwitch && Installed(LocalModelIds.M2M100418M)),
+            new(
+                "本地 SMaLL-100",
+                () => ActivateLocal(LocalModelIds.Small100),
+                Checked: settings.UseAiTranslation
+                    && settings.TranslationBackend == TranslationBackend.ManagedSmall100,
+                Enabled: canSwitch && Installed(LocalModelIds.Small100)),
+            new(
+                "DeepSeek",
+                () => SelectTranslation(TranslationBackend.DeepSeek),
+                Checked: settings.UseAiTranslation
+                    && settings.TranslationBackend == TranslationBackend.DeepSeek),
+            new(
+                "OpenAI 兼容",
+                () => SelectTranslation(TranslationBackend.OpenAiCompatible),
+                Checked: settings.UseAiTranslation
+                    && settings.TranslationBackend == TranslationBackend.OpenAiCompatible),
+            new(
+                "自定义服务",
+                () => SelectTranslation(TranslationBackend.Custom),
+                Checked: settings.UseAiTranslation
+                    && settings.TranslationBackend == TranslationBackend.Custom)
+        };
+
+        var asrItems = new List<TrayIconService.TrayMenuItem>
+        {
+            new(
+                "Whisper tiny",
+                () => ActivateLocal(LocalModelIds.WhisperTiny),
+                Checked: !settings.UseCloudAsr && settings.WhisperModel == "tiny",
+                Enabled: canSwitch && Installed(LocalModelIds.WhisperTiny)),
+            new(
+                "Whisper base",
+                () => ActivateLocal(LocalModelIds.WhisperBase),
+                Checked: !settings.UseCloudAsr && settings.WhisperModel == "base",
+                Enabled: canSwitch && Installed(LocalModelIds.WhisperBase)),
+            new(
+                "Whisper small",
+                () => ActivateLocal(LocalModelIds.WhisperSmall),
+                Checked: !settings.UseCloudAsr && settings.WhisperModel == "small",
+                Enabled: canSwitch && Installed(LocalModelIds.WhisperSmall)),
+            new(
+                "本地 MOSS 转写+说话人",
+                () => ActivateLocal(LocalModelIds.MossTranscribeDiarize),
+                Checked: settings.UseCloudAsr
+                    && settings.AsrProvider == AsrProvider.LocalManagedMoss,
+                Enabled: canSwitch && Installed(LocalModelIds.MossTranscribeDiarize)),
+            new(
+                "Soniox",
+                () => SelectAsr(AsrProvider.Soniox),
+                Checked: settings.UseCloudAsr && settings.AsrProvider == AsrProvider.Soniox),
+            new(
+                "硅基流动",
+                () => SelectAsr(AsrProvider.SiliconFlow),
+                Checked: settings.UseCloudAsr
+                    && settings.AsrProvider == AsrProvider.SiliconFlow),
+            new(
+                "小米 MiMo",
+                () => SelectAsr(AsrProvider.MiMo),
+                Checked: settings.UseCloudAsr && settings.AsrProvider == AsrProvider.MiMo),
+            new(
+                "OpenAI 兼容",
+                () => SelectAsr(AsrProvider.OpenAiCompatible),
+                Checked: settings.UseCloudAsr
+                    && settings.AsrProvider == AsrProvider.OpenAiCompatible),
+            new(
+                "自定义服务",
+                () => SelectAsr(AsrProvider.Custom),
+                Checked: settings.UseCloudAsr && settings.AsrProvider == AsrProvider.Custom)
+        };
+
+        var speechItems = new List<TrayIconService.TrayMenuItem>
+        {
+            new(
+                "系统语音",
+                () => SelectSpeech(SpeechServiceMode.SystemFallback),
+                Checked: settings.SpeechServiceMode == SpeechServiceMode.SystemFallback),
+            new(
+                "本地 Kokoro-82M",
+                () => ActivateLocal(LocalModelIds.Kokoro82M),
+                Checked: settings.SpeechServiceMode == SpeechServiceMode.Kokoro,
+                Enabled: canSwitch && Installed(LocalModelIds.Kokoro82M)),
+            new(
+                "远程语音服务",
+                () => SelectSpeech(SpeechServiceMode.Remote),
+                Checked: settings.SpeechServiceMode == SpeechServiceMode.Remote)
+        };
+
+        return
+        [
+            new("打开 VoxLink", () => DispatcherQueue.TryEnqueue(RestoreFromTray)),
+            new(
+                App.Controller.IsRunning ? "停止翻译" : "开始翻译",
+                () => DispatcherQueue.TryEnqueue(() => _ = App.Controller.ToggleSessionAsync())),
+            new(IsSeparator: true),
+            new("运行模式", Children:
+            [
+                new(
+                    "文字模式（Chatbox）",
+                    () =>
+                    {
+                        settings.SpeakMyTranslation = false;
+                        CommitSettingsChange();
+                    },
+                    Checked: !settings.SpeakMyTranslation),
+                new(
+                    "VRChat 语音模式",
+                    () =>
+                    {
+                        settings.SpeakMyTranslation = true;
+                        CommitSettingsChange();
+                    },
+                    Checked: settings.SpeakMyTranslation)
+            ]),
+            new("翻译服务", Children: translationItems),
+            new("语音识别", Children: asrItems),
+            new("语音合成", Children: speechItems),
+            new(IsSeparator: true),
+            new("退出 VoxLink", () => DispatcherQueue.TryEnqueue(() => _ = TryExitAsync()))
+        ];
+    }
 
     private async Task TryExitAsync()
     {
@@ -433,7 +658,6 @@ public sealed partial class MainWindow : Window
         if (_trayIcon is not null)
         {
             _trayIcon.RestoreRequested -= TrayIcon_RestoreRequested;
-            _trayIcon.ExitRequested -= TrayIcon_ExitRequested;
             _trayIcon.Dispose();
             _trayIcon = null;
         }

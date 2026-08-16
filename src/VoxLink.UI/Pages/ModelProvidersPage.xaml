@@ -61,6 +61,7 @@
                         Grid.Row="1"
                         HorizontalAlignment="Stretch"
                         MaxDropDownHeight="320"
+                        DropDownOpened="TranslationBackendBox_DropDownOpened"
                         SelectionChanged="TranslationBackendBox_SelectionChanged">
                         <ComboBoxItem Content="公共免密" Tag="PublicFree" />
                         <ComboBoxItem x:Name="MiniCpmOption" Content="本地 MiniCPM5-1B" Tag="LocalMiniCpm" />
@@ -100,6 +101,7 @@
                         Grid.Row="1"
                         HorizontalAlignment="Stretch"
                         MaxDropDownHeight="320"
+                        DropDownOpened="AsrProviderBox_DropDownOpened"
                         SelectionChanged="AsrProviderBox_SelectionChanged">
                         <ComboBoxItem x:Name="WhisperTinyOption" Content="Whisper tiny（最快）" Tag="WhisperTiny" />
                         <ComboBoxItem x:Name="WhisperBaseOption" Content="Whisper base（推荐）" Tag="WhisperBase" />
@@ -140,6 +142,7 @@
                         Grid.Row="1"
                         HorizontalAlignment="Stretch"
                         MaxDropDownHeight="320"
+                        DropDownOpened="SpeechServiceBox_DropDownOpened"
                         SelectionChanged="SpeechServiceBox_SelectionChanged">
                         <ComboBoxItem Content="系统语音" Tag="SystemFallback" />
                         <ComboBoxItem x:Name="KokoroOption" Content="本地 Kokoro-82M" Tag="Kokoro" />

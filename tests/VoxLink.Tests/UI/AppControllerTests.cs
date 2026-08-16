@@ -78,7 +78,14 @@ public sealed class AppControllerTests
             VrChatOscListenAddress = "127.0.0.3",
             VrChatOscListenPort = 9012,
             ToggleHotkey = "Ctrl+Shift+Space",
-            TranslateHotkey = "Ctrl+Shift+Enter"
+            TranslateHotkey = "Ctrl+Shift+Enter",
+            DesktopOverlayLeft = 120,
+            DesktopOverlayTop = 340,
+            DesktopOverlayWidth = 900,
+            DesktopOverlayTopmost = false,
+            DesktopOverlayLockPosition = false,
+            LocalModelDirectory = @"D:\VoxLinkModels",
+            ManagedRuntimeDirectory = @"E:\VoxLinkRuntimes"
         };
 
         var json = JsonSerializer.Serialize(settings.ToEngineJson(), EngineJsonOptions);
@@ -126,6 +133,13 @@ public sealed class AppControllerTests
         Assert.True(engineSettings.VrChatMuteSelfEnabled);
         Assert.Equal("127.0.0.3", engineSettings.VrChatOscListenAddress);
         Assert.Equal(9012, engineSettings.VrChatOscListenPort);
+        Assert.Equal(120, engineSettings.DesktopOverlayLeft);
+        Assert.Equal(340, engineSettings.DesktopOverlayTop);
+        Assert.Equal(900, engineSettings.DesktopOverlayWidth);
+        Assert.False(engineSettings.DesktopOverlayTopmost);
+        Assert.False(engineSettings.DesktopOverlayLockPosition);
+        Assert.Equal(@"D:\VoxLinkModels", engineSettings.LocalModelDirectory);
+        Assert.Equal(@"E:\VoxLinkRuntimes", engineSettings.ManagedRuntimeDirectory);
     }
 
     [Fact]
@@ -191,6 +205,28 @@ public sealed class AppControllerTests
         Assert.Collection(controller.RenderDevices,
             device => Assert.Equal("render-default", device.Id));
         Assert.Contains("initialize", gateway.Requests);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_PassesCustomModelDirectoriesAsLaunchArguments()
+    {
+        var gateway = new FakeEngineGateway();
+        var repository = new FakeSettingsRepository(new AppSettings
+        {
+            LocalModelDirectory = @"D:\VoxLinkModels",
+            ManagedRuntimeDirectory = @"E:\VoxLinkRuntimes"
+        });
+        await using var controller = new AppController(
+            gateway,
+            repository,
+            new InlineSynchronizationContext());
+
+        await controller.InitializeAsync();
+
+        Assert.Contains(
+            gateway.LaunchArgumentSets,
+            set => set.SequenceEqual(
+                ["--model-dir", @"D:\VoxLinkModels", "--runtime-dir", @"E:\VoxLinkRuntimes"]));
     }
 
     [Fact]
@@ -2106,6 +2142,7 @@ public sealed class AppControllerTests
         public bool IsConnected { get; private set; }
         public List<string> Requests { get; } = [];
         public List<(string Method, IReadOnlyDictionary<string, object?>? Parameters)> Calls { get; } = [];
+        public List<IReadOnlyList<string>> LaunchArgumentSets { get; } = [];
         public JsonElement? ModelsResponse { get; set; }
         public JsonElement? InstallResponse { get; set; } =
             JsonSerializer.SerializeToElement(new { installState = "installed" });
@@ -2122,6 +2159,9 @@ public sealed class AppControllerTests
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         public void Raise(string name, JsonElement data) =>
             EventReceived?.Invoke(this, new EngineEvent(name, data));
+
+        public void SetLaunchArguments(IReadOnlyList<string> arguments) =>
+            LaunchArgumentSets.Add([.. arguments]);
 
         public Task ConnectAsync(CancellationToken cancellationToken = default)
         {
@@ -2204,6 +2244,10 @@ public sealed class AppControllerTests
         public int CloseCount { get; private set; }
         public TaskCompletionSource ConnectStarted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void SetLaunchArguments(IReadOnlyList<string> arguments)
+        {
+        }
 
         public async Task ConnectAsync(CancellationToken cancellationToken = default)
         {

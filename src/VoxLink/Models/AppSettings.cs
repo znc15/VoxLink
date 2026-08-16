@@ -193,4 +193,18 @@ public sealed class AppSettings
     public string ToggleHotkey { get; set; } = "Ctrl+Alt+Space";
 
     public string TranslateHotkey { get; set; } = "Ctrl+Alt+Enter";
+
+    public double? DesktopOverlayLeft { get; set; }
+
+    public double? DesktopOverlayTop { get; set; }
+
+    public double? DesktopOverlayWidth { get; set; }
+
+    public bool DesktopOverlayTopmost { get; set; } = true;
+
+    public bool DesktopOverlayLockPosition { get; set; } = true;
+
+    public string LocalModelDirectory { get; set; } = string.Empty;
+
+    public string ManagedRuntimeDirectory { get; set; } = string.Empty;
 }

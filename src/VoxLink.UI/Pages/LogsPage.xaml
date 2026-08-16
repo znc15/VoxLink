@@ -30,7 +30,7 @@
                 <TextBlock Style="{StaticResource PageTitleStyle}" Text="日志" />
                 <TextBlock
                     Style="{StaticResource CaptionStyle}"
-                    Text="排查翻译、引擎与服务连接问题；日志同时写入 %APPDATA%\VoxLink\logs。" />
+                    Text="日志同时写入 %APPDATA%\VoxLink\logs。" />
             </StackPanel>
             <StackPanel
                 Grid.Column="1"

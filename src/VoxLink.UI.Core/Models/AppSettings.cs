@@ -144,6 +144,14 @@ public sealed class AppSettings : ObservableObject
     private bool _useSystemTitleBar;
     private bool _minimizeToTray = true;
     private bool _confirmOnClose = true;
+    private double _windowOpacity = 1.0;
+    private double? _desktopOverlayLeft;
+    private double? _desktopOverlayTop;
+    private double? _desktopOverlayWidth;
+    private bool _desktopOverlayTopmost = true;
+    private bool _desktopOverlayLockPosition = true;
+    private string _localModelDirectory = string.Empty;
+    private string _managedRuntimeDirectory = string.Empty;
 
     public bool OnboardingCompleted { get => _onboardingCompleted; set => SetProperty(ref _onboardingCompleted, value); }
 
@@ -332,6 +340,24 @@ public sealed class AppSettings : ObservableObject
     public bool UseSystemTitleBar { get => _useSystemTitleBar; set => SetProperty(ref _useSystemTitleBar, value); }
     public bool MinimizeToTray { get => _minimizeToTray; set => SetProperty(ref _minimizeToTray, value); }
     public bool ConfirmOnClose { get => _confirmOnClose; set => SetProperty(ref _confirmOnClose, value); }
+    public double WindowOpacity
+    {
+        get => _windowOpacity;
+        set => SetProperty(
+            ref _windowOpacity,
+            Math.Clamp(double.IsFinite(value) ? value : 1.0, 0.2, 1.0));
+    }
+    public double? DesktopOverlayLeft { get => _desktopOverlayLeft; set => SetProperty(ref _desktopOverlayLeft, value); }
+    public double? DesktopOverlayTop { get => _desktopOverlayTop; set => SetProperty(ref _desktopOverlayTop, value); }
+    public double? DesktopOverlayWidth
+    {
+        get => _desktopOverlayWidth;
+        set => SetProperty(ref _desktopOverlayWidth, value);
+    }
+    public bool DesktopOverlayTopmost { get => _desktopOverlayTopmost; set => SetProperty(ref _desktopOverlayTopmost, value); }
+    public bool DesktopOverlayLockPosition { get => _desktopOverlayLockPosition; set => SetProperty(ref _desktopOverlayLockPosition, value); }
+    public string LocalModelDirectory { get => _localModelDirectory; set => SetProperty(ref _localModelDirectory, value); }
+    public string ManagedRuntimeDirectory { get => _managedRuntimeDirectory; set => SetProperty(ref _managedRuntimeDirectory, value); }
 
     /// <summary>
     /// 非持久化三态语音服务模式，由 UseRemoteSpeech / UseLocalKokoroTextToSpeech 计算得出。
@@ -664,7 +690,14 @@ public sealed class AppSettings : ObservableObject
         ["vrChatOscListenAddress"] = VrChatOscListenAddress,
         ["vrChatOscListenPort"] = VrChatOscListenPort,
         ["toggleHotkey"] = ToggleHotkey,
-        ["translateHotkey"] = TranslateHotkey
+        ["translateHotkey"] = TranslateHotkey,
+        ["desktopOverlayLeft"] = DesktopOverlayLeft,
+        ["desktopOverlayTop"] = DesktopOverlayTop,
+        ["desktopOverlayWidth"] = DesktopOverlayWidth,
+        ["desktopOverlayTopmost"] = DesktopOverlayTopmost,
+        ["desktopOverlayLockPosition"] = DesktopOverlayLockPosition,
+        ["localModelDirectory"] = LocalModelDirectory,
+        ["managedRuntimeDirectory"] = ManagedRuntimeDirectory
     };
 
     private void RaiseAsrCapabilityProperties()

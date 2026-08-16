@@ -67,7 +67,15 @@ public sealed class SettingsRepositoryTests : IDisposable
                 ["X-ASR-Token"] = "asr-header-secret"
             },
             MinimizeToTray = false,
-            ConfirmOnClose = true
+            ConfirmOnClose = true,
+            WindowOpacity = 0.65,
+            DesktopOverlayLeft = 150,
+            DesktopOverlayTop = 380,
+            DesktopOverlayWidth = 860,
+            DesktopOverlayTopmost = false,
+            DesktopOverlayLockPosition = false,
+            LocalModelDirectory = @"D:\VoxLinkModels",
+            ManagedRuntimeDirectory = @"E:\VoxLinkRuntimes"
         };
 
         await repository.SaveAsync(settings);
@@ -118,6 +126,14 @@ public sealed class SettingsRepositoryTests : IDisposable
         Assert.True(loaded.VrChatMuteSelfEnabled);
         Assert.Equal("127.0.0.3", loaded.VrChatOscListenAddress);
         Assert.Equal(9012, loaded.VrChatOscListenPort);
+        Assert.Equal(0.65, loaded.WindowOpacity, precision: 2);
+        Assert.Equal(150, loaded.DesktopOverlayLeft);
+        Assert.Equal(380, loaded.DesktopOverlayTop);
+        Assert.Equal(860, loaded.DesktopOverlayWidth);
+        Assert.False(loaded.DesktopOverlayTopmost);
+        Assert.False(loaded.DesktopOverlayLockPosition);
+        Assert.Equal(@"D:\VoxLinkModels", loaded.LocalModelDirectory);
+        Assert.Equal(@"E:\VoxLinkRuntimes", loaded.ManagedRuntimeDirectory);
         Assert.False(loaded.MinimizeToTray);
         Assert.True(loaded.ConfirmOnClose);
         Assert.Contains("vrChatOscAddress", publicJson, StringComparison.Ordinal);

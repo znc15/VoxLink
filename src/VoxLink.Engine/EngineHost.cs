@@ -47,6 +47,21 @@ internal sealed class EngineHost : IAsyncDisposable
     {
     }
 
+    public EngineHost(
+        Action<string, object> notify,
+        string? localModelDirectory = null,
+        string? managedRuntimeDirectory = null)
+        : this(
+            notify,
+            startUiHost: true,
+            localModelManager: null,
+            managedRuntimeManager: null,
+            localModelOrchestrator: null,
+            localModelDirectory: localModelDirectory,
+            managedRuntimeDirectory: managedRuntimeDirectory)
+    {
+    }
+
     internal EngineHost(Action<string, object> notify, bool startUiHost)
         : this(notify, startUiHost, localModelManager: null)
     {
@@ -70,12 +85,20 @@ internal sealed class EngineHost : IAsyncDisposable
         bool startUiHost,
         ILocalModelManager? localModelManager,
         IManagedModelRuntimeManager? managedRuntimeManager,
-        ILocalModelOrchestrator? localModelOrchestrator)
+        ILocalModelOrchestrator? localModelOrchestrator,
+        string? localModelDirectory = null,
+        string? managedRuntimeDirectory = null)
     {
         _notify = notify;
-        _localModelManager = localModelManager ?? new LocalModelManager();
+        _localModelManager = localModelManager
+            ?? (string.IsNullOrWhiteSpace(localModelDirectory)
+                ? new LocalModelManager()
+                : new LocalModelManager(localModelDirectory));
         _ownsLocalModelManager = localModelManager is null;
-        _managedRuntimeManager = managedRuntimeManager ?? new ManagedModelRuntimeManager();
+        _managedRuntimeManager = managedRuntimeManager
+            ?? (string.IsNullOrWhiteSpace(managedRuntimeDirectory)
+                ? new ManagedModelRuntimeManager()
+                : new ManagedModelRuntimeManager(managedRuntimeDirectory));
         _ownsManagedRuntimeManager = managedRuntimeManager is null;
         if (localModelOrchestrator is null)
         {
@@ -95,7 +118,7 @@ internal sealed class EngineHost : IAsyncDisposable
         _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("VoxLink.Engine/1.0");
         _asrFactory = new AsrRecognizerFactory(
             _httpClient,
-            new WhisperSpeechRecognizer(),
+            new WhisperSpeechRecognizer(localModelDirectory),
             new ClientAsrWebSocketFactory(),
             _localModelManager,
             managedOrchestrator: _defaultManagedOrchestrator);
@@ -112,7 +135,9 @@ internal sealed class EngineHost : IAsyncDisposable
         _vrChatOsc.SendFailed += OnVrChatOscSendFailed;
         if (startUiHost)
         {
-            _uiHost = new UiHost(action => _notify("hotkey", new { action }));
+            _uiHost = new UiHost(
+                action => _notify("hotkey", new { action }),
+                (name, data) => _notify(name, data));
         }
         _session.StatusChanged += OnStatusChanged;
         _session.MessageReceived += OnMessageReceived;

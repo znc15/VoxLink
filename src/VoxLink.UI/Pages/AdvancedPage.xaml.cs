@@ -1,12 +1,15 @@
 using System.ComponentModel;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using VoxLink.UI.Core.ViewModels;
 
 namespace VoxLink.UI.Pages;
 
 public sealed partial class AdvancedPage : Page
 {
+    private bool _loading;
+
     public AdvancedPage()
     {
         InitializeComponent();
@@ -18,7 +21,18 @@ public sealed partial class AdvancedPage : Page
 
     private void AdvancedPage_Loaded(object sender, RoutedEventArgs args)
     {
-        Bindings.Update();
+        _loading = true;
+        try
+        {
+            Bindings.Update();
+            WindowOpacitySlider.Value = Controller.Settings.WindowOpacity;
+        }
+        finally
+        {
+            _loading = false;
+        }
+
+        RefreshOpacityLabel();
         Controller.PropertyChanged += Controller_PropertyChanged;
     }
 
@@ -29,7 +43,32 @@ public sealed partial class AdvancedPage : Page
     {
         if (args.PropertyName == nameof(AppController.Settings))
         {
-            Bindings.Update();
+            _loading = true;
+            try
+            {
+                Bindings.Update();
+                WindowOpacitySlider.Value = Controller.Settings.WindowOpacity;
+            }
+            finally
+            {
+                _loading = false;
+            }
+
+            RefreshOpacityLabel();
         }
     }
+
+    private void WindowOpacitySlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs args)
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        Controller.Settings.WindowOpacity = WindowOpacitySlider.Value;
+        RefreshOpacityLabel();
+    }
+
+    private void RefreshOpacityLabel() =>
+        OpacityValueText.Text = $"{Controller.Settings.WindowOpacity:P0}";
 }

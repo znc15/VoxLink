@@ -78,30 +78,6 @@
             </StackPanel>
         </Border>
 
-            <Border
-                Padding="18"
-                Background="{ThemeResource VoxLinkAccentSoftBrush}"
-                BorderBrush="{ThemeResource VoxLinkTintStrokeBrush}"
-                BorderThickness="1"
-                CornerRadius="{StaticResource VoxLinkRadiusMedium}">
-                <Grid ColumnSpacing="14">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="36" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <FontIcon
-                        Foreground="{ThemeResource VoxLinkAccentBrush}"
-                        FontSize="24"
-                        Glyph="&#xE72E;" />
-                    <StackPanel Grid.Column="1" Spacing="4">
-                        <TextBlock FontWeight="SemiBold" Text="本地数据边界" />
-                        <TextBlock
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            Text="本地 Whisper 与本地说话人模型留在本机。云端 ASR 仅在明确允许后上传原始音频；普通设置为 JSON，API Key 和请求头使用当前 Windows 用户 DPAPI 加密。"
-                            TextWrapping="Wrap" />
-                    </StackPanel>
-                </Grid>
-            </Border>
         </StackPanel>
     </ScrollViewer>
 </Page>

@@ -145,12 +145,17 @@ internal sealed record ManagedRuntimeLayout(
     internal const string PackagedWslAdapterScriptSha256 =
         "61c8cb44a675d94db3c07ac6f64612b358f3a4c47d37d51516702a6491895b54";
 
-    public static ManagedRuntimeLayout CreateDefault() => new(
+    public static ManagedRuntimeLayout CreateDefault() => Create(
         Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "VoxLink",
-            "runtimes"),
-        Path.Combine(AppContext.BaseDirectory, "ModelHost"),
+            "runtimes"));
+
+    public static ManagedRuntimeLayout Create(
+        string rootDirectory,
+        string? assetsDirectory = null) => new(
+        Path.GetFullPath(rootDirectory),
+        assetsDirectory ?? Path.Combine(AppContext.BaseDirectory, "ModelHost"),
         PackagedHostScriptSha256,
         PackagedProbeScriptSha256,
         PackagedAdapterScriptSha256,

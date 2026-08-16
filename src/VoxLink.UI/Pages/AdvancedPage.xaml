@@ -68,6 +68,42 @@
                         IsOn="{x:Bind Controller.Settings.UseSystemTitleBar, Mode=TwoWay}"
                         OffContent="自绘标题栏"
                         OnContent="系统标题栏" />
+                    <StackPanel Spacing="6">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock FontWeight="SemiBold" Text="软件整体透明度" />
+                            <TextBlock x:Name="OpacityValueText" Grid.Column="1" Style="{StaticResource CaptionStyle}" />
+                        </Grid>
+                        <Slider
+                            x:Name="WindowOpacitySlider"
+                            Maximum="1"
+                            Minimum="0.2"
+                            SmallChange="0.05"
+                            StepFrequency="0.05"
+                            ValueChanged="WindowOpacitySlider_ValueChanged" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource PanelBorderStyle}">
+                <StackPanel Spacing="14">
+                    <StackPanel Spacing="3">
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="本地模型存储" />
+                        <TextBlock Style="{StaticResource CaptionStyle}" Text="留空使用默认位置；更改后重新启动 VoxLink 生效。" />
+                    </StackPanel>
+                    <TextBox
+                        x:Name="LocalModelDirectoryBox"
+                        Header="本地模型保存位置"
+                        PlaceholderText="留空使用默认位置"
+                        Text="{x:Bind Controller.Settings.LocalModelDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBox
+                        x:Name="ManagedRuntimeDirectoryBox"
+                        Header="托管运行时保存位置"
+                        PlaceholderText="留空使用默认位置"
+                        Text="{x:Bind Controller.Settings.ManagedRuntimeDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                 </StackPanel>
             </Border>
         </StackPanel>

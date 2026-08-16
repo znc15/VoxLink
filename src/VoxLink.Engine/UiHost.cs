@@ -8,6 +8,7 @@ namespace VoxLink.Engine;
 internal sealed class UiHost : IDisposable
 {
     private readonly Action<string> _hotkeyCallback;
+    private readonly Action<string, object>? _eventCallback;
     private readonly ManualResetEventSlim _ready = new();
     private readonly Thread _thread;
     private Application? _application;
@@ -18,9 +19,12 @@ internal sealed class UiHost : IDisposable
     private Exception? _startupError;
     private volatile bool _disposed;
 
-    public UiHost(Action<string> hotkeyCallback)
+    public UiHost(
+        Action<string> hotkeyCallback,
+        Action<string, object>? eventCallback = null)
     {
         _hotkeyCallback = hotkeyCallback;
+        _eventCallback = eventCallback;
         _thread = new Thread(Run)
         {
             IsBackground = true,
@@ -46,6 +50,12 @@ internal sealed class UiHost : IDisposable
         dispatcher.Invoke(() =>
         {
             _overlay!.SetEnabled(settings.ShowOverlay);
+            _overlay.Configure(
+                settings.DesktopOverlayLeft,
+                settings.DesktopOverlayTop,
+                settings.DesktopOverlayWidth,
+                settings.DesktopOverlayTopmost,
+                settings.DesktopOverlayLockPosition);
             _steamVrOverlay!.Configure(
                 settings.ShowVrOverlay,
                 settings.VrOverlayWidthMeters,
@@ -148,6 +158,11 @@ internal sealed class UiHost : IDisposable
             _hotkeys.ToggleRequested += (_, _) => _hotkeyCallback("toggle");
             _hotkeys.TranslateRequested += (_, _) => _hotkeyCallback("translate");
             _overlay = new OverlayWindow();
+            if (_eventCallback is not null)
+            {
+                _overlay.PlacementChanged += (left, top, width) =>
+                    _eventCallback("overlayPlacement", new { left, top, width });
+            }
             _steamVrOverlay = new SteamVrOverlayHost();
             _ready.Set();
             _application.Run();

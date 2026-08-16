@@ -18,6 +18,7 @@ internal sealed class LocalSpeakerLabeler : IAsyncDisposable
     private const double MatchThreshold = 0.65;
     private const int MaximumSpeakers = 8;
     private static readonly HttpClient ModelHttpClient = CreateModelHttpClient();
+    private readonly string _modelDirectory;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly List<SpeakerCluster> _clusters = [];
     private SpeakerEmbeddingExtractor? _extractor;
@@ -25,12 +26,23 @@ internal sealed class LocalSpeakerLabeler : IAsyncDisposable
 
     public event EventHandler<ModelProgressEventArgs>? ModelProgress;
 
-    internal static string ModelPath => Path.Combine(
+    public LocalSpeakerLabeler()
+        : this(DefaultModelDirectory())
+    {
+    }
+
+    public LocalSpeakerLabeler(string modelDirectory)
+    {
+        _modelDirectory = Path.GetFullPath(modelDirectory);
+    }
+
+    private string ModelPath => Path.Combine(_modelDirectory, ModelFileName);
+
+    internal static string DefaultModelDirectory() => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "VoxLink",
         "models",
-        "speaker",
-        ModelFileName);
+        "speaker");
 
     public async Task PrepareAsync(CancellationToken cancellationToken = default)
     {
@@ -213,7 +225,7 @@ internal sealed class LocalSpeakerLabeler : IAsyncDisposable
         }
     }
 
-    private static async Task<bool> IsModelUsableAsync(CancellationToken cancellationToken)
+    private async Task<bool> IsModelUsableAsync(CancellationToken cancellationToken)
     {
         if (!File.Exists(ModelPath))
         {

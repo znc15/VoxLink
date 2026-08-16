@@ -15,6 +15,7 @@ public sealed class WhisperSpeechRecognizer : ISpeechRecognizer
     private static readonly HttpClient ModelHttpClient = CreateModelHttpClient();
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> ModelPreparationGates =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly string? _modelDirectory;
     private readonly SemaphoreSlim _recognitionGate = new(1, 1);
     private readonly TaskCompletionSource _disposeCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private WhisperFactory? _factory;
@@ -23,10 +24,17 @@ public sealed class WhisperSpeechRecognizer : ISpeechRecognizer
 
     public event EventHandler<ModelProgressEventArgs>? ModelProgress;
 
+    public WhisperSpeechRecognizer(string? modelDirectory = null)
+    {
+        _modelDirectory = string.IsNullOrWhiteSpace(modelDirectory)
+            ? null
+            : Path.GetFullPath(modelDirectory);
+    }
+
     public async Task PrepareAsync(string modelName, CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
-        var modelPath = GetModelPath(modelName);
+        var modelPath = GetModelPath(modelName, _modelDirectory);
         var model = GetModelInfo(modelName);
         await _recognitionGate.WaitAsync(cancellationToken);
         try
@@ -142,14 +150,16 @@ public sealed class WhisperSpeechRecognizer : ISpeechRecognizer
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         return new GateLease(gate);
     }
-    internal static string GetModelPath(string modelName)
+    internal static string GetModelPath(string modelName, string? modelDirectory = null)
     {
         var safeName = NormalizeModelName(modelName);
-        return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "VoxLink",
-            "models",
-            $"ggml-{safeName}.bin");
+        var root = string.IsNullOrWhiteSpace(modelDirectory)
+            ? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "VoxLink",
+                "models")
+            : Path.GetFullPath(modelDirectory);
+        return Path.Combine(root, $"ggml-{safeName}.bin");
     }
 
     private async Task DownloadModelAsync(

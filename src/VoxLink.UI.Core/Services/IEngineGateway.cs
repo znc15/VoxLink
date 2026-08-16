@@ -12,6 +12,8 @@ public interface IEngineGateway : IAsyncDisposable
 
     bool IsConnected { get; }
 
+    void SetLaunchArguments(IReadOnlyList<string> arguments);
+
     Task ConnectAsync(CancellationToken cancellationToken = default);
 
     Task<JsonElement?> RequestAsync(

@@ -26,17 +26,13 @@
 
 ## 特性
 
-- **双向翻译**：麦克风与系统回环分路识别
-- **运行模式**：`仅文字`（Chatbox）；`VRChat 语音`（TTS 经虚拟声卡输出）
-- **识别**：本地 Whisper（tiny/base/small/large-v3-turbo）、SenseVoice-Small（sherpa-onnx）、本地 MOSS 转写+说话人（私有 WSL2+NVIDIA），或 DashScope、Soniox、SiliconFlow、MiMo、OpenAI 兼容接口
-- **本地模型**：软件内安装/删除/重试 Whisper、SenseVoice、MiniCPM5-1B GGUF、Kokoro-82M，以及九个模型中的应用托管运行时（HY-MT / M2M-100 / SMaLL-100 隔离 Windows Python；MOSS / dots.tts / CosyVoice2 / Qwen3-TTS 私有 WSL2+NVIDIA）；下载均校验大小和 SHA-256，Python 依赖为哈希锁定
-- **测试本地模型**：安装后每个模型可一键「测试」——翻译模型真实跑一句中英互译、语音合成播放测试语音、语音识别录 4 秒麦克风转写，结果直接显示在列表里
-- **翻译**：免密翻译、云端 LLM、本地 MiniCPM5-1B，或本地 HY-MT1.5-1.8B / M2M-100 418M / SMaLL-100（应用托管 Windows Python）；支持可选润色和第二目标语言
-- **语音合成**：Kokoro-82M 通过 sherpa-onnx 完全离线生成中英文 24 kHz 语音；dots.tts / CosyVoice2 / Qwen3-TTS 经私有 WSL2+NVIDIA 进行声音克隆合成
-- **字幕**：桌面 overlay、可选 SteamVR；简体中文输出统一字形
-- **说话人**：关 / 本地聚类 / 云端 speaker ID
-- **VRChat**：Chatbox、MuteSelf 联动、启动时检查更新
-- **凭据**：API Key 与自定义请求头经 DPAPI 存储
+- **双向实时翻译**：麦克风与系统回环分路识别；支持文字模式（Chatbox）和 VRChat 语音模式（TTS 经虚拟声卡输出）
+- **多服务可选**：翻译、语音识别、语音合成均可选择公共免费、云端或本地模型，并支持 OpenAI 兼容接口
+- **本地模型**：Whisper、MiniCPM5-1B、Kokoro-82M 等常用模型软件内一键安装、删除和测试；下载均校验大小与 SHA-256
+- **桌面与 VR 字幕**：桌面悬浮窗支持拖动、拉伸、置顶或固定，可选用 SteamVR 头显字幕
+- **说话人标签**：本地聚类或云端 speaker ID
+- **VRChat 集成**：Chatbox、MuteSelf 联动
+- **隐私与安全**：API Key 与自定义请求头经 DPAPI 加密；云端 ASR 明确授权后才会上传音频
 - **日志**：应用内查看，并写入磁盘
 
 ## 快速开始
@@ -70,7 +66,7 @@ VRChat OSC 不承载音频，语音模式需第三方虚拟声卡：
 | VRChat | Chatbox、语音路由、MuteSelf、字幕 |
 | 模型服务 | 翻译、语音识别、语音合成各选一个服务；设置弹窗与下拉选择一一对应（标题带服务名），密钥、协议和高级参数按需打开 |
 | 本地模型 | 按语音识别、翻译、语音合成分类的常用模型一键安装列表；实验性模型收进「更多模型」折叠区；安装后即可「测试」 |
-| 高级设置 | 会话、仅转写、出站朗读内容、说话人标签、快捷键、窗口外观 |
+| 高级设置 | 会话行为、快捷键、窗口透明度与外观、本地模型存储位置 |
 | 关于 | 版本、更新、运行状态 |
 | 日志 | 运行日志 |
 
@@ -78,9 +74,7 @@ VRChat OSC 不承载音频，语音模式需第三方虚拟声卡：
 
 ### 本地模型支持
 
-VoxLink 只展示已经接入真实运行管线、能够下载校验并实际执行的模型。常用模型按类别直接列出：语音识别 Whisper tiny/base/small/large-v3-turbo、SenseVoice-Small；翻译 MiniCPM5-1B GGUF、M2M-100 418M；语音合成 Kokoro-82M。需要 WSL/GPU 或与其他模型功能重复的实验性模型（MOSS 转写+说话人、HY-MT1.5-1.8B、SMaLL-100）收进「更多模型（实验性）」折叠区，按需安装。模型保存到 `%LOCALAPPDATA%\VoxLink\models`；下载只允许固定 HTTPS 主机，并使用临时文件、大小/SHA-256 校验和原子替换。应用托管运行时的 Python 依赖为固定版本的哈希锁定文件，宿主与适配器脚本在运行时逐一校验 SHA-256。
-
-单个模型点击“安装并启用”即可完成下载、校验、选择和持久化；“一键装好并启动”会准备推荐组合（Whisper base + MiniCPM5-1B + Kokoro-82M）并启动 VoxLink。安装后每行会出现「测试」按钮：翻译模型用固定句子真实跑一次中英互译并显示译文，语音合成播放一句测试语音，语音识别录 4 秒麦克风转写并显示结果（没听清会提示重试）。测试不会修改当前服务选择。模型安装后才会在“模型服务”中开放选择。应用托管模型首次推理时自动准备对应运行时（Windows Python 自动下载安装；WSL2 模型需要 NVIDIA GPU 与 WSL ≥ 2.4.10，应用只使用私有 `VoxLink-Models` 发行版）。Kokoro 本地生成失败会直接报错，不会静默上传文字或切换到在线/系统 TTS。
+VoxLink 内置常用模型的一键部署：Whisper tiny/base/small、MiniCPM5-1B、Kokoro-82M，以及需要 WSL2/NVIDIA 的实验性模型（MOSS、HY-MT、SMaLL-100 等）。安装后会校验文件大小与 SHA-256，应用托管运行时首次推理时自动准备。模型与运行时默认保存在 `%LOCALAPPDATA%\VoxLink`，可在「高级设置」中改为其他磁盘位置，以减少 C 盘空间占用。
 
 ## 构建
 
@@ -118,7 +112,7 @@ WinUI 3、Windows App SDK 2.3.1；独立 Engine（.NET 10、WASAPI、Whisper.net
 - 免密翻译与在线 TTS 无 SLA，受网络与配额影响
 - 系统回环为混音，说话人 ID 无法对应 VRChat 用户名
 - Chatbox 有长度与发送频率限制；语音模式依赖虚拟声卡，不经 OSC 传音频
-- 桌面字幕为顶层窗口；头显字幕仅 SteamVR / OpenVR
+- 桌面字幕为无边框悬浮窗，可置顶或关闭置顶；头显字幕仅 SteamVR / OpenVR
 
 ## 许可证
 

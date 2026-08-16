@@ -8,7 +8,7 @@ public sealed class EngineClient : IEngineGateway
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
     private readonly string? _configuredPath;
-    private readonly IReadOnlyList<string> _arguments;
+    private readonly List<string> _arguments;
     private readonly SemaphoreSlim _connectGate = new(1, 1);
     private readonly SemaphoreSlim _closeGate = new(1, 1);
     private readonly SemaphoreSlim _writeGate = new(1, 1);
@@ -27,7 +27,7 @@ public sealed class EngineClient : IEngineGateway
     public EngineClient(string? enginePath = null, IReadOnlyList<string>? arguments = null)
     {
         _configuredPath = enginePath;
-        _arguments = arguments ?? [];
+        _arguments = [.. arguments ?? []];
     }
 
     public event EventHandler<EngineEvent>? EventReceived;
@@ -41,6 +41,13 @@ public sealed class EngineClient : IEngineGateway
                 return !_closing && _process is { HasExited: false } && _readyReceived;
             }
         }
+    }
+
+    public void SetLaunchArguments(IReadOnlyList<string> arguments)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        _arguments.Clear();
+        _arguments.AddRange(arguments);
     }
 
     public async Task ConnectAsync(CancellationToken cancellationToken = default)

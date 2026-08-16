@@ -16,13 +16,6 @@
             </StackPanel>
 
             <InfoBar
-                IsClosable="False"
-                IsOpen="True"
-                Message="VRChat OSC 不提供其他玩家的语音或聊天内容。VoxLink 通过系统音频回环在本机识别他人语音，译文仅显示为字幕。"
-                Severity="Informational"
-                Title="输入边界" />
-
-            <InfoBar
                 x:Name="VrChatErrorBar"
                 Closed="VrChatErrorBar_Closed"
                 IsClosable="True"

@@ -2,6 +2,8 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Media;
 using VoxLink.UI.Controls;
 using VoxLink.UI.Core.Models;
 using VoxLink.UI.Core.ViewModels;
@@ -216,6 +218,44 @@ public sealed partial class ModelProvidersPage : Page
         }
         LoadSelections();
         RefreshState();
+    }
+
+    private void TranslationBackendBox_DropDownOpened(object sender, object args) =>
+        AlignDropdownBelowSelectionBar(TranslationBackendBox);
+
+    private void AsrProviderBox_DropDownOpened(object sender, object args) =>
+        AlignDropdownBelowSelectionBar(AsrProviderBox);
+
+    private void SpeechServiceBox_DropDownOpened(object sender, object args) =>
+        AlignDropdownBelowSelectionBar(SpeechServiceBox);
+
+    private static void AlignDropdownBelowSelectionBar(ComboBox comboBox)
+    {
+        var popup = FindTemplatePopup(comboBox);
+        if (popup is not null)
+        {
+            popup.VerticalOffset = comboBox.ActualHeight + 2;
+        }
+    }
+
+    private static Popup? FindTemplatePopup(DependencyObject root)
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is Popup popup)
+            {
+                return popup;
+            }
+
+            var nested = FindTemplatePopup(child);
+            if (nested is not null)
+            {
+                return nested;
+            }
+        }
+
+        return null;
     }
 
     private async void ConfigureTranslation_Click(object sender, RoutedEventArgs args)

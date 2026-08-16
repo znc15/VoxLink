@@ -93,6 +93,16 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
     {
     }
 
+    public LocalModelManager(string rootDirectory)
+        : this(
+            rootDirectory,
+            LocalModelCatalog.All,
+            new WhisperModelInstallerAdapter(rootDirectory),
+            CreateDefaultHttpClient(),
+            ownsHttpClient: true)
+    {
+    }
+
     internal LocalModelManager(
         string rootDirectory,
         IReadOnlyList<LocalModelDefinition> catalog,

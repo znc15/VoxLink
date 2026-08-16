@@ -463,7 +463,9 @@ public sealed class TranslationSession : IAsyncDisposable
             return;
         }
 
-        var labeler = new LocalSpeakerLabeler();
+        var labeler = string.IsNullOrWhiteSpace(settings.LocalModelDirectory)
+            ? new LocalSpeakerLabeler()
+            : new LocalSpeakerLabeler(settings.LocalModelDirectory);
         labeler.ModelProgress += OnModelProgress;
         try
         {
