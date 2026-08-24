@@ -443,23 +443,36 @@ public sealed partial class MainWindow : Window
             new(
                 "Whisper tiny",
                 () => ActivateLocal(LocalModelIds.WhisperTiny),
-                Checked: !settings.UseCloudAsr && settings.WhisperModel == "tiny",
+                Checked: !settings.UseCloudAsr
+                    && settings.AsrProtocol != AsrProtocol.LocalSenseVoice
+                    && settings.WhisperModel == "tiny",
                 Enabled: canSwitch && Installed(LocalModelIds.WhisperTiny)),
             new(
                 "Whisper base",
                 () => ActivateLocal(LocalModelIds.WhisperBase),
-                Checked: !settings.UseCloudAsr && settings.WhisperModel == "base",
+                Checked: !settings.UseCloudAsr
+                    && settings.AsrProtocol != AsrProtocol.LocalSenseVoice
+                    && settings.WhisperModel == "base",
                 Enabled: canSwitch && Installed(LocalModelIds.WhisperBase)),
             new(
                 "Whisper small",
                 () => ActivateLocal(LocalModelIds.WhisperSmall),
-                Checked: !settings.UseCloudAsr && settings.WhisperModel == "small",
+                Checked: !settings.UseCloudAsr
+                    && settings.AsrProtocol != AsrProtocol.LocalSenseVoice
+                    && settings.WhisperModel == "small",
                 Enabled: canSwitch && Installed(LocalModelIds.WhisperSmall)),
             new(
                 "Whisper large-v3-turbo",
                 () => ActivateLocal(LocalModelIds.WhisperLargeV3Turbo),
-                Checked: !settings.UseCloudAsr && settings.WhisperModel == "large-v3-turbo",
+                Checked: !settings.UseCloudAsr
+                    && settings.AsrProtocol != AsrProtocol.LocalSenseVoice
+                    && settings.WhisperModel == "large-v3-turbo",
                 Enabled: canSwitch && Installed(LocalModelIds.WhisperLargeV3Turbo)),
+            new(
+                "本地 SenseVoice",
+                () => ActivateLocal(LocalModelIds.SenseVoiceSmall),
+                Checked: !settings.UseCloudAsr && settings.AsrProtocol == AsrProtocol.LocalSenseVoice,
+                Enabled: canSwitch && Installed(LocalModelIds.SenseVoiceSmall)),
             new(
                 "Soniox",
                 () => SelectAsr(AsrProvider.Soniox),

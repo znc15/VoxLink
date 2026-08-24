@@ -1865,7 +1865,9 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         var required = new List<string>();
         if (!Settings.UseCloudAsr)
         {
-            required.Add(LocalModelIds.WhisperId(Settings.WhisperModel));
+            required.Add(Settings.AsrProtocol == AsrProtocol.LocalSenseVoice
+                ? LocalModelIds.SenseVoiceSmall
+                : LocalModelIds.WhisperId(Settings.WhisperModel));
         }
 
         if (!Settings.TranscriptionOnly && Settings.UseAiTranslation)
@@ -1904,7 +1906,10 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         LocalModelIds.WhisperTiny or LocalModelIds.WhisperBase or LocalModelIds.WhisperSmall
             or LocalModelIds.WhisperLargeV3Turbo =>
             !Settings.UseCloudAsr
+            && Settings.AsrProtocol == AsrProtocol.LocalWhisper
             && LocalModelIds.WhisperId(Settings.WhisperModel).Equals(modelId, StringComparison.Ordinal),
+        LocalModelIds.SenseVoiceSmall => !Settings.UseCloudAsr
+            && Settings.AsrProtocol == AsrProtocol.LocalSenseVoice,
         LocalModelIds.MiniCpm51BGguf => Settings.UseAiTranslation
             && Settings.TranslationBackend == TranslationBackend.LocalMiniCpm,
         LocalModelIds.HyMt15Gguf => Settings.UseAiTranslation
@@ -1928,6 +1933,11 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         {
             Settings.SelectAsrProvider(AsrProvider.LocalWhisper);
             Settings.WhisperModel = whisperModel;
+        }
+        else if (modelId.Equals(LocalModelIds.SenseVoiceSmall, StringComparison.Ordinal))
+        {
+            Settings.SelectAsrProvider(AsrProvider.LocalWhisper);
+            Settings.AsrProtocol = AsrProtocol.LocalSenseVoice;
         }
         else if (modelId.Equals(LocalModelIds.MiniCpm51BGguf, StringComparison.Ordinal))
         {
@@ -1957,6 +1967,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         var whisperName = LocalModelIds.WhisperName(modelId);
         if (whisperName is not null
             && !Settings.UseCloudAsr
+            && Settings.AsrProtocol == AsrProtocol.LocalWhisper
             && Settings.WhisperModel.Equals(whisperName, StringComparison.OrdinalIgnoreCase))
         {
             var fallback = new[]
@@ -1974,6 +1985,21 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             {
                 Settings.WhisperModel = string.Empty;
             }
+        }
+        else if (modelId.Equals(LocalModelIds.SenseVoiceSmall, StringComparison.Ordinal)
+            && !Settings.UseCloudAsr
+            && Settings.AsrProtocol == AsrProtocol.LocalSenseVoice)
+        {
+            // 回退到已安装的 Whisper；全都没有时清空模型名，走默认
+            var fallback = new[]
+            {
+                LocalModelIds.WhisperBase,
+                LocalModelIds.WhisperTiny,
+                LocalModelIds.WhisperSmall,
+                LocalModelIds.WhisperLargeV3Turbo
+            }.FirstOrDefault(IsInstalled);
+            Settings.AsrProtocol = AsrProtocol.LocalWhisper;
+            Settings.WhisperModel = fallback is not null ? LocalModelIds.WhisperName(fallback)! : string.Empty;
         }
         else if ((modelId.Equals(LocalModelIds.MiniCpm51BGguf, StringComparison.Ordinal)
                   && Settings.UseAiTranslation

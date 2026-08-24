@@ -177,7 +177,8 @@ public sealed class LocalModelCatalogTests
         Assert.Equal(
             "4383ac0c3c8e476de98ff979c2a3f069f8c4fb385e7860cf2d28da896cc477c7",
             artifact.Sha256);
-        Assert.EndsWith("/resolve/main/HY-MT1.5-1.8B-Q4_K_M.gguf", artifact.PrimaryUrl, StringComparison.Ordinal);
+        // 下载 URL 固定到官方仓库 commit，防上游 main 分支变动破坏下载
+        Assert.EndsWith("/resolve/265b2e615a7dc9b06c435dc878829ad99a512ba2/HY-MT1.5-1.8B-Q4_K_M.gguf", artifact.PrimaryUrl, StringComparison.Ordinal);
         Assert.StartsWith("https://huggingface.co/tencent/HY-MT1.5-1.8B-GGUF/", artifact.PrimaryUrl, StringComparison.Ordinal);
         Assert.NotNull(artifact.MirrorUrl);
         Assert.True(Uri.TryCreate(artifact.PrimaryUrl, UriKind.Absolute, out _));

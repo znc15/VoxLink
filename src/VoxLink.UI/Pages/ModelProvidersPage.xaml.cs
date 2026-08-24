@@ -64,6 +64,12 @@ public sealed partial class ModelProvidersPage : Page
             return Controller.Settings.AsrProvider.ToString();
         }
 
+        if (!Controller.Settings.UseCloudAsr
+            && Controller.Settings.AsrProtocol == AsrProtocol.LocalSenseVoice)
+        {
+            return "SenseVoice";
+        }
+
         return Controller.Settings.WhisperModel.ToLowerInvariant() switch
         {
             "base" => "WhisperBase",
@@ -88,7 +94,9 @@ public sealed partial class ModelProvidersPage : Page
 
         AsrStatusText.Text = Controller.Settings.UseCloudAsr
             ? Controller.Settings.AllowCloudAudioUpload ? "云端 · 已授权上传" : "云端 · 等待上传授权"
-            : LocalStatus(LocalModelIds.WhisperId(Controller.Settings.WhisperModel));
+            : LocalStatus(Controller.Settings.AsrProtocol == AsrProtocol.LocalSenseVoice
+                ? LocalModelIds.SenseVoiceSmall
+                : LocalModelIds.WhisperId(Controller.Settings.WhisperModel));
 
         SpeechStatusText.Text = Controller.Settings.SpeechServiceMode switch
         {
@@ -102,6 +110,7 @@ public sealed partial class ModelProvidersPage : Page
         UpdateLocalOption(WhisperBaseOption, "Whisper base（推荐）", LocalModelIds.WhisperBase);
         UpdateLocalOption(WhisperSmallOption, "Whisper small（更准确）", LocalModelIds.WhisperSmall);
         UpdateLocalOption(WhisperLargeV3TurboOption, "Whisper large-v3-turbo（最准确）", LocalModelIds.WhisperLargeV3Turbo);
+        UpdateLocalOption(SenseVoiceOption, "本地 SenseVoice（更快出字）", LocalModelIds.SenseVoiceSmall);
         UpdateLocalOption(KokoroOption, "本地 Kokoro-82M", LocalModelIds.Kokoro82M);
         var canSelect = !Controller.HasBusyLocalModels && !Controller.IsBusy;
         TranslationBackendBox.IsEnabled = canSelect;
@@ -166,6 +175,7 @@ public sealed partial class ModelProvidersPage : Page
             "WhisperBase" => LocalModelIds.WhisperBase,
             "WhisperSmall" => LocalModelIds.WhisperSmall,
             "WhisperLargeV3Turbo" => LocalModelIds.WhisperLargeV3Turbo,
+            "SenseVoice" => LocalModelIds.SenseVoiceSmall,
             _ => null
         };
         if (localModelId is not null)
@@ -316,6 +326,7 @@ public sealed partial class ModelProvidersPage : Page
         "WhisperBase" => "Whisper base",
         "WhisperSmall" => "Whisper small",
         "WhisperLargeV3Turbo" => "Whisper large-v3-turbo",
+        "SenseVoice" => "本地 SenseVoice",
         "Soniox" => "Soniox",
         "SiliconFlow" => "硅基流动",
         "MiMo" => "小米 MiMo",
