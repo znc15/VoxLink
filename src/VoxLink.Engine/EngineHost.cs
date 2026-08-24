@@ -124,8 +124,7 @@ internal sealed class EngineHost : IAsyncDisposable
             managedOrchestrator: _defaultManagedOrchestrator);
         _translationFactory = new TranslationServiceFactory(
             _httpClient,
-            _localModelManager,
-            _defaultManagedOrchestrator);
+            _localModelManager);
         _textToSpeech = new HybridTextToSpeechService(
             _httpClient,
             enableEdgeTts: true,
@@ -688,6 +687,14 @@ internal sealed class EngineHost : IAsyncDisposable
     internal static void NormalizeSettings(AppSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        // 旧前端可能仍指向已下线的应用托管翻译模型；统一安全回退到公共免密翻译。
+        if (settings.TranslationProvider is TranslationProvider.ManagedHyMt
+            or TranslationProvider.ManagedM2M100
+            or TranslationProvider.ManagedSmall100)
+        {
+            settings.TranslationProvider = TranslationProvider.GoogleWeb;
+        }
+
         settings.VoiceThreshold = Math.Clamp(settings.VoiceThreshold, 0.005, 0.08);
         settings.SilenceDurationMs = Math.Clamp(settings.SilenceDurationMs, 300, 1_800);
         settings.KokoroSpeakerId = Math.Clamp(
@@ -698,6 +705,11 @@ internal sealed class EngineHost : IAsyncDisposable
             double.IsFinite(settings.KokoroSpeed) ? settings.KokoroSpeed : 1.0,
             LocalKokoroTtsRuntime.MinimumSpeed,
             LocalKokoroTtsRuntime.MaximumSpeed);
+        settings.DesktopOverlayFontSize = Math.Clamp(settings.DesktopOverlayFontSize, 14, 40);
+        if (settings.DesktopOverlayHeight is { } overlayHeight)
+        {
+            settings.DesktopOverlayHeight = Math.Clamp(overlayHeight, 88, 2000);
+        }
     }
 
     private static string VoiceOutputTestText(LanguageOption language) => language.Code switch
@@ -1068,9 +1080,7 @@ internal sealed class EngineHost : IAsyncDisposable
         testSettings.TranslationProvider = definition.Id switch
         {
             LocalModelIds.MiniCpm51BGguf => TranslationProvider.LocalMiniCpm,
-            LocalModelIds.HyMt1518B => TranslationProvider.ManagedHyMt,
-            LocalModelIds.M2M100418M => TranslationProvider.ManagedM2M100,
-            LocalModelIds.Small100 => TranslationProvider.ManagedSmall100,
+            LocalModelIds.HyMt15Gguf => TranslationProvider.LocalHyMtGguf,
             _ => throw new InvalidOperationException("该模型不是本地翻译模型。")
         };
         var translator = _translationFactory.Create(testSettings);

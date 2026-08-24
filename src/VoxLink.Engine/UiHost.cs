@@ -54,6 +54,8 @@ internal sealed class UiHost : IDisposable
                 settings.DesktopOverlayLeft,
                 settings.DesktopOverlayTop,
                 settings.DesktopOverlayWidth,
+                settings.DesktopOverlayHeight,
+                settings.DesktopOverlayFontSize,
                 settings.DesktopOverlayTopmost,
                 settings.DesktopOverlayLockPosition);
             _steamVrOverlay!.Configure(
@@ -160,8 +162,8 @@ internal sealed class UiHost : IDisposable
             _overlay = new OverlayWindow();
             if (_eventCallback is not null)
             {
-                _overlay.PlacementChanged += (left, top, width) =>
-                    _eventCallback("overlayPlacement", new { left, top, width });
+                _overlay.PlacementChanged += (left, top, width, height) =>
+                    _eventCallback("overlayPlacement", new { left, top, width, height });
             }
             _steamVrOverlay = new SteamVrOverlayHost();
             _ready.Set();

@@ -486,6 +486,26 @@ public sealed class EngineHostTests
         Assert.Equal(1.0, settings.KokoroSpeed);
     }
 
+    [Fact]
+    public void NormalizeSettings_ClampsDesktopOverlaySizeFields()
+    {
+        var oversized = new AppSettings { DesktopOverlayFontSize = 99, DesktopOverlayHeight = 5_000 };
+        EngineHost.NormalizeSettings(oversized);
+        Assert.Equal(40, oversized.DesktopOverlayFontSize);
+        Assert.Equal(2_000, oversized.DesktopOverlayHeight);
+
+        var undersized = new AppSettings { DesktopOverlayFontSize = 1, DesktopOverlayHeight = 10 };
+        EngineHost.NormalizeSettings(undersized);
+        Assert.Equal(14, undersized.DesktopOverlayFontSize);
+        Assert.Equal(88, undersized.DesktopOverlayHeight);
+
+        // 高度 null 表示自适应，不应被钳成具体值。
+        var autoHeight = new AppSettings { DesktopOverlayHeight = null };
+        EngineHost.NormalizeSettings(autoHeight);
+        Assert.Null(autoHeight.DesktopOverlayHeight);
+        Assert.Equal(24, autoHeight.DesktopOverlayFontSize);
+    }
+
     [Theory]
     [InlineData("{\"id\":1,\"method\":\"installLocalModel\",\"params\":{}}", true)]
     [InlineData("{\"id\":2,\"method\":\"listLocalModels\"}", false)]
@@ -691,41 +711,20 @@ public sealed class EngineHostTests
         Assert.DoesNotContain("api-secret", publicMessage, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task TestTranslation_ManagedProvider_UnpreparedRuntime_UsesFixedSafeMessage()
+    [Theory]
+    [InlineData(TranslationProvider.ManagedHyMt)]
+    [InlineData(TranslationProvider.ManagedM2M100)]
+    [InlineData(TranslationProvider.ManagedSmall100)]
+    public void NormalizeSettings_LegacyManagedTranslationBackends_FallBackToPublicFree(
+        TranslationProvider legacyProvider)
     {
-        var runtimeManager = new RecordingManagedRuntimeManager();
-        await using var host = new EngineHost(
-            (_, _) => { },
-            startUiHost: false,
-            localModelManager: null,
-            managedRuntimeManager: runtimeManager,
-            localModelOrchestrator: null);
+        // 已下线的托管翻译模型设置值必须安全回退到公共免密翻译，
+        // 而不是尝试启动已无目录条目的托管宿主。
+        var settings = new AppSettings { TranslationProvider = legacyProvider };
 
-        var initialize = JsonSerializer.SerializeToElement(new
-        {
-            settings = new AppSettings
-            {
-                TranslationProvider = TranslationProvider.ManagedSmall100
-            }
-        }, SerializerOptions);
-        await host.HandleAsync(
-            "initialize",
-            initialize,
-            SerializerOptions,
-            CancellationToken.None);
+        EngineHost.NormalizeSettings(settings);
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            host.HandleAsync(
-                "testTranslation",
-                JsonSerializer.SerializeToElement(new { }, SerializerOptions),
-                SerializerOptions,
-                CancellationToken.None));
-
-        // 模型未安装 → 模型管理器的固定安全消息（比通用消息更精确），且不暴露基础设施文本。
-        Assert.Contains("尚未安装", exception.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("Not supported", exception.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("stack", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(TranslationProvider.GoogleWeb, settings.TranslationProvider);
     }
 
     [Fact]

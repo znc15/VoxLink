@@ -61,13 +61,11 @@
                         Grid.Row="1"
                         HorizontalAlignment="Stretch"
                         MaxDropDownHeight="320"
-                        DropDownOpened="TranslationBackendBox_DropDownOpened"
+                        DropDownOpened="ProviderBox_DropDownOpened"
                         SelectionChanged="TranslationBackendBox_SelectionChanged">
                         <ComboBoxItem Content="公共免密" Tag="PublicFree" />
+                        <ComboBoxItem x:Name="HyMtGgufOption" Content="本地混元翻译 HY-MT1.5-1.8B（GGUF）" Tag="LocalHyMtGguf" />
                         <ComboBoxItem x:Name="MiniCpmOption" Content="本地 MiniCPM5-1B" Tag="LocalMiniCpm" />
-                        <ComboBoxItem x:Name="ManagedHyMtOption" Content="本地混元翻译 HY-MT1.5-1.8B" Tag="ManagedHyMt" />
-                        <ComboBoxItem x:Name="ManagedM2M100Option" Content="本地 M2M-100 418M" Tag="ManagedM2M100" />
-                        <ComboBoxItem x:Name="ManagedSmall100Option" Content="本地 SMaLL-100" Tag="ManagedSmall100" />
                         <ComboBoxItem Content="DeepSeek" Tag="DeepSeek" />
                         <ComboBoxItem Content="OpenAI 兼容" Tag="OpenAiCompatible" />
                         <ComboBoxItem Content="自定义服务" Tag="Custom" />
@@ -101,12 +99,12 @@
                         Grid.Row="1"
                         HorizontalAlignment="Stretch"
                         MaxDropDownHeight="320"
-                        DropDownOpened="AsrProviderBox_DropDownOpened"
+                        DropDownOpened="ProviderBox_DropDownOpened"
                         SelectionChanged="AsrProviderBox_SelectionChanged">
                         <ComboBoxItem x:Name="WhisperTinyOption" Content="Whisper tiny（最快）" Tag="WhisperTiny" />
                         <ComboBoxItem x:Name="WhisperBaseOption" Content="Whisper base（推荐）" Tag="WhisperBase" />
                         <ComboBoxItem x:Name="WhisperSmallOption" Content="Whisper small（更准确）" Tag="WhisperSmall" />
-                        <ComboBoxItem x:Name="ManagedMossOption" Content="本地 MOSS 转写+说话人" Tag="LocalManagedMoss" />
+                        <ComboBoxItem x:Name="WhisperLargeV3TurboOption" Content="Whisper large-v3-turbo（最准确）" Tag="WhisperLargeV3Turbo" />
                         <ComboBoxItem Content="Soniox" Tag="Soniox" />
                         <ComboBoxItem Content="硅基流动" Tag="SiliconFlow" />
                         <ComboBoxItem Content="小米 MiMo" Tag="MiMo" />
@@ -142,7 +140,7 @@
                         Grid.Row="1"
                         HorizontalAlignment="Stretch"
                         MaxDropDownHeight="320"
-                        DropDownOpened="SpeechServiceBox_DropDownOpened"
+                        DropDownOpened="ProviderBox_DropDownOpened"
                         SelectionChanged="SpeechServiceBox_SelectionChanged">
                         <ComboBoxItem Content="系统语音" Tag="SystemFallback" />
                         <ComboBoxItem x:Name="KokoroOption" Content="本地 Kokoro-82M" Tag="Kokoro" />

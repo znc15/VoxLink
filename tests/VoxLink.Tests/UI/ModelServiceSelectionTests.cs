@@ -236,6 +236,27 @@ public sealed class ModelServiceSelectionTests
         Assert.Equal("saved-model", settings.AsrModel);
         Assert.True(settings.AllowCloudAudioUpload);
     }
+
+    [Fact]
+    public void NormalizeServiceSelections_RetiredManagedMossFallsBackToLocalWhisper()
+    {
+        // 已下线的托管 MOSS 选择必须回退本地 Whisper 并撤销云端上传授权。
+        var settings = new AppSettings
+        {
+            UseCloudAsr = true,
+            AsrProvider = AsrProvider.LocalManagedMoss,
+            AsrProtocol = AsrProtocol.LocalManagedMoss,
+            AllowCloudAudioUpload = true
+        };
+
+        settings.NormalizeServiceSelections();
+
+        Assert.False(settings.UseCloudAsr);
+        Assert.Equal(AsrProvider.LocalWhisper, settings.AsrProvider);
+        Assert.Equal(AsrProtocol.LocalWhisper, settings.AsrProtocol);
+        Assert.False(settings.AllowCloudAudioUpload);
+    }
+
     private static EngineSettings Deserialize(AppSettings settings)
     {
         var json = JsonSerializer.Serialize(settings.ToEngineJson(), EngineJsonOptions);

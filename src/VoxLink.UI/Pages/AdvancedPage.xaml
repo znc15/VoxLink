@@ -63,28 +63,6 @@
                         IsOn="{x:Bind Controller.Settings.UseMicaBackdrop, Mode=TwoWay}"
                         OffContent="纯色背景"
                         OnContent="Mica" />
-                    <ToggleSwitch
-                        Header="标题栏模式"
-                        IsOn="{x:Bind Controller.Settings.UseSystemTitleBar, Mode=TwoWay}"
-                        OffContent="自绘标题栏"
-                        OnContent="系统标题栏" />
-                    <StackPanel Spacing="6">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock FontWeight="SemiBold" Text="软件整体透明度" />
-                            <TextBlock x:Name="OpacityValueText" Grid.Column="1" Style="{StaticResource CaptionStyle}" />
-                        </Grid>
-                        <Slider
-                            x:Name="WindowOpacitySlider"
-                            Maximum="1"
-                            Minimum="0.2"
-                            SmallChange="0.05"
-                            StepFrequency="0.05"
-                            ValueChanged="WindowOpacitySlider_ValueChanged" />
-                    </StackPanel>
                 </StackPanel>
             </Border>
 

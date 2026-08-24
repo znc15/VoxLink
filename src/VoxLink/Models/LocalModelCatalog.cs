@@ -10,21 +10,22 @@ public static class LocalModelIds
     public const string WhisperSmall = "whisper-small";
     public const string WhisperLargeV3Turbo = "whisper-large-v3-turbo";
     public const string MiniCpm51BGguf = "minicpm5-1b-gguf";
-    public const string HyMt1518B = "hy-mt1.5-1.8b";
+    public const string HyMt15Gguf = "hy-mt15-18b-gguf";
+    public const string Kokoro82M = "kokoro-82m";
+    public const string SenseVoiceSmall = "sensevoice-small";
+
+    // 以下 ID 已从公开目录移除，仅供保留的应用托管运行时代码
+    // （MOSS ASR / dots.tts / Qwen3-TTS 宿主适配器）引用；
+    // 产品界面不再提供这些模型的安装或选择入口。
     public const string DotsTts = "dots-tts";
     public const string MossTranscribeDiarize = "moss-transcribe-diarize";
-    public const string Kokoro82M = "kokoro-82m";
-    public const string CosyVoice205B = "cosyvoice2-0.5b";
-    public const string M2M100418M = "m2m100-418m";
-    public const string Small100 = "small-100";
-    public const string SenseVoiceSmall = "sensevoice-small";
     public const string Qwen3Tts17B = "qwen3-tts-1.7b";
 }
 
 /// <summary>
-/// 所有可安装条目都固定下载 revision、字节数与 SHA-256；Stable 使用随应用发布或
-/// 隔离的 Windows 运行时，Experimental 还要求许可证、WSL/GPU或授权声音资料。
-/// 安装状态始终以磁盘工件校验结果为准，运行环境就绪状态由 orchestrator 单独报告。
+/// 所有可安装条目都固定下载 revision、字节数与 SHA-256，全部使用随应用发布或
+/// 隔离的 Windows 原生运行时（whisper.net / LLamaSharp / sherpa-onnx），
+/// 不依赖应用托管 Python 或 WSL；安装状态始终以磁盘工件校验结果为准。
 /// </summary>
 public static partial class LocalModelCatalog
 {
@@ -106,63 +107,28 @@ public static partial class LocalModelCatalog
         },
         new()
         {
-            Id = LocalModelIds.HyMt1518B,
-            Name = "腾讯混元翻译 HY-MT1.5-1.8B",
+            Id = LocalModelIds.HyMt15Gguf,
+            Name = "腾讯混元翻译 HY-MT1.5-1.8B (GGUF)",
             Category = LocalModelCategory.Translation,
-            SupportLevel = LocalModelSupportLevel.Experimental,
-            Runtime = LocalModelRuntimeKind.ManagedPython,
-            InstallKind = LocalModelInstallKind.ManifestFiles,
-            Parameters = "约 1.8B（BF16）",
+            SupportLevel = LocalModelSupportLevel.Stable,
+            Runtime = LocalModelRuntimeKind.LlamaCppGguf,
+            InstallKind = LocalModelInstallKind.SingleFile,
+            Parameters = "约 1.8B（Q4_K_M）",
             NumericParameterBillions = 1.8,
             License = "Tencent HY Community License（非 OSI；不适用于欧盟、英国和韩国）",
             Languages = "33 种语言互译 + 5 种方言变体（含粤语、繁体中文、藏语等）",
-            Requirements = "应用托管 Windows Python 3.12/transformers 4.56，建议内存 ≥ 8 GB",
-            SourceUrl = "https://huggingface.co/tencent/HY-MT1.5-1.8B",
-            Description = "腾讯混元翻译 1.5 系列的 1.8B 规格，支持术语干预与混合语言场景；安装前必须确认许可证和适用地区。",
-            RuntimeProfileId = ManagedRuntimeCatalog.WindowsTranslation,
-            LicenseAgreementId = "tencent-hy-community-license-d7d9db858500ac90",
-            RequiredFreeSpaceBytes = 10L * 1024 * 1024 * 1024,
-            Artifacts = HyMtArtifacts()
-        },
-        new()
-        {
-            Id = LocalModelIds.DotsTts,
-            Name = "dots.tts",
-            Category = LocalModelCategory.Tts,
-            SupportLevel = LocalModelSupportLevel.Experimental,
-            Runtime = LocalModelRuntimeKind.ManagedWslCuda,
-            InstallKind = LocalModelInstallKind.ManifestFiles,
-            Parameters = "约 2B",
-            NumericParameterBillions = 2.0,
-            License = "Apache-2.0",
-            Languages = "中文/英语，支持 3 秒参考音频克隆音色",
-            Requirements = "私有 WSL2 + NVIDIA GPU（建议显存 ≥ 11 GB）+ 应用托管 Python 3.10",
-            SourceUrl = "https://huggingface.co/rednote-hilab/dots.tts-base",
-            Description = "2B 端到端声音克隆 TTS；必须使用本人或已获明确授权的参考音频和准确文本。",
-            RuntimeProfileId = ManagedRuntimeCatalog.WslDotsTts,
-            RequiresVoiceProfile = true,
-            AllowsLargeArtifacts = true,
-            RequiredFreeSpaceBytes = 14L * 1024 * 1024 * 1024,
-            Artifacts = DotsTtsArtifacts()
-        },
-        new()
-        {
-            Id = LocalModelIds.MossTranscribeDiarize,
-            Name = "MOSS-Transcribe-Diarize",
-            Category = LocalModelCategory.Asr,
-            SupportLevel = LocalModelSupportLevel.Experimental,
-            Runtime = LocalModelRuntimeKind.ManagedWslCuda,
-            InstallKind = LocalModelInstallKind.ManifestFiles,
-            Parameters = "约 0.9B",
-            NumericParameterBillions = 0.9,
-            License = "Apache-2.0",
-            Languages = "50+ 种语言（中文/英语重点），输出说话人标签与时间戳",
-            Requirements = "私有 WSL2 + NVIDIA GPU（显存 ≥ 6 GB）+ 应用托管 Python 3.12",
-            SourceUrl = "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize",
-            Description = "长音频转写、匿名说话人分离、时间戳与声学事件模型；speaker 标签不表示实名身份。",
-            RuntimeProfileId = ManagedRuntimeCatalog.WslMoss,
-            RequiredFreeSpaceBytes = 8L * 1024 * 1024 * 1024,
-            Artifacts = MossArtifacts()
+            Requirements = "LLamaSharp/llama.cpp CPU 推理（GGUF Q4_K_M），8GB 内存起步",
+            SourceUrl = "https://huggingface.co/tencent/HY-MT1.5-1.8B-GGUF",
+            Description = "腾讯混元翻译 1.5 系列 1.8B 规格的 GGUF 量化版本，纯 Windows 原生 CPU 推理；安装前必须确认许可证和适用地区。",
+            Artifacts =
+            [
+                new LocalModelArtifact(
+                    "HY-MT1.5-1.8B-Q4_K_M.gguf",
+                    1_133_080_512,
+                    "4383ac0c3c8e476de98ff979c2a3f069f8c4fb385e7860cf2d28da896cc477c7",
+                    "https://huggingface.co/tencent/HY-MT1.5-1.8B-GGUF/resolve/main/HY-MT1.5-1.8B-Q4_K_M.gguf",
+                    "https://hf-mirror.com/tencent/HY-MT1.5-1.8B-GGUF/resolve/main/HY-MT1.5-1.8B-Q4_K_M.gguf")
+            ]
         },
         new()
         {
@@ -186,64 +152,6 @@ public static partial class LocalModelCatalog
                 "a1e94694776049035c4f2c6529f003aaece993c76aae9a78995831c3c4dcafc6",
                 "kokoro-int8-multi-lang-v1_1"),
             Artifacts = KokoroArtifacts
-        },
-        new()
-        {
-            Id = LocalModelIds.CosyVoice205B,
-            Name = "CosyVoice2-0.5B",
-            Category = LocalModelCategory.Tts,
-            SupportLevel = LocalModelSupportLevel.Experimental,
-            Runtime = LocalModelRuntimeKind.ManagedWslCuda,
-            InstallKind = LocalModelInstallKind.ManifestFiles,
-            Parameters = "约 0.5B",
-            NumericParameterBillions = 0.5,
-            License = "Apache-2.0",
-            Languages = "中文/英语/日语/韩语/粤语，支持零样本音色克隆与指令控制",
-            Requirements = "私有 WSL2 + NVIDIA GPU（建议显存 ≥ 8 GB）+ 应用托管 Python 3.10",
-            SourceUrl = "https://huggingface.co/FunAudioLLM/CosyVoice2-0.5B",
-            Description = "流式多语声音克隆 TTS；必须使用本人或已获明确授权的参考音频和准确文本。",
-            RuntimeProfileId = ManagedRuntimeCatalog.WslCosyVoice2,
-            RequiresVoiceProfile = true,
-            RequiredFreeSpaceBytes = 12L * 1024 * 1024 * 1024,
-            Artifacts = CosyVoice2Artifacts()
-        },
-        new()
-        {
-            Id = LocalModelIds.M2M100418M,
-            Name = "M2M-100 418M",
-            Category = LocalModelCategory.Translation,
-            SupportLevel = LocalModelSupportLevel.Stable,
-            Runtime = LocalModelRuntimeKind.ManagedPython,
-            InstallKind = LocalModelInstallKind.ManifestFiles,
-            Parameters = "约 418M",
-            NumericParameterBillions = 0.418,
-            License = "MIT",
-            Languages = "100 种语言直接互译（无需 pivot 语言）",
-            Requirements = "应用托管 Windows Python 3.12/transformers，建议内存 ≥ 4 GB",
-            SourceUrl = "https://huggingface.co/facebook/m2m100_418M",
-            Description = "覆盖 100 种语言直接互译的本地专用翻译模型。",
-            RuntimeProfileId = ManagedRuntimeCatalog.WindowsTranslation,
-            RequiredFreeSpaceBytes = 6L * 1024 * 1024 * 1024,
-            Artifacts = M2M100Artifacts()
-        },
-        new()
-        {
-            Id = LocalModelIds.Small100,
-            Name = "SMaLL-100",
-            Category = LocalModelCategory.Translation,
-            SupportLevel = LocalModelSupportLevel.Stable,
-            Runtime = LocalModelRuntimeKind.ManagedPython,
-            InstallKind = LocalModelInstallKind.ManifestFiles,
-            Parameters = "约 0.33B",
-            NumericParameterBillions = 0.33,
-            License = "MIT",
-            Languages = "100+ 种语言（M2M-100 蒸馏，低资源语言优化）",
-            Requirements = "应用托管 Windows Python 3.12/transformers，建议内存 ≥ 4 GB",
-            SourceUrl = "https://huggingface.co/alirezamsh/small100",
-            Description = "M2M-100蒸馏模型，适合低配置机器的离线多语翻译。",
-            RuntimeProfileId = ManagedRuntimeCatalog.WindowsTranslation,
-            RequiredFreeSpaceBytes = 5L * 1024 * 1024 * 1024,
-            Artifacts = Small100Artifacts()
         },
         new()
         {
@@ -271,26 +179,6 @@ public static partial class LocalModelCatalog
                 ArchiveArtifact("model.int8.onnx", 237_115_547, "12ca1a2ae7ecf3e0019ef2822307ee0b5cadc9196569e379b4c4026f8205276d"),
                 ArchiveArtifact("tokens.txt", 315_894, "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc")
             ]
-        },
-        new()
-        {
-            Id = LocalModelIds.Qwen3Tts17B,
-            Name = "Qwen3-TTS 1.7B (Base)",
-            Category = LocalModelCategory.Tts,
-            SupportLevel = LocalModelSupportLevel.Experimental,
-            Runtime = LocalModelRuntimeKind.ManagedWslCuda,
-            InstallKind = LocalModelInstallKind.ManifestFiles,
-            Parameters = "约 1.7B",
-            NumericParameterBillions = 1.7,
-            License = "Apache-2.0",
-            Languages = "中文/英语/日语/韩语等 10 种语言",
-            Requirements = "私有 WSL2 + NVIDIA GPU（建议显存 ≥ 8 GB）+ 应用托管 Python 3.12",
-            SourceUrl = "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base",
-            Description = "十语种高质量声音克隆 TTS；必须使用本人或已获明确授权的参考音频和准确文本。",
-            RuntimeProfileId = ManagedRuntimeCatalog.WslQwen3Tts,
-            RequiresVoiceProfile = true,
-            RequiredFreeSpaceBytes = 12L * 1024 * 1024 * 1024,
-            Artifacts = Qwen3TtsArtifacts()
         }
     ];
 

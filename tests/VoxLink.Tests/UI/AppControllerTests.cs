@@ -82,6 +82,8 @@ public sealed class AppControllerTests
             DesktopOverlayLeft = 120,
             DesktopOverlayTop = 340,
             DesktopOverlayWidth = 900,
+            DesktopOverlayHeight = 420,
+            DesktopOverlayFontSize = 32,
             DesktopOverlayTopmost = false,
             DesktopOverlayLockPosition = false,
             LocalModelDirectory = @"D:\VoxLinkModels",
@@ -136,6 +138,8 @@ public sealed class AppControllerTests
         Assert.Equal(120, engineSettings.DesktopOverlayLeft);
         Assert.Equal(340, engineSettings.DesktopOverlayTop);
         Assert.Equal(900, engineSettings.DesktopOverlayWidth);
+        Assert.Equal(420, engineSettings.DesktopOverlayHeight);
+        Assert.Equal(32, engineSettings.DesktopOverlayFontSize);
         Assert.False(engineSettings.DesktopOverlayTopmost);
         Assert.False(engineSettings.DesktopOverlayLockPosition);
         Assert.Equal(@"D:\VoxLinkModels", engineSettings.LocalModelDirectory);
@@ -849,7 +853,7 @@ public sealed class AppControllerTests
     }
 
     [Fact]
-    public void ToEngineJson_MapsManagedModelsIntoEngineSettings()
+    public void ToEngineJson_NormalizesLegacyManagedBackendToGoogleWeb()
     {
         var settings = new AppSettings
         {
@@ -865,12 +869,17 @@ public sealed class AppControllerTests
             ManagedTtsReferenceText = "reference transcript"
         };
 
+        // 已下线的托管翻译/ASR 选择在序列化前必须安全回退，
+        // 引擎收到的永远是有效组合。
+        settings.NormalizeServiceSelections();
+
         var json = JsonSerializer.Serialize(settings.ToEngineJson(), EngineJsonOptions);
         var engineSettings = JsonSerializer.Deserialize<EngineSettings>(json, EngineJsonOptions);
 
         Assert.NotNull(engineSettings);
-        Assert.Equal(EngineTranslationProvider.ManagedSmall100, engineSettings.TranslationProvider);
-        Assert.Equal(EngineAsrProtocol.LocalManagedMoss, engineSettings.AsrProtocol);
+        Assert.Equal(EngineTranslationProvider.GoogleWeb, engineSettings.TranslationProvider);
+        Assert.Equal(EngineAsrProtocol.LocalWhisper, engineSettings.AsrProtocol);
+        Assert.Equal(EngineAsrProvider.LocalWhisper, engineSettings.AsrProvider);
         Assert.Equal(EngineManagedTtsModel.Qwen3Tts, engineSettings.ManagedTtsModel);
         Assert.Equal(@"C:\voice\ref.wav", engineSettings.ManagedTtsReferenceAudioPath);
         Assert.Equal("reference transcript", engineSettings.ManagedTtsReferenceText);
@@ -1012,16 +1021,14 @@ public sealed class AppControllerTests
     }
 
     [Fact]
-    public async Task RefreshLocalModels_PartitionsExperimentalModelsIntoMoreSection()
+    public async Task RefreshLocalModels_PartitionsByCategoryWithoutExperimentalSection()
     {
         var gateway = new FakeEngineGateway
         {
             ModelsResponse = ModelsPayload(
-                LocalModelJson("whisper-base", category: "asr", installState: "installed"),
-                LocalModelJson(LocalModelIds.MossTranscribeDiarize, category: "asr"),
-                LocalModelJson(LocalModelIds.HyMt1518B, category: "translation", installState: "installed"),
-                LocalModelJson(LocalModelIds.M2M100418M, category: "translation"),
-                LocalModelJson(LocalModelIds.Small100, category: "translation"),
+                LocalModelJson(LocalModelIds.WhisperLargeV3Turbo, category: "asr", installState: "installed"),
+                LocalModelJson(LocalModelIds.HyMt15Gguf, category: "translation"),
+                LocalModelJson(LocalModelIds.MiniCpm51BGguf, category: "translation", installState: "installed"),
                 LocalModelJson(LocalModelIds.Kokoro82M, category: "tts", installState: "installed"))
         };
         await using var controller = new AppController(
@@ -1031,24 +1038,23 @@ public sealed class AppControllerTests
 
         await controller.InitializeAsync();
 
-        // 常用模型进入分类列表，实验性/重复模型进「更多模型」。
+        // 目录精简后所有可安装模型直接进入分类列表，不再有「更多模型」折叠区。
         Assert.Collection(
             controller.SpeechRecognitionModels,
-            model => Assert.Equal("whisper-base", model.Id));
+            model => Assert.Equal(LocalModelIds.WhisperLargeV3Turbo, model.Id));
         Assert.Collection(
             controller.TranslationModels,
-            model => Assert.Equal(LocalModelIds.M2M100418M, model.Id));
+            model => Assert.Equal(LocalModelIds.HyMt15Gguf, model.Id),
+            model => Assert.Equal(LocalModelIds.MiniCpm51BGguf, model.Id));
         Assert.Collection(
             controller.SpeechSynthesisModels,
             model => Assert.Equal(LocalModelIds.Kokoro82M, model.Id));
-        Assert.Collection(
-            controller.ExperimentalLocalModels,
-            model => Assert.Equal(LocalModelIds.MossTranscribeDiarize, model.Id),
-            model => Assert.Equal(LocalModelIds.HyMt1518B, model.Id),
-            model => Assert.Equal(LocalModelIds.Small100, model.Id));
 
-        // 实验性集合复用主集合实例，进度更新同步生效。
-        Assert.Same(controller.ExperimentalLocalModels[0], controller.LocalModels[1]);
+        // 全部条目都进入主集合与分类集合，无遗漏。
+        Assert.Equal(controller.LocalModels.Count,
+            controller.SpeechRecognitionModels.Count
+            + controller.TranslationModels.Count
+            + controller.SpeechSynthesisModels.Count);
     }
 
     [Fact]

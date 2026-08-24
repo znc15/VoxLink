@@ -124,18 +124,18 @@ public sealed class LocalModelLiveTests
 
     [Fact]
     [Trait("Category", "Live")]
-    public async Task Small100_InstallsTestsManagedTranslationAndRemoves()
+    public async Task HyMt15Gguf_InstallsTestsTranslationAndRemoves()
     {
         if (!LiveTestsEnabled())
         {
             return;
         }
 
-        // 应用托管 Windows Python 翻译模型：代表 M2M-100 / HY-MT 同一运行类别
-        // （共享 WindowsTranslation 运行时档案，差异仅在模型文件与下载体积）。
+        // 本地混元翻译 GGUF：单文件下载 + LLamaSharp CPU 推理，
+        // 与 MiniCPM 共用 LlamaCppGguf 运行类别。
         await using var host = new EngineHost((_, _) => { }, startUiHost: false);
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(45));
-        var parameters = JsonSerializer.SerializeToElement(new { modelId = LocalModelIds.Small100 });
+        var parameters = JsonSerializer.SerializeToElement(new { modelId = LocalModelIds.HyMt15Gguf });
 
         var installed = await host.HandleAsync(
             "installLocalModel", parameters, SerializerOptions, timeout.Token);
@@ -149,13 +149,13 @@ public sealed class LocalModelLiveTests
             var result = await host.HandleAsync(
                 "testLocalModel", parameters, SerializerOptions, timeout.Token);
             var json = JsonSerializer.SerializeToElement(result, SerializerOptions);
-            Assert.True(json.GetProperty("ok").GetBoolean(), "托管翻译测试应成功");
+            Assert.True(json.GetProperty("ok").GetBoolean(), "本地混元翻译测试应成功");
             var detail = json.GetProperty("detail").GetString();
-            Assert.False(string.IsNullOrWhiteSpace(detail), "托管翻译测试应返回译文");
+            Assert.False(string.IsNullOrWhiteSpace(detail), "本地混元翻译测试应返回译文");
         }
         finally
         {
-            // 调试时设置 VOXLINK_KEEP_MODELS=1 可保留模型与运行时现场。
+            // 调试时设置 VOXLINK_KEEP_MODELS=1 可保留模型现场。
             if (Environment.GetEnvironmentVariable("VOXLINK_KEEP_MODELS") != "1")
             {
                 await host.HandleAsync(

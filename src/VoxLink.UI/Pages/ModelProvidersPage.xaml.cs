@@ -2,8 +2,6 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
-using Microsoft.UI.Xaml.Media;
 using VoxLink.UI.Controls;
 using VoxLink.UI.Core.Models;
 using VoxLink.UI.Core.ViewModels;
@@ -70,6 +68,7 @@ public sealed partial class ModelProvidersPage : Page
         {
             "base" => "WhisperBase",
             "small" => "WhisperSmall",
+            "large-v3-turbo" => "WhisperLargeV3Turbo",
             _ => "WhisperTiny"
         };
     }
@@ -83,9 +82,7 @@ public sealed partial class ModelProvidersPage : Page
         {
             TranslationBackend.PublicFree => "免费在线",
             TranslationBackend.LocalMiniCpm => LocalStatus(LocalModelIds.MiniCpm51BGguf),
-            TranslationBackend.ManagedHyMt => LocalStatus(LocalModelIds.HyMt1518B),
-            TranslationBackend.ManagedM2M100 => LocalStatus(LocalModelIds.M2M100418M),
-            TranslationBackend.ManagedSmall100 => LocalStatus(LocalModelIds.Small100),
+            TranslationBackend.LocalHyMtGguf => LocalStatus(LocalModelIds.HyMt15Gguf),
             _ => "云端 AI"
         };
 
@@ -100,14 +97,12 @@ public sealed partial class ModelProvidersPage : Page
             _ => "系统语音"
         };
 
+        UpdateLocalOption(HyMtGgufOption, "本地混元翻译 HY-MT1.5-1.8B（GGUF）", LocalModelIds.HyMt15Gguf);
         UpdateLocalOption(MiniCpmOption, "本地 MiniCPM5-1B", LocalModelIds.MiniCpm51BGguf);
-        UpdateLocalOption(ManagedHyMtOption, "本地混元翻译 HY-MT1.5-1.8B", LocalModelIds.HyMt1518B);
-        UpdateLocalOption(ManagedM2M100Option, "本地 M2M-100 418M", LocalModelIds.M2M100418M);
-        UpdateLocalOption(ManagedSmall100Option, "本地 SMaLL-100", LocalModelIds.Small100);
         UpdateLocalOption(WhisperBaseOption, "Whisper base（推荐）", LocalModelIds.WhisperBase);
         UpdateLocalOption(WhisperSmallOption, "Whisper small（更准确）", LocalModelIds.WhisperSmall);
+        UpdateLocalOption(WhisperLargeV3TurboOption, "Whisper large-v3-turbo（最准确）", LocalModelIds.WhisperLargeV3Turbo);
         UpdateLocalOption(KokoroOption, "本地 Kokoro-82M", LocalModelIds.Kokoro82M);
-        UpdateLocalOption(ManagedMossOption, "本地 MOSS 转写+说话人", LocalModelIds.MossTranscribeDiarize);
         var canSelect = !Controller.HasBusyLocalModels && !Controller.IsBusy;
         TranslationBackendBox.IsEnabled = canSelect;
         AsrProviderBox.IsEnabled = canSelect;
@@ -141,22 +136,11 @@ public sealed partial class ModelProvidersPage : Page
             return;
         }
 
-        if (tag == nameof(TranslationBackend.LocalMiniCpm))
+        if (tag is nameof(TranslationBackend.LocalMiniCpm) or nameof(TranslationBackend.LocalHyMtGguf))
         {
-            await Controller.InstallAndActivateLocalModelAsync(
-                LocalModelIds.MiniCpm51BGguf,
-                reportToModelService: true);
-        }
-        else if (tag is nameof(TranslationBackend.ManagedHyMt)
-                 or nameof(TranslationBackend.ManagedM2M100)
-                 or nameof(TranslationBackend.ManagedSmall100))
-        {
-            var modelId = tag switch
-            {
-                nameof(TranslationBackend.ManagedHyMt) => LocalModelIds.HyMt1518B,
-                nameof(TranslationBackend.ManagedM2M100) => LocalModelIds.M2M100418M,
-                _ => LocalModelIds.Small100
-            };
+            var modelId = tag == nameof(TranslationBackend.LocalHyMtGguf)
+                ? LocalModelIds.HyMt15Gguf
+                : LocalModelIds.MiniCpm51BGguf;
             await Controller.InstallAndActivateLocalModelAsync(
                 modelId,
                 reportToModelService: true);
@@ -181,7 +165,7 @@ public sealed partial class ModelProvidersPage : Page
             "WhisperTiny" => LocalModelIds.WhisperTiny,
             "WhisperBase" => LocalModelIds.WhisperBase,
             "WhisperSmall" => LocalModelIds.WhisperSmall,
-            "LocalManagedMoss" => LocalModelIds.MossTranscribeDiarize,
+            "WhisperLargeV3Turbo" => LocalModelIds.WhisperLargeV3Turbo,
             _ => null
         };
         if (localModelId is not null)
@@ -220,51 +204,10 @@ public sealed partial class ModelProvidersPage : Page
         RefreshState();
     }
 
-    private void TranslationBackendBox_DropDownOpened(object sender, object args) =>
-        AlignDropdownBelowSelectionBar(TranslationBackendBox);
-
-    private void AsrProviderBox_DropDownOpened(object sender, object args) =>
-        AlignDropdownBelowSelectionBar(AsrProviderBox);
-
-    private void SpeechServiceBox_DropDownOpened(object sender, object args) =>
-        AlignDropdownBelowSelectionBar(SpeechServiceBox);
-
-    private static void AlignDropdownBelowSelectionBar(ComboBox comboBox)
-    {
-        var popup = FindTemplatePopup(comboBox);
-        if (popup is not null)
-        {
-            popup.VerticalOffset = comboBox.ActualHeight + 2;
-        }
-    }
-
-    private static Popup? FindTemplatePopup(DependencyObject root)
-    {
-        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
-        {
-            var child = VisualTreeHelper.GetChild(root, index);
-            if (child is Popup popup)
-            {
-                return popup;
-            }
-
-            var nested = FindTemplatePopup(child);
-            if (nested is not null)
-            {
-                return nested;
-            }
-        }
-
-        return null;
-    }
-
     private async void ConfigureTranslation_Click(object sender, RoutedEventArgs args)
     {
         var backend = Controller.Settings.TranslationBackend;
-        if (backend is TranslationBackend.LocalMiniCpm
-            or TranslationBackend.ManagedHyMt
-            or TranslationBackend.ManagedM2M100
-            or TranslationBackend.ManagedSmall100)
+        if (backend is TranslationBackend.LocalMiniCpm or TranslationBackend.LocalHyMtGguf)
         {
             await ShowSimpleDialogAsync(
                 TranslationServiceLabel(backend),
@@ -363,9 +306,7 @@ public sealed partial class ModelProvidersPage : Page
         TranslationBackend.OpenAiCompatible => "OpenAI 兼容",
         TranslationBackend.Custom => "自定义服务",
         TranslationBackend.LocalMiniCpm => "本地 MiniCPM5-1B",
-        TranslationBackend.ManagedHyMt => "本地 HY-MT1.5",
-        TranslationBackend.ManagedM2M100 => "本地 M2M-100",
-        TranslationBackend.ManagedSmall100 => "本地 SMaLL-100",
+        TranslationBackend.LocalHyMtGguf => "本地混元翻译 HY-MT1.5-1.8B（GGUF）",
         _ => "翻译"
     };
 
@@ -374,7 +315,7 @@ public sealed partial class ModelProvidersPage : Page
         "WhisperTiny" => "Whisper tiny",
         "WhisperBase" => "Whisper base",
         "WhisperSmall" => "Whisper small",
-        "LocalManagedMoss" => "本地 MOSS",
+        "WhisperLargeV3Turbo" => "Whisper large-v3-turbo",
         "Soniox" => "Soniox",
         "SiliconFlow" => "硅基流动",
         "MiMo" => "小米 MiMo",
@@ -479,4 +420,65 @@ public sealed partial class ModelProvidersPage : Page
 
     private void ProviderErrorBar_Closed(InfoBar sender, InfoBarClosedEventArgs args) =>
         Controller.DismissError();
+
+    /// <summary>
+    /// 强制下拉列表弹出在控件正下方。WinUI 3 ComboBox 的模板 Popup 偏移恒为 0，
+    /// 实际按「选中项对齐控件」定位，选中项靠后时弹层整体翻到控件上方盖住界面；
+    /// 展开动画结束后测量弹层实际位置，统一改按控件底边对齐。
+    /// </summary>
+    private async void ProviderBox_DropDownOpened(object? sender, object args)
+    {
+        if (sender is not ComboBox comboBox)
+        {
+            return;
+        }
+
+        var popup = FindTemplatePopup(comboBox);
+        var content = popup?.Child as FrameworkElement;
+        if (popup is null || content is null)
+        {
+            return;
+        }
+
+        try
+        {
+            // 等展开动画结束（约 200ms）再测量，动画期间弹层还在位移
+            await Task.Delay(280);
+
+            // 弹层内容顶部相对 ComboBox 顶部的距离（负值 = 翻到了上方）。
+            // TransformToVisual 测的是渲染后位置，已含 VerticalOffset 效果，直接补差即可。
+            var top = content.TransformToVisual(comboBox).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+            var desired = comboBox.ActualHeight + 2;
+            var delta = desired - top;
+            if (Math.Abs(delta) > 0.5)
+            {
+                popup.VerticalOffset += delta;
+            }
+        }
+        catch (Exception exception) when (exception is COMException or InvalidOperationException)
+        {
+            // 元素已收起或已从树中移除时忽略
+        }
+    }
+
+    private static Microsoft.UI.Xaml.Controls.Primitives.Popup? FindTemplatePopup(FrameworkElement root)
+    {
+        var count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            if (Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i)
+                is Microsoft.UI.Xaml.Controls.Primitives.Popup popup)
+            {
+                return popup;
+            }
+
+            if (Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i) is FrameworkElement child
+                && FindTemplatePopup(child) is { } nested)
+            {
+                return nested;
+            }
+        }
+
+        return null;
+    }
 }

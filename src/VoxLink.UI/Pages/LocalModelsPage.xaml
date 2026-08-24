@@ -54,51 +54,6 @@
                     Tag="{x:Bind Id}" />
             </Grid>
         </DataTemplate>
-
-        <DataTemplate x:Key="LocalModelMoreRowTemplate" x:DataType="models:LocalModelItem">
-            <Grid Padding="12,10" ColumnSpacing="10">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-
-                <StackPanel VerticalAlignment="Center" Spacing="2">
-                    <TextBlock FontWeight="SemiBold" Text="{x:Bind Name}" />
-                    <StackPanel Orientation="Horizontal" Spacing="10">
-                        <TextBlock Style="{StaticResource CaptionStyle}" Text="{x:Bind CategoryLabel}" />
-                        <TextBlock Style="{StaticResource CaptionStyle}" Text="{x:Bind DownloadSizeLabel}" />
-                        <TextBlock Style="{StaticResource CaptionStyle}" Text="{x:Bind InstallStateLabel, Mode=OneWay}" />
-                        <TextBlock Style="{StaticResource CaptionStyle}" Text="{x:Bind OperationStatus, Mode=OneWay}" />
-                    </StackPanel>
-                </StackPanel>
-
-                <ProgressRing
-                    Grid.Column="1"
-                    Width="18"
-                    Height="18"
-                    IsActive="{x:Bind IsBusy, Mode=OneWay}" />
-                <Button
-                    Grid.Column="2"
-                    MinWidth="106"
-                    Click="ModelPrimaryAction_Click"
-                    Content="{x:Bind PrimaryActionLabel, Mode=OneWay}"
-                    IsEnabled="{x:Bind CanRunPrimaryAction, Mode=OneWay}" />
-                <Button
-                    Grid.Column="3"
-                    MinWidth="72"
-                    Click="TestModel_Click"
-                    Content="测试"
-                    IsEnabled="{x:Bind CanTest, Mode=OneWay}" />
-                <Button
-                    Grid.Column="4"
-                    Click="ModelSettings_Click"
-                    Content="设置"
-                    Tag="{x:Bind Id}" />
-            </Grid>
-        </DataTemplate>
     </Page.Resources>
 
     <ScrollViewer Style="{StaticResource PageScrollViewerStyle}">
@@ -189,21 +144,6 @@
                         ItemsSource="{x:Bind Controller.SpeechSynthesisModels, Mode=OneWay}"
                         SelectionMode="None" />
                 </StackPanel>
-            </Border>
-
-            <Border Style="{StaticResource PanelBorderStyle}">
-                <Expander HorizontalAlignment="Stretch" Header="更多模型（实验性）">
-                    <StackPanel Spacing="8">
-                        <TextBlock
-                            Style="{StaticResource CaptionStyle}"
-                            Text="需要 WSL/GPU，或与上面的模型功能重复；按需安装" />
-                        <ListView
-                            HorizontalContentAlignment="Stretch"
-                            ItemTemplate="{StaticResource LocalModelMoreRowTemplate}"
-                            ItemsSource="{x:Bind Controller.ExperimentalLocalModels, Mode=OneWay}"
-                            SelectionMode="None" />
-                    </StackPanel>
-                </Expander>
             </Border>
         </StackPanel>
     </ScrollViewer>

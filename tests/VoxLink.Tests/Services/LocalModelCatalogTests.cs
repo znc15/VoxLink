@@ -12,16 +12,10 @@ public sealed class LocalModelCatalogTests
         LocalModelIds.WhisperBase,
         LocalModelIds.WhisperSmall,
         LocalModelIds.WhisperLargeV3Turbo,
-        LocalModelIds.MiniCpm51BGguf,
-        LocalModelIds.HyMt1518B,
-        LocalModelIds.DotsTts,
-        LocalModelIds.MossTranscribeDiarize,
-        LocalModelIds.Kokoro82M,
-        LocalModelIds.CosyVoice205B,
-        LocalModelIds.M2M100418M,
-        LocalModelIds.Small100,
         LocalModelIds.SenseVoiceSmall,
-        LocalModelIds.Qwen3Tts17B
+        LocalModelIds.MiniCpm51BGguf,
+        LocalModelIds.HyMt15Gguf,
+        LocalModelIds.Kokoro82M
     ];
 
     [Fact]
@@ -35,6 +29,22 @@ public sealed class LocalModelCatalogTests
         }
 
         Assert.Equal(ids.Count, ids.Distinct().Count());
+    }
+
+    [Fact]
+    public void Catalog_AllModelsUseWindowsNativeRuntimes_WithoutPythonOrWsl()
+    {
+        // 精简后的目录必须全部可在纯 Windows CPU 上运行，不再包含
+        // 应用托管 Python / WSL+CUDA 运行时条目。
+        Assert.DoesNotContain(
+            LocalModelCatalog.All,
+            model => model.Runtime is LocalModelRuntimeKind.ManagedPython
+                or LocalModelRuntimeKind.ManagedWslCuda);
+        Assert.All(LocalModelCatalog.All, model =>
+        {
+            Assert.Null(model.RuntimeProfileId);
+            Assert.False(model.RequiresVoiceProfile);
+        });
     }
 
     [Fact]
@@ -150,49 +160,29 @@ public sealed class LocalModelCatalogTests
     }
 
     [Fact]
-    public void ManagedModels_ExposeRuntimeLicenseHardwareAndVoiceGates()
+    public void HyMt15Gguf_IsStableSingleFileTranslation_WithPinnedOfficialArtifact()
     {
-        var managed = LocalModelCatalog.All
-            .Where(model => model.Runtime is
-                LocalModelRuntimeKind.ManagedPython or LocalModelRuntimeKind.ManagedWslCuda)
-            .ToArray();
-        Assert.Equal(7, managed.Length);
-        Assert.All(managed, model =>
-        {
-            Assert.Equal(LocalModelInstallKind.ManifestFiles, model.InstallKind);
-            Assert.NotEmpty(model.Artifacts);
-            Assert.True(ManagedRuntimeCatalog.TryGet(model.RuntimeProfileId, out _));
-            Assert.True(model.RequiredFreeSpaceBytes > model.DownloadBytes);
-            Assert.All(model.Artifacts, artifact =>
-            {
-                Assert.Contains("/resolve/", artifact.PrimaryUrl, StringComparison.Ordinal);
-                Assert.DoesNotContain("/main/", artifact.PrimaryUrl, StringComparison.Ordinal);
-                Assert.True(Uri.TryCreate(artifact.PrimaryUrl, UriKind.Absolute, out _));
-            });
-        });
+        var model = Assert.Single(
+            LocalModelCatalog.All,
+            item => item.Id == LocalModelIds.HyMt15Gguf);
+        Assert.Equal(LocalModelCategory.Translation, model.Category);
+        Assert.Equal(LocalModelRuntimeKind.LlamaCppGguf, model.Runtime);
+        Assert.Equal(LocalModelSupportLevel.Stable, model.SupportLevel);
+        Assert.Equal(LocalModelInstallKind.SingleFile, model.InstallKind);
+        Assert.Null(model.Archive);
 
-        var hyMt = Assert.Single(managed, model => model.Id == LocalModelIds.HyMt1518B);
-        Assert.Equal(LocalModelSupportLevel.Experimental, hyMt.SupportLevel);
-        Assert.False(string.IsNullOrWhiteSpace(hyMt.LicenseAgreementId));
-        Assert.Contains("欧盟", hyMt.License, StringComparison.Ordinal);
-
-        var gpuModels = managed
-            .Where(model => model.Runtime == LocalModelRuntimeKind.ManagedWslCuda)
-            .ToArray();
-        Assert.Equal(4, gpuModels.Length);
-        Assert.All(gpuModels, model =>
-        {
-            Assert.Equal(LocalModelSupportLevel.Experimental, model.SupportLevel);
-            Assert.Contains("NVIDIA GPU", model.Requirements, StringComparison.Ordinal);
-            Assert.True(ManagedRuntimeCatalog.TryGet(model.RuntimeProfileId, out var runtime));
-            Assert.True(runtime.RequiresNvidiaGpu);
-            Assert.True(runtime.MinimumGpuMemoryBytes > 0);
-        });
-
-        Assert.All(
-            gpuModels.Where(model => model.Category == LocalModelCategory.Tts),
-            model => Assert.True(model.RequiresVoiceProfile));
+        var artifact = Assert.Single(model.Artifacts);
+        Assert.Equal("HY-MT1.5-1.8B-Q4_K_M.gguf", artifact.RelativePath);
+        Assert.Equal(1_133_080_512, artifact.ExpectedSize);
+        Assert.Equal(
+            "4383ac0c3c8e476de98ff979c2a3f069f8c4fb385e7860cf2d28da896cc477c7",
+            artifact.Sha256);
+        Assert.EndsWith("/resolve/main/HY-MT1.5-1.8B-Q4_K_M.gguf", artifact.PrimaryUrl, StringComparison.Ordinal);
+        Assert.StartsWith("https://huggingface.co/tencent/HY-MT1.5-1.8B-GGUF/", artifact.PrimaryUrl, StringComparison.Ordinal);
+        Assert.NotNull(artifact.MirrorUrl);
+        Assert.True(Uri.TryCreate(artifact.PrimaryUrl, UriKind.Absolute, out _));
     }
+
     [Fact]
     public void Catalog_HasCompleteMetadata_ForEveryEntry()
     {
@@ -219,5 +209,14 @@ public sealed class LocalModelCatalogTests
         Assert.False(LocalModelCatalog.TryGet("WHISPER-TINY", out _));
         Assert.False(LocalModelCatalog.TryGet("no-such-model", out _));
         Assert.False(LocalModelCatalog.TryGet(null, out _));
+
+        // 已下线的模型 ID 不应再出现在目录中。
+        Assert.False(LocalModelCatalog.TryGet("hy-mt1.5-1.8b", out _));
+        Assert.False(LocalModelCatalog.TryGet("m2m100-418m", out _));
+        Assert.False(LocalModelCatalog.TryGet("small-100", out _));
+        Assert.False(LocalModelCatalog.TryGet("moss-transcribe-diarize", out _));
+        Assert.False(LocalModelCatalog.TryGet("cosyvoice2-0.5b", out _));
+        Assert.False(LocalModelCatalog.TryGet("dots-tts", out _));
+        Assert.False(LocalModelCatalog.TryGet("qwen3-tts-1.7b", out _));
     }
 }

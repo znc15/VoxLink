@@ -4,12 +4,17 @@ public enum TranslationProvider
 {
     GoogleWeb,
     LocalMiniCpm,
-    ManagedHyMt,
-    ManagedM2M100,
-    ManagedSmall100,
+    LocalHyMtGguf,
     OpenAiCompatible,
     DashScope,
     DeepSeek,
+
+    // 已下线的应用托管翻译模型 wire 值：仅用于兼容旧前端设置反序列化，
+    // EngineHost 应用设置时会将其安全回退为 GoogleWeb。
+    ManagedHyMt,
+    ManagedM2M100,
+    ManagedSmall100,
+
     Custom
 }
 
@@ -28,6 +33,9 @@ public enum AsrProtocol
 {
     LocalWhisper,
     LocalSenseVoice,
+
+    // 已下线的应用托管 MOSS 模型 wire 值：仅用于兼容旧设置反序列化，
+    // 引擎侧不再有目录条目可进入该协议。
     LocalManagedMoss,
     DashScopeStreaming,
     SonioxStreaming,
@@ -199,6 +207,12 @@ public sealed class AppSettings
     public double? DesktopOverlayTop { get; set; }
 
     public double? DesktopOverlayWidth { get; set; }
+
+    /// <summary>null 表示高度自适应内容；设置后窗口固定为该高度。</summary>
+    public double? DesktopOverlayHeight { get; set; }
+
+    /// <summary>主译文字号（14–40），次译文与原文按比例联动。</summary>
+    public int DesktopOverlayFontSize { get; set; } = 24;
 
     public bool DesktopOverlayTopmost { get; set; } = true;
 

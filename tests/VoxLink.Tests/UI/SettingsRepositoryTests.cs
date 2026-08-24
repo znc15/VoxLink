@@ -68,10 +68,11 @@ public sealed class SettingsRepositoryTests : IDisposable
             },
             MinimizeToTray = false,
             ConfirmOnClose = true,
-            WindowOpacity = 0.65,
             DesktopOverlayLeft = 150,
             DesktopOverlayTop = 380,
             DesktopOverlayWidth = 860,
+            DesktopOverlayHeight = 460,
+            DesktopOverlayFontSize = 30,
             DesktopOverlayTopmost = false,
             DesktopOverlayLockPosition = false,
             LocalModelDirectory = @"D:\VoxLinkModels",
@@ -126,10 +127,11 @@ public sealed class SettingsRepositoryTests : IDisposable
         Assert.True(loaded.VrChatMuteSelfEnabled);
         Assert.Equal("127.0.0.3", loaded.VrChatOscListenAddress);
         Assert.Equal(9012, loaded.VrChatOscListenPort);
-        Assert.Equal(0.65, loaded.WindowOpacity, precision: 2);
         Assert.Equal(150, loaded.DesktopOverlayLeft);
         Assert.Equal(380, loaded.DesktopOverlayTop);
         Assert.Equal(860, loaded.DesktopOverlayWidth);
+        Assert.Equal(460, loaded.DesktopOverlayHeight);
+        Assert.Equal(30, loaded.DesktopOverlayFontSize);
         Assert.False(loaded.DesktopOverlayTopmost);
         Assert.False(loaded.DesktopOverlayLockPosition);
         Assert.Equal(@"D:\VoxLinkModels", loaded.LocalModelDirectory);
@@ -143,6 +145,8 @@ public sealed class SettingsRepositoryTests : IDisposable
         Assert.Contains("outboundSpeechContent", publicJson, StringComparison.Ordinal);
         Assert.Contains("minimizeToTray", publicJson, StringComparison.Ordinal);
         Assert.Contains("confirmOnClose", publicJson, StringComparison.Ordinal);
+        Assert.Contains("desktopOverlayHeight", publicJson, StringComparison.Ordinal);
+        Assert.Contains("desktopOverlayFontSize", publicJson, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -409,6 +413,35 @@ public sealed class SettingsRepositoryTests : IDisposable
             .Split("provider-", StringSplitOptions.None)[1]
             .Split('.', StringSplitOptions.None)[0];
         Assert.Equal($"secret-{hostIndex}", loaded.TranslationApiKey);
+    }
+
+    [Fact]
+    public async Task LoadAsync_RetiredManagedBackendsFallBackToSafeDefaults()
+    {
+        // 旧版本 settings.json 指向已下线的托管翻译/ASR 模型：
+        // 加载时必须安全回退公共免密 + 本地 Whisper，不得崩溃或保留无效选择。
+        Directory.CreateDirectory(_directory);
+        await File.WriteAllTextAsync(
+            PathFor("settings.json"),
+            JsonSerializer.Serialize(new
+            {
+                useAiTranslation = true,
+                translationBackend = "managedHyMt",
+                useCloudAsr = true,
+                asrProvider = "localManagedMoss",
+                asrProtocol = "localManagedMoss"
+            }));
+
+        var loaded = await CreateRepository().LoadAsync();
+
+        Assert.False(loaded.UseAiTranslation);
+        Assert.Equal(TranslationBackend.PublicFree, loaded.TranslationBackend);
+        Assert.False(loaded.UseCloudAsr);
+        Assert.Equal(AsrProvider.LocalWhisper, loaded.AsrProvider);
+        Assert.Equal(AsrProtocol.LocalWhisper, loaded.AsrProtocol);
+
+        var migratedJson = await File.ReadAllTextAsync(PathFor("settings.json"));
+        Assert.Contains("\"translationBackend\": \"PublicFree\"", migratedJson, StringComparison.Ordinal);
     }
 
     [Fact]

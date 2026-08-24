@@ -99,20 +99,11 @@ public sealed class TranslationSession : IAsyncDisposable
                 return settings.TranslationProvider == TranslationProvider.LocalMiniCpm;
             }
 
-            if (modelId == LocalModelIds.HyMt1518B)
+            if (modelId == LocalModelIds.HyMt15Gguf)
             {
-                return settings.TranslationProvider == TranslationProvider.ManagedHyMt;
+                return settings.TranslationProvider == TranslationProvider.LocalHyMtGguf;
             }
 
-            if (modelId == LocalModelIds.M2M100418M)
-            {
-                return settings.TranslationProvider == TranslationProvider.ManagedM2M100;
-            }
-
-            if (modelId == LocalModelIds.Small100)
-            {
-                return settings.TranslationProvider == TranslationProvider.ManagedSmall100;
-            }
             if (modelId == LocalModelIds.Kokoro82M)
             {
                 return settings.UseLocalKokoroTextToSpeech;
@@ -122,6 +113,7 @@ public sealed class TranslationSession : IAsyncDisposable
             {
                 "base" => LocalModelIds.WhisperBase,
                 "small" => LocalModelIds.WhisperSmall,
+                "large-v3-turbo" => LocalModelIds.WhisperLargeV3Turbo,
                 _ => LocalModelIds.WhisperTiny
             };
             return settings.AsrProvider == AsrProvider.LocalWhisper

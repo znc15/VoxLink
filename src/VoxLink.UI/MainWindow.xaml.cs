@@ -24,9 +24,6 @@ public sealed partial class MainWindow : Window
     private const uint DefaultSize = 0x0040;
     private const int SmCxsmicon = 49;
     private const int SmCysmicon = 50;
-    private const int GwlExstyle = -20;
-    private const int WsExLayered = 0x00080000;
-    private const uint LwaAlpha = 0x2;
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr LoadImageW(
@@ -42,20 +39,6 @@ public sealed partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
-
-    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
-    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
-
-    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
-    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetLayeredWindowAttributes(
-        IntPtr hWnd,
-        uint crKey,
-        byte bAlpha,
-        uint dwFlags);
 
     private enum CloseChoice
     {
@@ -119,7 +102,7 @@ public sealed partial class MainWindow : Window
         ApplyWindowChrome();
     }
 
-    /// <summary>应用窗口外观：Mica 透明背景 与 自定义/系统标题栏（外观偏好，即时生效）。</summary>
+    /// <summary>应用窗口外观：Mica 透明背景 与 自绘标题栏（外观偏好，即时生效）。</summary>
     private void ApplyWindowChrome()
     {
         var settings = App.Controller.Settings;
@@ -134,24 +117,20 @@ public sealed partial class MainWindow : Window
             RootLayout.Background = Application.Current.Resources["ApplicationPageBackgroundThemeBrush"] as Brush;
         }
 
-        var useSystemTitleBar = settings.UseSystemTitleBar;
-        ExtendsContentIntoTitleBar = !useSystemTitleBar;
-        AppTitleBar.Visibility = useSystemTitleBar ? Visibility.Collapsed : Visibility.Visible;
-        NavView.IsPaneToggleButtonVisible = useSystemTitleBar;
-        if (!useSystemTitleBar)
-        {
-            SetTitleBar(AppTitleBar);
-        }
+        ExtendsContentIntoTitleBar = true;
+        AppTitleBar.Visibility = Visibility.Visible;
+        NavView.IsPaneToggleButtonVisible = false;
+        SetTitleBar(AppTitleBar);
     }
 
     private void Settings_PropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
-        if (args.PropertyName is nameof(AppSettings.UseMicaBackdrop) or nameof(AppSettings.UseSystemTitleBar))
+        if (args.PropertyName == nameof(AppSettings.UseMicaBackdrop))
         {
             ApplyWindowChrome();
             LogService.Instance.Info(
                 "UI",
-                $"窗口外观已更新：Mica={App.Controller.Settings.UseMicaBackdrop}，系统标题栏={App.Controller.Settings.UseSystemTitleBar}。");
+                $"窗口外观已更新：Mica={App.Controller.Settings.UseMicaBackdrop}。");
         }
 
         if (args.PropertyName == nameof(AppSettings.MinimizeToTray))
@@ -160,11 +139,6 @@ public sealed partial class MainWindow : Window
             LogService.Instance.Info(
                 "UI",
                 $"最小化到托盘已更新：{App.Controller.Settings.MinimizeToTray}。");
-        }
-
-        if (args.PropertyName == nameof(AppSettings.WindowOpacity))
-        {
-            ApplyWindowOpacity();
         }
     }
 
@@ -233,32 +207,7 @@ public sealed partial class MainWindow : Window
     private async void RootLayout_Loaded(object sender, RoutedEventArgs args)
     {
         ApplyWindowIcon();
-        ApplyWindowOpacity();
         await TryShowOnboardingAsync();
-    }
-
-    private void ApplyWindowOpacity()
-    {
-        try
-        {
-            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-            if (hwnd == IntPtr.Zero)
-            {
-                return;
-            }
-
-            var extendedStyle = GetWindowLongPtr(hwnd, GwlExstyle).ToInt64();
-            SetWindowLongPtr(hwnd, GwlExstyle, new IntPtr(extendedStyle | WsExLayered));
-            var alpha = (byte)Math.Clamp(
-                Math.Round(App.Controller.Settings.WindowOpacity * 255),
-                0,
-                255);
-            SetLayeredWindowAttributes(hwnd, 0, alpha, LwaAlpha);
-        }
-        catch
-        {
-            // 透明度设置失败不影响窗口启动。
-        }
     }
 
     /// <summary>
@@ -467,23 +416,11 @@ public sealed partial class MainWindow : Window
                     && settings.TranslationBackend == TranslationBackend.LocalMiniCpm,
                 Enabled: canSwitch && Installed(LocalModelIds.MiniCpm51BGguf)),
             new(
-                "本地 HY-MT1.5-1.8B",
-                () => ActivateLocal(LocalModelIds.HyMt1518B),
+                "本地混元翻译 HY-MT1.5-1.8B（GGUF）",
+                () => ActivateLocal(LocalModelIds.HyMt15Gguf),
                 Checked: settings.UseAiTranslation
-                    && settings.TranslationBackend == TranslationBackend.ManagedHyMt,
-                Enabled: canSwitch && Installed(LocalModelIds.HyMt1518B)),
-            new(
-                "本地 M2M-100 418M",
-                () => ActivateLocal(LocalModelIds.M2M100418M),
-                Checked: settings.UseAiTranslation
-                    && settings.TranslationBackend == TranslationBackend.ManagedM2M100,
-                Enabled: canSwitch && Installed(LocalModelIds.M2M100418M)),
-            new(
-                "本地 SMaLL-100",
-                () => ActivateLocal(LocalModelIds.Small100),
-                Checked: settings.UseAiTranslation
-                    && settings.TranslationBackend == TranslationBackend.ManagedSmall100,
-                Enabled: canSwitch && Installed(LocalModelIds.Small100)),
+                    && settings.TranslationBackend == TranslationBackend.LocalHyMtGguf,
+                Enabled: canSwitch && Installed(LocalModelIds.HyMt15Gguf)),
             new(
                 "DeepSeek",
                 () => SelectTranslation(TranslationBackend.DeepSeek),
@@ -519,11 +456,10 @@ public sealed partial class MainWindow : Window
                 Checked: !settings.UseCloudAsr && settings.WhisperModel == "small",
                 Enabled: canSwitch && Installed(LocalModelIds.WhisperSmall)),
             new(
-                "本地 MOSS 转写+说话人",
-                () => ActivateLocal(LocalModelIds.MossTranscribeDiarize),
-                Checked: settings.UseCloudAsr
-                    && settings.AsrProvider == AsrProvider.LocalManagedMoss,
-                Enabled: canSwitch && Installed(LocalModelIds.MossTranscribeDiarize)),
+                "Whisper large-v3-turbo",
+                () => ActivateLocal(LocalModelIds.WhisperLargeV3Turbo),
+                Checked: !settings.UseCloudAsr && settings.WhisperModel == "large-v3-turbo",
+                Enabled: canSwitch && Installed(LocalModelIds.WhisperLargeV3Turbo)),
             new(
                 "Soniox",
                 () => SelectAsr(AsrProvider.Soniox),

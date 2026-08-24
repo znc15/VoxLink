@@ -5,42 +5,32 @@ namespace VoxLink.Services;
 
 /// <summary>
 /// 翻译/文本生成服务工厂。注入 <see cref="ILocalModelManager"/> 后可创建
-/// 本地 MiniCPM5 服务；注入 <see cref="LocalModelOrchestrator"/> 后可创建
-/// 应用托管翻译模型服务（HY-MT / M2M-100 / SMaLL-100）。
+/// 本地 MiniCPM5 与本地混元 HY-MT1.5-1.8B（GGUF）服务。
 /// </summary>
 public sealed class TranslationServiceFactory : IAsyncDisposable
 {
     private readonly HttpClient _httpClient;
     private readonly ILocalModelManager? _localModelManager;
-    private readonly LocalModelOrchestrator? _managedOrchestrator;
     private readonly object _poolSync = new();
-    private readonly List<ManagedModelHostTranslationService> _managedServices = [];
     private LocalMiniCpmRuntimePool? _miniCpmPool;
+    private LocalHyMtRuntimePool? _hyMtPool;
     private bool _disposed;
 
     public TranslationServiceFactory(
         HttpClient httpClient,
         ILocalModelManager? localModelManager = null)
-        : this(httpClient, localModelManager, managedOrchestrator: null)
-    {
-    }
-
-    internal TranslationServiceFactory(
-        HttpClient httpClient,
-        ILocalModelManager? localModelManager,
-        LocalModelOrchestrator? managedOrchestrator)
     {
         _httpClient = httpClient;
         _localModelManager = localModelManager;
-        _managedOrchestrator = managedOrchestrator;
     }
 
     /// <summary>旧版宿主外壳使用的同步释放入口。</summary>
     public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
     public ITranslationService Create(AppSettings settings) =>
-        CreateManaged(settings) ?? settings.TranslationProvider switch
+        settings.TranslationProvider switch
         {
-            TranslationProvider.LocalMiniCpm => CreateChatPool(settings).CreateClient(),
+            TranslationProvider.LocalMiniCpm => CreateMiniCpmPool().CreateClient(),
+            TranslationProvider.LocalHyMtGguf => CreateHyMtPool().CreateClient(),
             TranslationProvider.GoogleWeb => new FailoverTranslationService(
                 new MyMemoryTranslationService(_httpClient),
                 new GoogleWebTranslationService(_httpClient)),
@@ -50,15 +40,14 @@ public sealed class TranslationServiceFactory : IAsyncDisposable
         };
 
     /// <summary>
-    /// 创建文本生成（润色）服务。托管翻译模型是纯翻译模型，不支持指令润色，
-    /// 返回 null 表示不可用（会话已在空值时安全降级）。
+    /// 创建文本生成（润色）服务。本地 MiniCPM5 是通用指令模型，支持润色；
+    /// 混元翻译是纯翻译模型，不支持指令润色，返回 null 表示不可用
+    /// （会话已在空值时安全降级）。
     /// </summary>
     public ITextGenerationService? CreateChatService(AppSettings settings) =>
-        CreateManaged(settings) is not null
-            ? null
-            : settings.TranslationProvider switch
+        settings.TranslationProvider switch
         {
-            TranslationProvider.LocalMiniCpm => CreateChatPool(settings).CreateClient(),
+            TranslationProvider.LocalMiniCpm => CreateMiniCpmPool().CreateClient(),
             TranslationProvider.DashScope => new OpenAiTranslationService(
                 _httpClient,
                 "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -81,26 +70,25 @@ public sealed class TranslationServiceFactory : IAsyncDisposable
                 settings,
                 settings.OpenAiBaseUrl,
                 settings.OpenAiModel),
-            _ => throw new InvalidOperationException(
-                "文本生成需要选择 DashScope、DeepSeek、本地 MiniCPM 或自定义 AI 服务。")
+            _ => null
         };
 
     /// <summary>
-    /// 无活跃客户端时卸载本地 MiniCPM 权重并释放模型租约；仍有客户端时跳过。
-    /// 返回 true 表示本次调用完成了卸载。
+    /// 无活跃客户端时卸载本地 MiniCPM / 混元权重并释放模型租约；仍有客户端时跳过。
+    /// 返回 true 表示本次调用完成了至少一次卸载。
     /// </summary>
     public bool UnloadIdleLocalRuntimes()
     {
         lock (_poolSync)
         {
-            return _miniCpmPool?.UnloadIfIdle() ?? false;
+            return (_miniCpmPool?.UnloadIfIdle() ?? false)
+                | (_hyMtPool?.UnloadIfIdle() ?? false);
         }
     }
 
     /// <summary>强制卸载本地运行时（引擎关闭时调用）。</summary>
     public async ValueTask DisposeAsync()
     {
-        List<ManagedModelHostTranslationService> managed;
         lock (_poolSync)
         {
             if (_disposed)
@@ -109,18 +97,24 @@ public sealed class TranslationServiceFactory : IAsyncDisposable
             }
 
             _disposed = true;
-            _miniCpmPool?.Dispose();
-            managed = [.. _managedServices];
-            _managedServices.Clear();
         }
 
-        foreach (var service in managed)
+        LocalMiniCpmRuntimePool? miniCpmPool;
+        LocalHyMtRuntimePool? hyMtPool;
+        lock (_poolSync)
         {
-            await service.DisposeAsync().ConfigureAwait(false);
+            miniCpmPool = _miniCpmPool;
+            _miniCpmPool = null;
+            hyMtPool = _hyMtPool;
+            _hyMtPool = null;
         }
+
+        miniCpmPool?.Dispose();
+        hyMtPool?.Dispose();
+        await Task.CompletedTask;
     }
 
-    internal LocalMiniCpmRuntimePool CreateChatPool(AppSettings settings)
+    internal LocalMiniCpmRuntimePool CreateMiniCpmPool()
     {
         var manager = _localModelManager
             ?? throw new InvalidOperationException("本地模型管理器未配置，无法使用本地 MiniCPM。");
@@ -131,28 +125,14 @@ public sealed class TranslationServiceFactory : IAsyncDisposable
         }
     }
 
-    private ITranslationService? CreateManaged(AppSettings settings)
+    internal LocalHyMtRuntimePool CreateHyMtPool()
     {
-        var modelId = settings.TranslationProvider switch
-        {
-            TranslationProvider.ManagedHyMt => LocalModelIds.HyMt1518B,
-            TranslationProvider.ManagedM2M100 => LocalModelIds.M2M100418M,
-            TranslationProvider.ManagedSmall100 => LocalModelIds.Small100,
-            _ => null
-        };
-        if (modelId is null)
-        {
-            return null;
-        }
-
-        var orchestrator = _managedOrchestrator
-            ?? throw new InvalidOperationException("托管模型编排器未配置，无法使用托管翻译模型。");
+        var manager = _localModelManager
+            ?? throw new InvalidOperationException("本地模型管理器未配置，无法使用本地混元翻译。");
         lock (_poolSync)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            var service = new ManagedModelHostTranslationService(orchestrator, modelId);
-            _managedServices.Add(service);
-            return service;
+            return _hyMtPool ??= new LocalHyMtRuntimePool(manager);
         }
     }
 

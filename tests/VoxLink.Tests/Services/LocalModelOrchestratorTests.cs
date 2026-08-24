@@ -12,6 +12,41 @@ namespace VoxLink.Tests.Services;
 /// </summary>
 public sealed class LocalModelOrchestratorTests
 {
+    // 目录精简后公开目录已无应用托管模型；测试用合成目录条目继续验证
+    // 保留下来的托管宿主基础设施（协议面与生命周期与真实模型完全一致）。
+    private const string PythonModelId = "fixture-managed-python-model";
+    private const string WslModelId = "fixture-managed-wsl-model";
+
+    private static LocalModelDefinition SyntheticManagedModel(
+        string id,
+        string runtimeProfileId,
+        LocalModelRuntimeKind runtime) => new()
+    {
+        Id = id,
+        Name = "Fixture managed model",
+        Category = LocalModelCategory.Translation,
+        SupportLevel = LocalModelSupportLevel.Stable,
+        Runtime = runtime,
+        InstallKind = LocalModelInstallKind.ManifestFiles,
+        Parameters = "1B",
+        NumericParameterBillions = 1.0,
+        License = "MIT",
+        Languages = "zh/en",
+        Requirements = "test",
+        SourceUrl = "https://huggingface.co/test/model",
+        Description = "test model",
+        RuntimeProfileId = runtimeProfileId
+    };
+
+    private static Func<string, LocalModelDefinition?> FixtureCatalog() => id => id switch
+    {
+        PythonModelId => SyntheticManagedModel(
+            id, ManagedRuntimeCatalog.WindowsTranslation, LocalModelRuntimeKind.ManagedPython),
+        WslModelId => SyntheticManagedModel(
+            id, ManagedRuntimeCatalog.WslMoss, LocalModelRuntimeKind.ManagedWslCuda),
+        _ => null
+    };
+
     // ---- ProbeModelRuntimeAsync：托管模型 → 运行时 profile 映射 ----
 
     [Fact]
@@ -20,7 +55,7 @@ public sealed class LocalModelOrchestratorTests
         var runtime = new FakeRuntimeManager();
         await using var orchestrator = CreateOrchestrator(new FakeModelManager(), runtime);
 
-        var probe = await orchestrator.ProbeModelRuntimeAsync(LocalModelIds.Small100);
+        var probe = await orchestrator.ProbeModelRuntimeAsync(PythonModelId);
 
         Assert.Equal(ManagedRuntimeCatalog.WindowsTranslation, probe.RuntimeProfileId);
         Assert.Equal(ManagedRuntimeCatalog.WindowsTranslation, runtime.LastProbeProfile);
@@ -34,7 +69,7 @@ public sealed class LocalModelOrchestratorTests
         using var scenario = new HostScenario(slowShutdown: true);
         await using var orchestrator = CreateOrchestrator(scenario.Model, scenario.Runtime);
         var session = await orchestrator.StartHostAsync(
-            LocalModelIds.Small100,
+            PythonModelId,
             requireInferenceCapability: false);
 
         var callers = Enumerable.Range(0, 16)
@@ -56,7 +91,7 @@ public sealed class LocalModelOrchestratorTests
         var runtime = new FakeRuntimeManager();
         await using var orchestrator = CreateOrchestrator(new FakeModelManager(), runtime);
 
-        var probe = await orchestrator.ProbeModelRuntimeAsync(LocalModelIds.MossTranscribeDiarize);
+        var probe = await orchestrator.ProbeModelRuntimeAsync(WslModelId);
 
         Assert.Equal(ManagedRuntimeCatalog.WslMoss, probe.RuntimeProfileId);
         Assert.Equal(ManagedRuntimeCatalog.WslMoss, runtime.LastProbeProfile);
@@ -65,7 +100,7 @@ public sealed class LocalModelOrchestratorTests
     [Theory]
     [InlineData(LocalModelIds.MiniCpm51BGguf)] // 原生 LlamaCppGguf 运行时，非托管
     [InlineData(LocalModelIds.Kokoro82M)]      // 原生 sherpa-onnx 运行时，非托管
-    [InlineData("ghost-model")]                // 目录中不存在
+    [InlineData("ghost-model")]                // 目录中不存在（含已下线的旧托管模型）
     public async Task Probe_NativeOrUnknownModel_RejectedWithoutTouchingRuntimeManager(string modelId)
     {
         var runtime = new FakeRuntimeManager();
@@ -92,7 +127,7 @@ public sealed class LocalModelOrchestratorTests
         await using var orchestrator = CreateOrchestrator(model, runtime);
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            orchestrator.StartHostAsync(LocalModelIds.Small100));
+            orchestrator.StartHostAsync(PythonModelId));
 
         Assert.Contains("尚未安装", error.Message, StringComparison.Ordinal);
         Assert.Equal(1, model.AcquireCount);
@@ -109,7 +144,7 @@ public sealed class LocalModelOrchestratorTests
         await using var orchestrator = CreateOrchestrator(scenario.Model, scenario.Runtime);
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            orchestrator.StartHostAsync(LocalModelIds.Small100, requireInferenceCapability: true));
+            orchestrator.StartHostAsync(PythonModelId, requireInferenceCapability: true));
 
         Assert.Contains("推理适配器尚未安装", error.Message, StringComparison.Ordinal);
         var modelLease = Assert.Single(scenario.Model.Leases);
@@ -127,11 +162,11 @@ public sealed class LocalModelOrchestratorTests
         await using var orchestrator = CreateOrchestrator(scenario.Model, scenario.Runtime);
 
         var session = await orchestrator.StartHostAsync(
-            LocalModelIds.Small100,
+            PythonModelId,
             requireInferenceCapability: false);
 
         // 基础宿主只宣告健康检查能力，不宣告推理能力。
-        Assert.Equal(LocalModelIds.Small100, session.ModelId);
+        Assert.Equal(PythonModelId, session.ModelId);
         Assert.False(session.Capabilities.InferenceAvailable);
 
         var ping = await session.RequestAsync("ping");
@@ -158,7 +193,7 @@ public sealed class LocalModelOrchestratorTests
         await using var orchestrator = CreateOrchestrator(scenario.Model, scenario.Runtime);
 
         var session = await orchestrator.StartHostAsync(
-            LocalModelIds.Small100,
+            PythonModelId,
             requireInferenceCapability: false);
 
         Assert.NotNull(session);
@@ -176,7 +211,7 @@ public sealed class LocalModelOrchestratorTests
         await using var orchestrator = CreateOrchestrator(scenario.Model, scenario.Runtime);
 
         var session = await orchestrator.StartHostAsync(
-            LocalModelIds.Small100,
+            PythonModelId,
             requireInferenceCapability: false);
 
         Assert.NotNull(session);
@@ -195,7 +230,7 @@ public sealed class LocalModelOrchestratorTests
         await using var orchestrator = CreateOrchestrator(scenario.Model, scenario.Runtime);
 
         var session = await orchestrator.StartHostAsync(
-            LocalModelIds.Small100,
+            PythonModelId,
             requireInferenceCapability: false);
 
         await orchestrator.DisposeAsync();
@@ -219,7 +254,7 @@ public sealed class LocalModelOrchestratorTests
         var runtime = new FakeRuntimeManager { BlockAcquire = true };
         var orchestrator = CreateOrchestrator(model, runtime);
 
-        var start = orchestrator.StartHostAsync(LocalModelIds.Small100, requireInferenceCapability: false);
+        var start = orchestrator.StartHostAsync(PythonModelId, requireInferenceCapability: false);
         await runtime.AcquireEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         await orchestrator.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
@@ -240,7 +275,7 @@ public sealed class LocalModelOrchestratorTests
         var runtime = new FakeRuntimeManager { BlockProbe = true };
         var orchestrator = CreateOrchestrator(new FakeModelManager(), runtime);
 
-        var probe = orchestrator.ProbeModelRuntimeAsync(LocalModelIds.Small100);
+        var probe = orchestrator.ProbeModelRuntimeAsync(PythonModelId);
         await runtime.ProbeEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         await orchestrator.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
@@ -256,7 +291,7 @@ public sealed class LocalModelOrchestratorTests
         var runtime = new FakeRuntimeManager { BlockAcquireUntilGate = true };
         var orchestrator = CreateOrchestrator(model, runtime);
 
-        var start = orchestrator.StartHostAsync(LocalModelIds.Small100, requireInferenceCapability: false);
+        var start = orchestrator.StartHostAsync(PythonModelId, requireInferenceCapability: false);
         await runtime.AcquireEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         // 第一个调用方取消生命周期并等待阻塞的启动排空；
@@ -288,7 +323,7 @@ public sealed class LocalModelOrchestratorTests
         var runtime = new FakeRuntimeManager { BlockProbeUntilGate = true };
         var orchestrator = CreateOrchestrator(model, runtime);
 
-        var probe = orchestrator.ProbeModelRuntimeAsync(LocalModelIds.Small100);
+        var probe = orchestrator.ProbeModelRuntimeAsync(PythonModelId);
         await runtime.ProbeEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         var firstDispose = orchestrator.DisposeAsync().AsTask();
@@ -316,7 +351,7 @@ public sealed class LocalModelOrchestratorTests
         var runtime = new FakeRuntimeManager();
         await using var orchestrator = CreateOrchestrator(model, runtime);
 
-        await orchestrator.ProbeModelRuntimeAsync(LocalModelIds.Small100);
+        await orchestrator.ProbeModelRuntimeAsync(PythonModelId);
         await orchestrator.DisposeAsync();
 
         // 注入的管理器由外部拥有，编排器销毁时不得触碰它们。
@@ -330,7 +365,12 @@ public sealed class LocalModelOrchestratorTests
     private static LocalModelOrchestrator CreateOrchestrator(
         FakeModelManager model,
         FakeRuntimeManager runtime) =>
-        new(model, runtime, ownsModelManager: false, ownsRuntimeManager: false);
+        new(
+            model,
+            runtime,
+            ownsModelManager: false,
+            ownsRuntimeManager: false,
+            catalogLookup: FixtureCatalog());
 
     /// <summary>
     /// 确定性 PowerShell 宿主 fixture：实现与 model_host.py 相同的协议面

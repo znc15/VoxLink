@@ -62,14 +62,6 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         LocalModelIds.MiniCpm51BGguf,
         LocalModelIds.Kokoro82M
     ];
-
-    /// <summary>实验性或与其他模型功能重复的模型，收进「更多模型」折叠区。</summary>
-    private static readonly HashSet<string> ExperimentalLocalModelIds = new(StringComparer.Ordinal)
-    {
-        LocalModelIds.MossTranscribeDiarize,
-        LocalModelIds.HyMt1518B,
-        LocalModelIds.Small100
-    };
     public AppController(
         IEngineGateway engine,
         ISettingsRepository settingsRepository,
@@ -120,7 +112,6 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     public ObservableCollection<LocalModelItem> SpeechRecognitionModels { get; } = [];
     public ObservableCollection<LocalModelItem> TranslationModels { get; } = [];
     public ObservableCollection<LocalModelItem> SpeechSynthesisModels { get; } = [];
-    public ObservableCollection<LocalModelItem> ExperimentalLocalModels { get; } = [];
     public bool HasBusyLocalModels => LocalModels.Any(model => model.IsBusy);
     public bool RecommendedLocalModelsReady =>
         IsInstalled(LocalModelIds.WhisperBase)
@@ -551,6 +542,20 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 ? status.GetString() ?? "桌面字幕测试完成"
                 : "桌面字幕测试完成";
         });
+    }
+
+    /// <summary>
+    /// 清空桌面字幕的持久化位置与大小并恢复默认字号；
+    /// 随后的 configure 携带全空位置，悬浮窗将回到主屏底部居中。
+    /// </summary>
+    public void ResetDesktopOverlayPlacement()
+    {
+        Settings.DesktopOverlayLeft = null;
+        Settings.DesktopOverlayTop = null;
+        Settings.DesktopOverlayWidth = null;
+        Settings.DesktopOverlayHeight = null;
+        Settings.DesktopOverlayFontSize = 24;
+        NotifySettingsChanged();
     }
 
     public async Task PrepareModelAsync()
@@ -1014,7 +1019,6 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         SpeechRecognitionModels.Clear();
         TranslationModels.Clear();
         SpeechSynthesisModels.Clear();
-        ExperimentalLocalModels.Clear();
         foreach (var item in parsedModels)
         {
             LocalModels.Add(item);
@@ -1025,12 +1029,6 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             }
 
             InstallableLocalModels.Add(item);
-            if (ExperimentalLocalModelIds.Contains(item.Id))
-            {
-                ExperimentalLocalModels.Add(item);
-                continue;
-            }
-
             switch (item.Category)
             {
                 case "asr":
@@ -1224,9 +1222,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     {
         if (Settings.TranslationBackend is TranslationBackend.PublicFree
             or TranslationBackend.LocalMiniCpm
-            or TranslationBackend.ManagedHyMt
-            or TranslationBackend.ManagedM2M100
-            or TranslationBackend.ManagedSmall100)
+            or TranslationBackend.LocalHyMtGguf)
         {
             return null;
         }
@@ -1602,6 +1598,8 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 var overlayLeft = ReadNullableDouble(engineEvent.Data, "left");
                 var overlayTop = ReadNullableDouble(engineEvent.Data, "top");
                 var overlayWidth = ReadNullableDouble(engineEvent.Data, "width");
+                // null 表示窗口处于高度自适应状态，清空持久化高度以保持自动。
+                var overlayHeight = ReadNullableDouble(engineEvent.Data, "height");
                 if (overlayLeft is not null)
                 {
                     Settings.DesktopOverlayLeft = overlayLeft;
@@ -1616,6 +1614,8 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 {
                     Settings.DesktopOverlayWidth = overlayWidth;
                 }
+
+                Settings.DesktopOverlayHeight = overlayHeight;
 
                 _ = SaveNowAsync();
                 break;
@@ -1865,35 +1865,20 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         var required = new List<string>();
         if (!Settings.UseCloudAsr)
         {
-            if (Settings.AsrProtocol == AsrProtocol.LocalManagedMoss)
-            {
-                required.Add(LocalModelIds.MossTranscribeDiarize);
-            }
-            else
-            {
-                required.Add(LocalModelIds.WhisperId(Settings.WhisperModel));
-            }
-        }
-
-        if (!Settings.TranscriptionOnly
-            && Settings.UseAiTranslation
-            && Settings.TranslationBackend == TranslationBackend.LocalMiniCpm)
-        {
-            required.Add(LocalModelIds.MiniCpm51BGguf);
+            required.Add(LocalModelIds.WhisperId(Settings.WhisperModel));
         }
 
         if (!Settings.TranscriptionOnly && Settings.UseAiTranslation)
         {
-            var managedModelId = Settings.TranslationBackend switch
+            var translationModelId = Settings.TranslationBackend switch
             {
-                TranslationBackend.ManagedHyMt => LocalModelIds.HyMt1518B,
-                TranslationBackend.ManagedM2M100 => LocalModelIds.M2M100418M,
-                TranslationBackend.ManagedSmall100 => LocalModelIds.Small100,
+                TranslationBackend.LocalMiniCpm => LocalModelIds.MiniCpm51BGguf,
+                TranslationBackend.LocalHyMtGguf => LocalModelIds.HyMt15Gguf,
                 _ => null
             };
-            if (managedModelId is not null)
+            if (translationModelId is not null)
             {
-                required.Add(managedModelId);
+                required.Add(translationModelId);
             }
         }
 
@@ -1916,11 +1901,14 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     }
     private bool IsLocalModelActive(string modelId) => modelId switch
     {
-        LocalModelIds.WhisperTiny or LocalModelIds.WhisperBase or LocalModelIds.WhisperSmall =>
+        LocalModelIds.WhisperTiny or LocalModelIds.WhisperBase or LocalModelIds.WhisperSmall
+            or LocalModelIds.WhisperLargeV3Turbo =>
             !Settings.UseCloudAsr
             && LocalModelIds.WhisperId(Settings.WhisperModel).Equals(modelId, StringComparison.Ordinal),
         LocalModelIds.MiniCpm51BGguf => Settings.UseAiTranslation
             && Settings.TranslationBackend == TranslationBackend.LocalMiniCpm,
+        LocalModelIds.HyMt15Gguf => Settings.UseAiTranslation
+            && Settings.TranslationBackend == TranslationBackend.LocalHyMtGguf,
         LocalModelIds.Kokoro82M => Settings.SpeechServiceMode == SpeechServiceMode.Kokoro,
         _ => false
     };
@@ -1945,17 +1933,9 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         {
             Settings.SelectTranslationBackend(TranslationBackend.LocalMiniCpm);
         }
-        else if (modelId.Equals(LocalModelIds.HyMt1518B, StringComparison.Ordinal))
+        else if (modelId.Equals(LocalModelIds.HyMt15Gguf, StringComparison.Ordinal))
         {
-            Settings.SelectTranslationBackend(TranslationBackend.ManagedHyMt);
-        }
-        else if (modelId.Equals(LocalModelIds.M2M100418M, StringComparison.Ordinal))
-        {
-            Settings.SelectTranslationBackend(TranslationBackend.ManagedM2M100);
-        }
-        else if (modelId.Equals(LocalModelIds.Small100, StringComparison.Ordinal))
-        {
-            Settings.SelectTranslationBackend(TranslationBackend.ManagedSmall100);
+            Settings.SelectTranslationBackend(TranslationBackend.LocalHyMtGguf);
         }
         else if (modelId.Equals(LocalModelIds.Kokoro82M, StringComparison.Ordinal))
         {
@@ -1983,7 +1963,8 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             {
                 LocalModelIds.WhisperBase,
                 LocalModelIds.WhisperTiny,
-                LocalModelIds.WhisperSmall
+                LocalModelIds.WhisperSmall,
+                LocalModelIds.WhisperLargeV3Turbo
             }.FirstOrDefault(id => !id.Equals(modelId, StringComparison.Ordinal) && IsInstalled(id));
             if (fallback is not null)
             {
@@ -1994,19 +1975,12 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 Settings.WhisperModel = string.Empty;
             }
         }
-        else if (modelId.Equals(LocalModelIds.MiniCpm51BGguf, StringComparison.Ordinal)
-            && Settings.UseAiTranslation
-            && Settings.TranslationBackend == TranslationBackend.LocalMiniCpm)
-        {
-            Settings.SelectTranslationBackend(TranslationBackend.PublicFree);
-        }
-        else if (((modelId.Equals(LocalModelIds.HyMt1518B, StringComparison.Ordinal)
-                   && Settings.TranslationBackend == TranslationBackend.ManagedHyMt)
-                  || (modelId.Equals(LocalModelIds.M2M100418M, StringComparison.Ordinal)
-                      && Settings.TranslationBackend == TranslationBackend.ManagedM2M100)
-                  || (modelId.Equals(LocalModelIds.Small100, StringComparison.Ordinal)
-                      && Settings.TranslationBackend == TranslationBackend.ManagedSmall100))
-                 && Settings.UseAiTranslation)
+        else if ((modelId.Equals(LocalModelIds.MiniCpm51BGguf, StringComparison.Ordinal)
+                  && Settings.UseAiTranslation
+                  && Settings.TranslationBackend == TranslationBackend.LocalMiniCpm)
+                 || (modelId.Equals(LocalModelIds.HyMt15Gguf, StringComparison.Ordinal)
+                     && Settings.UseAiTranslation
+                     && Settings.TranslationBackend == TranslationBackend.LocalHyMtGguf))
         {
             Settings.SelectTranslationBackend(TranslationBackend.PublicFree);
         }

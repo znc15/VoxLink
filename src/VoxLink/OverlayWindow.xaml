@@ -35,7 +35,6 @@
                            TextAlignment="Center" />
                 <TextBlock x:Name="TranslatedTextBlock"
                            Grid.Row="1"
-                           MaxWidth="680"
                            Margin="0,5,0,0"
                            Foreground="White"
                            FontSize="24"
@@ -44,7 +43,6 @@
                            TextWrapping="Wrap" />
                 <TextBlock x:Name="SecondaryTextBlock"
                            Grid.Row="2"
-                           MaxWidth="680"
                            Margin="0,5,0,0"
                            Foreground="#B9B9FFF1"
                            FontSize="17"
@@ -52,7 +50,6 @@
                            TextWrapping="Wrap" />
                 <TextBlock x:Name="SourceTextBlock"
                            Grid.Row="3"
-                           MaxWidth="680"
                            Margin="0,7,0,0"
                            Foreground="#C5FFFFFF"
                            FontSize="14"

@@ -14,6 +14,7 @@ internal sealed class LocalModelOrchestrator : ILocalModelOrchestrator
 {
     private readonly ILocalModelManager _modelManager;
     private readonly IManagedModelRuntimeManager _runtimeManager;
+    private readonly Func<string, LocalModelDefinition?> _catalogLookup;
     private readonly bool _ownsModelManager;
     private readonly bool _ownsRuntimeManager;
     private readonly ConcurrentDictionary<ManagedModelHostClient, byte> _activeHosts = new();
@@ -38,12 +39,17 @@ internal sealed class LocalModelOrchestrator : ILocalModelOrchestrator
         ILocalModelManager modelManager,
         IManagedModelRuntimeManager runtimeManager,
         bool ownsModelManager = false,
-        bool ownsRuntimeManager = false)
+        bool ownsRuntimeManager = false,
+        Func<string, LocalModelDefinition?>? catalogLookup = null)
     {
         ArgumentNullException.ThrowIfNull(modelManager);
         ArgumentNullException.ThrowIfNull(runtimeManager);
         _modelManager = modelManager;
         _runtimeManager = runtimeManager;
+        // 目录精简后公开目录已无应用托管模型；测试可通过 catalogLookup
+        // 注入合成条目来继续验证保留下来的托管宿主基础设施。
+        _catalogLookup = catalogLookup
+            ?? (id => LocalModelCatalog.TryGet(id, out var definition) ? definition : null);
         _ownsModelManager = ownsModelManager;
         _ownsRuntimeManager = ownsRuntimeManager;
     }
@@ -200,13 +206,11 @@ internal sealed class LocalModelOrchestrator : ILocalModelOrchestrator
         await client.DisposeAsync().ConfigureAwait(false);
     }
 
-    private static LocalModelDefinition RequireManagedModel(string modelId)
+    private LocalModelDefinition RequireManagedModel(string modelId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
-        if (!LocalModelCatalog.TryGet(modelId, out var definition))
-        {
-            throw new InvalidOperationException($"未知本地模型：{modelId}");
-        }
+        var definition = _catalogLookup(modelId)
+            ?? throw new InvalidOperationException($"未知本地模型：{modelId}");
 
         if (definition.Runtime is not (LocalModelRuntimeKind.ManagedPython
             or LocalModelRuntimeKind.ManagedWslCuda)

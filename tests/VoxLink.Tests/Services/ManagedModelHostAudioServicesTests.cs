@@ -236,8 +236,39 @@ public sealed class ManagedModelHostAudioServicesTests
                 Runtime.FailInfer = true;
             }
 
+            // 目录精简后 MOSS/dots.tts/Qwen3-TTS 已不在公开目录中；包装器仍引用
+            // 这些保留 ID，这里注入合成目录条目以继续验证托管宿主协议面。
             Orchestrator = new LocalModelOrchestrator(
-                Model, Runtime, ownsModelManager: false, ownsRuntimeManager: false);
+                Model, Runtime, ownsModelManager: false, ownsRuntimeManager: false,
+                catalogLookup: LegacyAudioCatalog);
+        }
+
+        internal static LocalModelDefinition? LegacyAudioCatalog(string modelId)
+        {
+            if (modelId != LocalModelIds.MossTranscribeDiarize
+                && modelId != LocalModelIds.DotsTts
+                && modelId != LocalModelIds.Qwen3Tts17B)
+            {
+                return null;
+            }
+
+            return new LocalModelDefinition
+            {
+                Id = modelId,
+                Name = "Fixture managed audio model",
+                Category = LocalModelCategory.Asr,
+                SupportLevel = LocalModelSupportLevel.Stable,
+                Runtime = LocalModelRuntimeKind.ManagedWslCuda,
+                InstallKind = LocalModelInstallKind.ManifestFiles,
+                Parameters = "1B",
+                NumericParameterBillions = 1.0,
+                License = "MIT",
+                Languages = "zh/en",
+                Requirements = "test",
+                SourceUrl = "https://huggingface.co/test/model",
+                Description = "test model",
+                RuntimeProfileId = ManagedRuntimeCatalog.WslMoss
+            };
         }
 
         public TempDirectory TempDir { get; }

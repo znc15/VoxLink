@@ -54,6 +54,51 @@
                         OffContent="可拖动和调整大小"
                         OnContent="固定" />
 
+                    <StackPanel Spacing="6">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock FontWeight="SemiBold" Text="字幕宽度" />
+                            <TextBlock x:Name="DesktopWidthValueText" Grid.Column="1" Style="{StaticResource CaptionStyle}" />
+                        </Grid>
+                        <Slider
+                            x:Name="DesktopWidthSlider"
+                            Maximum="1920"
+                            Minimum="240"
+                            SmallChange="20"
+                            StepFrequency="20"
+                            ValueChanged="DesktopSlider_ValueChanged" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="6">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock FontWeight="SemiBold" Text="字幕字号" />
+                            <TextBlock x:Name="DesktopFontSizeValueText" Grid.Column="1" Style="{StaticResource CaptionStyle}" />
+                        </Grid>
+                        <Slider
+                            x:Name="DesktopFontSizeSlider"
+                            Maximum="40"
+                            Minimum="14"
+                            SmallChange="1"
+                            StepFrequency="1"
+                            ValueChanged="DesktopSlider_ValueChanged" />
+                    </StackPanel>
+
+                    <Button
+                        HorizontalAlignment="Left"
+                        Click="ResetDesktopOverlay_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                            <FontIcon FontSize="13" Glyph="&#xE72C;" />
+                            <TextBlock Text="重置位置与大小" />
+                        </StackPanel>
+                    </Button>
+
                     <Grid ColumnSpacing="10">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />

@@ -6,54 +6,13 @@ namespace VoxLink.Tests.Services;
 /// <summary>
 /// 托管翻译服务（T4）的确定性协议测试：使用 PowerShell fixture 宿主实现
 /// load/infer/unload，验证翻译调用、错误映射与租约/会话释放语义。
-/// 不加载真实模型权重，不联网。
+/// 不加载真实模型权重，不联网。目录精简后公开目录已无托管翻译模型，
+/// 测试注入合成目录条目继续验证保留的宿主基础设施。
 /// </summary>
 public sealed class ManagedModelHostTranslationServiceTests
 {
-    private static bool LiveTestsEnabled =>
-        string.Equals(
-            Environment.GetEnvironmentVariable("VOXLINK_RUN_LIVE_TESTS"),
-            "1",
-            StringComparison.Ordinal);
-
-    /// <summary>
-    /// 真实推理闭环（仅 VOXLINK_RUN_LIVE_TESTS=1 时执行）：准备 windows-translation 运行时、
-    /// 安装 SMaLL-100 模型、启动宿主、加载并翻译真实句子。需要模型权重与 Python 3.12 运行时。
-    /// </summary>
-    [Fact]
-    public async Task Live_RealSmall100Inference_RoundTripsTranslation()
-    {
-        if (!LiveTestsEnabled)
-        {
-            return;
-        }
-
-        var modelManager = new LocalModelManager();
-        var runtimeManager = new ManagedModelRuntimeManager();
-        await using var orchestrator = new LocalModelOrchestrator(
-            modelManager,
-            runtimeManager,
-            ownsModelManager: true,
-            ownsRuntimeManager: true);
-
-        var probe = await orchestrator.ProbeModelRuntimeAsync(
-            LocalModelIds.Small100);
-        if (!probe.IsReady)
-        {
-            throw new InvalidOperationException(
-                $"实时测试需要先准备 Windows 翻译运行时（当前状态：{probe.State}）。");
-        }
-
-        await using var service = new ManagedModelHostTranslationService(
-            orchestrator,
-            LocalModelIds.Small100);
-        var translated = await service.TranslateAsync(
-            "你好，世界。",
-            LanguageCatalog.Get("zh"),
-            LanguageCatalog.Get("en"));
-
-        Assert.False(string.IsNullOrWhiteSpace(translated));
-    }
+    /// <summary>已下线的旧托管翻译模型 ID（仅作为保留基础设施的测试句柄）。</summary>
+    private const string LegacyManagedModelId = "small-100";
 
     private const string TranslationFixtureScript = """
         param(
@@ -111,7 +70,7 @@ public sealed class ManagedModelHostTranslationServiceTests
     {
         using var scenario = new TranslationScenario();
         var service = new ManagedModelHostTranslationService(
-            scenario.Orchestrator, LocalModelIds.Small100);
+            scenario.Orchestrator, LegacyManagedModelId);
 
         var first = await service.TranslateAsync(
             "你好", LanguageCatalog.Get("zh"), LanguageCatalog.Get("en"));
@@ -138,7 +97,7 @@ public sealed class ManagedModelHostTranslationServiceTests
     {
         using var scenario = new TranslationScenario(adapterError: true);
         var service = new ManagedModelHostTranslationService(
-            scenario.Orchestrator, LocalModelIds.Small100);
+            scenario.Orchestrator, LegacyManagedModelId);
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.TranslateAsync(
@@ -154,7 +113,7 @@ public sealed class ManagedModelHostTranslationServiceTests
     {
         using var scenario = new TranslationScenario();
         var service = new ManagedModelHostTranslationService(
-            scenario.Orchestrator, LocalModelIds.Small100);
+            scenario.Orchestrator, LegacyManagedModelId);
 
         var calls = Enumerable.Range(0, 8)
             .Select(index => service.TranslateAsync(
@@ -208,9 +167,33 @@ public sealed class ManagedModelHostTranslationServiceTests
                 }
             };
 
+            // 已下线的 small-100 仅作为保留宿主基础设施的测试句柄，
+            // 通过合成目录条目注入，不回填公开目录。
             Orchestrator = new LocalModelOrchestrator(
-                Model, Runtime, ownsModelManager: false, ownsRuntimeManager: false);
+                Model, Runtime, ownsModelManager: false, ownsRuntimeManager: false,
+                catalogLookup: LegacyTranslationCatalog);
         }
+
+        internal static LocalModelDefinition? LegacyTranslationCatalog(string modelId) =>
+            modelId == LegacyManagedModelId
+                ? new LocalModelDefinition
+                {
+                    Id = modelId,
+                    Name = "Fixture managed translation model",
+                    Category = LocalModelCategory.Translation,
+                    SupportLevel = LocalModelSupportLevel.Stable,
+                    Runtime = LocalModelRuntimeKind.ManagedPython,
+                    InstallKind = LocalModelInstallKind.ManifestFiles,
+                    Parameters = "1B",
+                    NumericParameterBillions = 1.0,
+                    License = "MIT",
+                    Languages = "zh/en",
+                    Requirements = "test",
+                    SourceUrl = "https://huggingface.co/test/model",
+                    Description = "test model",
+                    RuntimeProfileId = ManagedRuntimeCatalog.WindowsTranslation
+                }
+                : null;
 
         public TempDirectory TempDir { get; }
         public FakeModelManager Model { get; }

@@ -12,6 +12,10 @@ public enum TranslationBackend
     OpenAiCompatible,
     Custom,
     LocalMiniCpm,
+    LocalHyMtGguf,
+
+    // 已下线的应用托管翻译模型：仅用于兼容旧 settings.json 反序列化，
+    // NormalizeServiceSelections 会将其安全回退为 PublicFree。
     ManagedHyMt,
     ManagedM2M100,
     ManagedSmall100
@@ -33,7 +37,11 @@ public enum SpeechProtocol
 public enum AsrProvider
 {
     LocalWhisper,
+
+    // 已下线的应用托管 MOSS 模型：仅用于兼容旧 settings.json 反序列化，
+    // NormalizeServiceSelections 会将其安全回退为 LocalWhisper。
     LocalManagedMoss,
+
     DashScope,
     Soniox,
     SiliconFlow,
@@ -141,13 +149,13 @@ public sealed class AppSettings : ObservableObject
     private string _toggleHotkey = "Ctrl+Alt+Space";
     private string _translateHotkey = "Ctrl+Alt+Enter";
     private bool _useMicaBackdrop = true;
-    private bool _useSystemTitleBar;
     private bool _minimizeToTray = true;
     private bool _confirmOnClose = true;
-    private double _windowOpacity = 1.0;
     private double? _desktopOverlayLeft;
     private double? _desktopOverlayTop;
     private double? _desktopOverlayWidth;
+    private double? _desktopOverlayHeight;
+    private int _desktopOverlayFontSize = 24;
     private bool _desktopOverlayTopmost = true;
     private bool _desktopOverlayLockPosition = true;
     private string _localModelDirectory = string.Empty;
@@ -337,22 +345,28 @@ public sealed class AppSettings : ObservableObject
     public string ToggleHotkey { get => _toggleHotkey; set => SetProperty(ref _toggleHotkey, value); }
     public string TranslateHotkey { get => _translateHotkey; set => SetProperty(ref _translateHotkey, value); }
     public bool UseMicaBackdrop { get => _useMicaBackdrop; set => SetProperty(ref _useMicaBackdrop, value); }
-    public bool UseSystemTitleBar { get => _useSystemTitleBar; set => SetProperty(ref _useSystemTitleBar, value); }
     public bool MinimizeToTray { get => _minimizeToTray; set => SetProperty(ref _minimizeToTray, value); }
     public bool ConfirmOnClose { get => _confirmOnClose; set => SetProperty(ref _confirmOnClose, value); }
-    public double WindowOpacity
-    {
-        get => _windowOpacity;
-        set => SetProperty(
-            ref _windowOpacity,
-            Math.Clamp(double.IsFinite(value) ? value : 1.0, 0.2, 1.0));
-    }
     public double? DesktopOverlayLeft { get => _desktopOverlayLeft; set => SetProperty(ref _desktopOverlayLeft, value); }
     public double? DesktopOverlayTop { get => _desktopOverlayTop; set => SetProperty(ref _desktopOverlayTop, value); }
     public double? DesktopOverlayWidth
     {
         get => _desktopOverlayWidth;
         set => SetProperty(ref _desktopOverlayWidth, value);
+    }
+    /// <summary>null 表示高度自适应内容；设置后窗口固定为该高度（88–2000）。</summary>
+    public double? DesktopOverlayHeight
+    {
+        get => _desktopOverlayHeight;
+        set => SetProperty(
+            ref _desktopOverlayHeight,
+            value is null ? null : Math.Clamp(value.Value, 88, 2000));
+    }
+    /// <summary>主译文字号（14–40），次译文与原文按比例联动。</summary>
+    public int DesktopOverlayFontSize
+    {
+        get => _desktopOverlayFontSize;
+        set => SetProperty(ref _desktopOverlayFontSize, Math.Clamp(value, 14, 40));
     }
     public bool DesktopOverlayTopmost { get => _desktopOverlayTopmost; set => SetProperty(ref _desktopOverlayTopmost, value); }
     public bool DesktopOverlayLockPosition { get => _desktopOverlayLockPosition; set => SetProperty(ref _desktopOverlayLockPosition, value); }
@@ -405,6 +419,7 @@ public sealed class AppSettings : ObservableObject
                 TranslationModel = "qwen2.5:7b";
                 break;
             case TranslationBackend.LocalMiniCpm:
+            case TranslationBackend.LocalHyMtGguf:
                 break;
         }
     }
@@ -416,12 +431,6 @@ public sealed class AppSettings : ObservableObject
         {
             case AsrProvider.LocalWhisper:
                 AsrProtocol = AsrProtocol.LocalWhisper;
-                AsrBaseUrl = string.Empty;
-                AsrModel = string.Empty;
-                AllowCloudAudioUpload = false;
-                break;
-            case AsrProvider.LocalManagedMoss:
-                AsrProtocol = AsrProtocol.LocalManagedMoss;
                 AsrBaseUrl = string.Empty;
                 AsrModel = string.Empty;
                 AllowCloudAudioUpload = false;
@@ -550,10 +559,20 @@ public sealed class AppSettings : ObservableObject
     /// <summary>
     /// 将旧版本中互相矛盾的服务开关规范为下拉框可表达的有效状态。
     /// 仅修正实际生效字段，不清空地址、模型、密钥或请求头。
+    /// 旧的应用托管翻译模型（ManagedHyMt/M2M/SMaLL-100）已下线，安全回退公共免密。
     /// </summary>
     public bool NormalizeServiceSelections()
     {
         var changed = false;
+        if (TranslationBackend is TranslationBackend.ManagedHyMt
+            or TranslationBackend.ManagedM2M100
+            or TranslationBackend.ManagedSmall100)
+        {
+            UseAiTranslation = false;
+            TranslationBackend = TranslationBackend.PublicFree;
+            changed = true;
+        }
+
         if (!UseAiTranslation && TranslationBackend != TranslationBackend.PublicFree)
         {
             TranslationBackend = TranslationBackend.PublicFree;
@@ -566,8 +585,8 @@ public sealed class AppSettings : ObservableObject
         }
 
         if (!UseCloudAsr
-            || AsrProvider == AsrProvider.LocalWhisper
-            || AsrProtocol == AsrProtocol.LocalWhisper)
+            || AsrProvider is AsrProvider.LocalWhisper or AsrProvider.LocalManagedMoss
+            || AsrProtocol is AsrProtocol.LocalWhisper or AsrProtocol.LocalManagedMoss)
         {
             changed |= UseCloudAsr
                 || AsrProvider != AsrProvider.LocalWhisper
@@ -621,9 +640,7 @@ public sealed class AppSettings : ObservableObject
             TranslationBackend.DeepSeek => "deepSeek",
             TranslationBackend.OpenAiCompatible => "openAiCompatible",
             TranslationBackend.LocalMiniCpm => "localMiniCpm",
-            TranslationBackend.ManagedHyMt => "managedHyMt",
-            TranslationBackend.ManagedM2M100 => "managedM2M100",
-            TranslationBackend.ManagedSmall100 => "managedSmall100",
+            TranslationBackend.LocalHyMtGguf => "localHyMtGguf",
             _ => "custom"
         },
         ["openAiBaseUrl"] = TranslationBaseUrl,
@@ -637,7 +654,7 @@ public sealed class AppSettings : ObservableObject
         ["asrProvider"] = respectSwitches && !UseCloudAsr
             ? "localWhisper"
             : JsonNamingPolicy.CamelCase.ConvertName(AsrProvider.ToString()),
-        ["asrProtocol"] = respectSwitches && !UseCloudAsr && AsrProtocol != global::VoxLink.UI.Core.Models.AsrProtocol.LocalManagedMoss
+        ["asrProtocol"] = respectSwitches && !UseCloudAsr
             ? "localWhisper"
             : JsonNamingPolicy.CamelCase.ConvertName(AsrProtocol.ToString()),
         ["asrBaseUrl"] = AsrBaseUrl,
@@ -694,6 +711,8 @@ public sealed class AppSettings : ObservableObject
         ["desktopOverlayLeft"] = DesktopOverlayLeft,
         ["desktopOverlayTop"] = DesktopOverlayTop,
         ["desktopOverlayWidth"] = DesktopOverlayWidth,
+        ["desktopOverlayHeight"] = DesktopOverlayHeight,
+        ["desktopOverlayFontSize"] = DesktopOverlayFontSize,
         ["desktopOverlayTopmost"] = DesktopOverlayTopmost,
         ["desktopOverlayLockPosition"] = DesktopOverlayLockPosition,
         ["localModelDirectory"] = LocalModelDirectory,
