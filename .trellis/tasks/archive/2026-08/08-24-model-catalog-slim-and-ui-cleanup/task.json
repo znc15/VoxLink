@@ -1,0 +1,31 @@
+{
+  "id": "model-catalog-slim-and-ui-cleanup",
+  "name": "model-catalog-slim-and-ui-cleanup",
+  "title": "本地模型精简与UI清理（1.5.1）",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "znc15",
+  "assignee": "znc15",
+  "createdAt": "2026-08-24",
+  "completedAt": "2026-08-25",
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-24-slim-local-models",
+    "08-24-remove-opacity-titlebar",
+    "08-24-fix-providers-combobox",
+    "08-24-overlay-size-position"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

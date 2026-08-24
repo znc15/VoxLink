@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端质量检查基线"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "引擎侧质量检查基线"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "校验跨进程数据流无遗漏触点"}
+{"file": "docs/architecture.md", "reason": "校验未违反关键架构不变量"}

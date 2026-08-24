@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "WinUI 前端规范入口：改动涉及 Providers/Audio 设置页与设置模型"}
+{"file": ".trellis/spec/backend/index.md", "reason": "引擎侧规范入口：改动涉及 EngineHost/UiHost/OverlayWindow 与模型目录"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "悬浮窗设置需 UI→Engine 跨进程（configure 通道），删除设置需同步两端"}
+{"file": "docs/architecture.md", "reason": "架构权威文档：管线、输出策略、关键决策（设置分离/能力降级/协议不变量）"}
