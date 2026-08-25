@@ -185,13 +185,23 @@ public sealed class TranslationServiceTests
             TimeSpan.FromSeconds(1),
             first,
             second);
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+        using var cancellation = new CancellationTokenSource();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.TranslateAsync(
+        var pending = service.TranslateAsync(
             "hello",
             LanguageCatalog.Get("en"),
             LanguageCatalog.Get("zh"),
-            cancellation.Token));
+            cancellation.Token);
+        // 等 first 确认被调用后再取消：不依赖定时器时序（CI 高负载下
+        // 50ms 定时器回调可能饿死到晚于 1s 服务超时，导致误判为超时切换）。
+        while (first.CallCount == 0)
+        {
+            await Task.Yield();
+        }
+
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
 
         Assert.Equal(1, first.CallCount);
         Assert.Equal(0, second.CallCount);
