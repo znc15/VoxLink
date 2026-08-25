@@ -434,8 +434,9 @@ public sealed partial class ModelProvidersPage : Page
 
     /// <summary>
     /// 强制下拉列表弹出在控件正下方。WinUI 3 ComboBox 的模板 Popup 偏移恒为 0，
-    /// 实际按「选中项对齐控件」定位，选中项靠后时弹层整体翻到控件上方盖住界面；
+    /// 实际按「选中项对齐控件」定位，选中项靠后时弹层整体翻到控件上方盖住界面。
     /// 展开动画结束后测量弹层实际位置，统一改按控件底边对齐。
+    /// 纠正前先隐藏弹层内容：否则错误位置会先显示约 300ms 造成「先盖住按钮再跳下去」的闪烁。
     /// </summary>
     private async void ProviderBox_DropDownOpened(object? sender, object args)
     {
@@ -451,6 +452,7 @@ public sealed partial class ModelProvidersPage : Page
             return;
         }
 
+        content.Opacity = 0;
         try
         {
             // 等展开动画结束（约 200ms）再测量，动画期间弹层还在位移
@@ -465,10 +467,13 @@ public sealed partial class ModelProvidersPage : Page
             {
                 popup.VerticalOffset += delta;
             }
+
+            content.Opacity = 1;
         }
         catch (Exception exception) when (exception is COMException or InvalidOperationException)
         {
-            // 元素已收起或已从树中移除时忽略
+            // 元素已收起或已从树中移除时忽略，但仍要恢复可见性
+            content.Opacity = 1;
         }
     }
 
