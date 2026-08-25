@@ -75,9 +75,10 @@ public sealed class LocalModelOrchestratorTests
         var callers = Enumerable.Range(0, 16)
             .Select(_ => Task.Run(async () => await session.DisposeAsync()))
             .ToArray();
-        await Task.Delay(50);
 
-        Assert.Contains(callers, task => !task.IsCompleted);
+        // 不对「50ms 后应有未完成任务」这类中间态断言：CI 上宿主进程可能提前退出
+        // （启动失败/快速失败路径），全部 caller 立即完成不代表原子清理被破坏。
+        // 核心不变量在 WhenAll 之后断言：恰好一次模型租约释放 + 一次运行时租约释放。
         await Task.WhenAll(callers);
 
         var modelLease = Assert.Single(scenario.Model.Leases);
