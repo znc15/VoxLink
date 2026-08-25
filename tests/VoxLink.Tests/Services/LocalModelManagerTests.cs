@@ -335,7 +335,11 @@ public sealed class LocalModelManagerTests : IDisposable
         SeedArtifact(manager, "test-model", "b.bin", DummyContent);
         Assert.Equal(LocalModelInstallState.Installed, manager.GetStatus("test-model"));
 
+        // 损坏：真实替换会更新 mtime，这里显式推进 mtime 模拟（校验缓存按 mtime 失效）。
+        var bPath = Path.Combine(manager.RootDirectory, "test-model", "b.bin");
+        var lastWrite = File.GetLastWriteTimeUtc(bPath);
         SeedArtifact(manager, "test-model", "b.bin", OtherContent); // 损坏
+        File.SetLastWriteTimeUtc(bPath, lastWrite.AddSeconds(1));
         Assert.Equal(LocalModelInstallState.Partial, manager.GetStatus("test-model"));
     }
 
