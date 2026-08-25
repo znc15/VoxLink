@@ -1,0 +1,4 @@
+{"type":"spec","path":"CLAUDE.md","note":"构建/测试命令与提交规范"}
+{"type":"file","path":"tests/VoxLink.Tests/Services/LocalModelManagerTests.cs","note":"校验缓存行为回归"}
+{"type":"file","path":"tests/VoxLink.Tests/Services/TranslationSessionFeatureTests.cs","note":"会话行为（TTS 后台化后 ShouldSpeakTranslation 等断言不变）"}
+{"type":"file","path":".trellis/tasks/08-25-perf-startup-translation/prd.md","note":"验收标准清单"}

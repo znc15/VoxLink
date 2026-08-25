@@ -1,0 +1,8 @@
+{"type":"spec","path":"CLAUDE.md","note":"项目约定：架构不变量、构建测试命令、TreatWarningsAsErrors"}
+{"type":"doc","path":"docs/architecture.md","note":"管线与关键决策（权威设计文档）"}
+{"type":"file","path":"src/VoxLink/Services/LocalModelManager.cs","note":"校验缓存改造点：IsFileVerified/VerifyFileAsync/AcquireUsage"}
+{"type":"file","path":"src/VoxLink/Services/WhisperSpeechRecognizer.cs","note":"VerifyModelAsync 缓存 + processor 复用改造点"}
+{"type":"file","path":"src/VoxLink/Services/TranslationSession.cs","note":"ProcessWorkItemAsync TTS 后台化；StopCoreAsync 等待后台播放"}
+{"type":"file","path":"src/VoxLink/Services/LocalHyMtTextService.cs","note":"ContextSize 2048 + 预热"}
+{"type":"file","path":"src/VoxLink/Services/LocalMiniCpmTextService.cs","note":"ContextSize 2048 + 预热（结构同 HyMt）"}
+{"type":"file","path":"src/VoxLink/Services/FailoverTranslationService.cs","note":"serviceTimeout 6s→4s / operationTimeout 12s→10s"}
