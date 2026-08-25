@@ -438,6 +438,188 @@ public sealed class TranslationSessionFeatureTests
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
+    [Fact]
+    public async Task SlowSpeech_DoesNotBlockNextUtteranceTranslation()
+    {
+        // TTS 慢（第一句朗读未完成）时，第二句的翻译必须已经开始/完成。
+        using var httpClient = new HttpClient(new DelegateHandler((_, _) =>
+            Task.FromResult(JsonResponse($"translated {Interlocked.Increment(ref _ttsCallCounter)}"))));
+        var tts = new SlowGateTextToSpeech();
+        var recognizer = new ScriptedStreamingRecognizer();
+        var factory = new StubAsrFactory(recognizer);
+        await using var session = new TranslationSession(
+            factory,
+            new TranslationServiceFactory(httpClient),
+            tts);
+        var secondMessageDone = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var messages = new ConcurrentQueue<ConversationMessage>();
+        session.MessageReceived += (_, message) =>
+        {
+            messages.Enqueue(message);
+            if (messages.Count == 2)
+            {
+                secondMessageDone.TrySetResult();
+            }
+        };
+        var sessionErrors = new ConcurrentQueue<string>();
+        session.ErrorOccurred += (_, error) => sessionErrors.Enqueue(error.Exception.ToString());
+        session.WarningOccurred += (_, warning) => sessionErrors.Enqueue(warning);
+        var settings = new AppSettings
+        {
+            MyLanguageCode = "zh",
+            OtherLanguageCode = "en",
+            TranslationProvider = TranslationProvider.OpenAiCompatible,
+            OpenAiBaseUrl = "https://translation.example.test/v1",
+            OpenAiModel = "translation-model",
+            SpeakMyTranslation = true,
+            CaptureMicrophone = true,
+            CaptureSystemAudio = false
+        };
+        await session.StartAsync(settings);
+
+        await recognizer.EmitFinalTranscriptsAsync("第一句", "第二句");
+        await secondMessageDone.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // 第二句翻译完成时，第一句 TTS 仍在阻塞 → 队列未被朗读拖住。
+        Assert.Empty(sessionErrors);
+        Assert.Equal(2, messages.Count);
+        Assert.Equal(2, Volatile.Read(ref _ttsCallCounter));
+        // 第一次朗读尚未放行（gate 仍关闭），但两句翻译都已完成。
+        Assert.False(tts.FirstSpeakGate.Task.IsCompleted);
+        Assert.True(tts.FirstSpeakStarted.Task.IsCompleted);
+
+        tts.FirstSpeakGate.TrySetResult();
+        await session.StopAsync();
+    }
+
+    private int _ttsCallCounter;
+
+    /// <summary>
+    /// 声明流式能力的识别器：Session 只挂 StreamingSourcePump、不启 WASAPI，
+    /// 测试用 EmitFinalTranscriptsAsync 直接向 pump 注入两条 final 转写。
+    /// </summary>
+    private sealed class ScriptedStreamingRecognizer : IAsrRecognizer
+    {
+        private IAsrStream? _stream;
+        public TaskCompletionSource StreamStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource AllFinalsDelivered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public AsrCapabilities Capabilities { get; } = new(
+            AsrTransport.StreamingWebSocket,
+            SupportsPartialResults: true,
+            SupportsCloudSpeakerLabels: false);
+
+        public Task PrepareAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<SpeechRecognitionResult> TranscribeAsync(
+            AudioUtterance utterance,
+            LanguageOption language,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IAsrStream> StartStreamAsync(
+            LanguageOption language,
+            CancellationToken cancellationToken = default)
+        {
+            var stream = new ScriptedAsrStream(this);
+            _stream = stream;
+            StreamStarted.TrySetResult();
+            return Task.FromResult<IAsrStream>(stream);
+        }
+
+        public async Task EmitFinalTranscriptsAsync(params string[] texts)
+        {
+            await StreamStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var stream = (ScriptedAsrStream)_stream!;
+            for (var index = 0; index < texts.Length; index++)
+            {
+                stream.RaiseTranscript(new StreamingTranscriptEventArgs(texts[index], IsFinal: true));
+                if (index == texts.Length - 1)
+                {
+                    AllFinalsDelivered.TrySetResult();
+                }
+            }
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        private sealed class ScriptedAsrStream(ScriptedStreamingRecognizer owner) : IAsrStream
+        {
+            public event EventHandler<StreamingTranscriptEventArgs>? TranscriptReceived;
+#pragma warning disable CS0067 // 接口要求事件但测试不触发
+            public event EventHandler<Exception>? Faulted;
+#pragma warning restore CS0067
+
+            public Task Completion { get; } = new TaskCompletionSource().Task;
+
+            public void RaiseTranscript(StreamingTranscriptEventArgs args) =>
+                TranscriptReceived?.Invoke(owner, args);
+
+            public ValueTask SendAudioAsync(
+                float[] samples,
+                CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+
+            public ValueTask FinalizeUtteranceAsync(CancellationToken cancellationToken = default) =>
+                ValueTask.CompletedTask;
+
+            public Task StopAsync(CancellationToken cancellationToken = default) =>
+                Task.CompletedTask;
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class StubAsrFactory(IAsrRecognizer recognizer) : IAsrRecognizerFactory
+    {
+        public event EventHandler<ModelProgressEventArgs>? ModelProgress
+        {
+            add { }
+            remove { }
+        }
+
+        public IAsrRecognizer Create(AppSettings settings) => recognizer;
+
+        public Task PrepareAsync(AppSettings settings, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    /// <summary>第一次 SpeakAsync 挂起直到测试放行（模拟长朗读）。 </summary>
+    private sealed class SlowGateTextToSpeech : ITextToSpeechService
+    {
+        public TaskCompletionSource FirstSpeakStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource FirstSpeakGate { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _startedCount;
+
+        public int StartedCount => Volatile.Read(ref _startedCount);
+
+        public bool IsSpeaking => Volatile.Read(ref _startedCount) > 0;
+
+        public IReadOnlyList<string> GetInstalledVoices(LanguageOption language) => [];
+
+        public async Task SpeakAsync(
+            string text,
+            LanguageOption language,
+            string? outputDeviceId,
+            CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.Increment(ref _startedCount) == 1)
+            {
+                FirstSpeakStarted.TrySetResult();
+                await ((Task)FirstSpeakGate.Task).WaitAsync(cancellationToken);
+            }        }
+
+        public void Stop() => FirstSpeakGate.TrySetResult();
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
     private sealed class RecordingTextToSpeech : ITextToSpeechService
     {
         public bool IsSpeaking => false;

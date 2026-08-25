@@ -12,7 +12,7 @@ public sealed class FailoverTranslationService : ITranslationService
     private readonly TimeSpan _serviceTimeout;
 
     public FailoverTranslationService(params ITranslationService[] services)
-        : this(TimeSpan.FromSeconds(12), TimeSpan.FromSeconds(6), services)
+        : this(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(4), services)
     {
     }
 

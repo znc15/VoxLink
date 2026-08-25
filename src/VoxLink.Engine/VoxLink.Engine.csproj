@@ -10,6 +10,8 @@
     <RootNamespace>VoxLink.Engine</RootNamespace>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
+    <!-- 与 UI 一致：发布产物预编译，缩短引擎冷启动 JIT（本地 build 不受影响）。 -->
+    <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
 
   <ItemGroup>

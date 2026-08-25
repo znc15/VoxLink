@@ -17,6 +17,9 @@ public sealed class WhisperSpeechRecognizer : ISpeechRecognizer
         new(StringComparer.OrdinalIgnoreCase);
     private readonly string? _modelDirectory;
     private readonly SemaphoreSlim _recognitionGate = new(1, 1);
+    // 按语言缓存 processor：每次 TranscribeAsync 重建要重跑 init_state（每句数十 ms）。
+    // 所有识别调用已被 _recognitionGate 串行化，processor 无并发访问。
+    private readonly Dictionary<string, WhisperProcessor> _processors = new(StringComparer.OrdinalIgnoreCase);
     private readonly TaskCompletionSource _disposeCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private WhisperFactory? _factory;
     private string? _loadedModelPath;
@@ -55,6 +58,9 @@ public sealed class WhisperSpeechRecognizer : ISpeechRecognizer
             }
 
             ModelProgress?.Invoke(this, new ModelProgressEventArgs("正在加载本地语音模型…"));
+            // 先释放再重建：processor 的 native state 引用 factory 加载的模型，
+            // 释放顺序必须与 DisposeAsync 一致（processor → factory）。
+            DisposeProcessorsLocked();
             _factory?.Dispose();
             try
             {
@@ -89,9 +95,15 @@ public sealed class WhisperSpeechRecognizer : ISpeechRecognizer
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
             var factory = _factory ?? throw new InvalidOperationException("语音模型尚未加载。");
-            using var processor = factory.CreateBuilder()
-                .WithLanguage(language.Code)
-                .Build();
+            // processor 按语言复用（重建 = 重跑 init_state，纯开销）。
+            if (!_processors.TryGetValue(language.Code, out var processor))
+            {
+                processor = factory.CreateBuilder()
+                    .WithLanguage(language.Code)
+                    .Build();
+                _processors[language.Code] = processor;
+            }
+
             var text = new StringBuilder();
 
             await foreach (var segment in processor.ProcessAsync(utterance.Samples, cancellationToken))
@@ -120,6 +132,7 @@ public sealed class WhisperSpeechRecognizer : ISpeechRecognizer
             await _recognitionGate.WaitAsync();
             try
             {
+                DisposeProcessorsLocked();
                 _factory?.Dispose();
                 _factory = null;
                 _loadedModelPath = null;
@@ -150,6 +163,18 @@ public sealed class WhisperSpeechRecognizer : ISpeechRecognizer
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         return new GateLease(gate);
     }
+
+    // 仅在持有 _recognitionGate 时调用：清空并释放按语言缓存的 processor。
+    private void DisposeProcessorsLocked()
+    {
+        foreach (var processor in _processors.Values)
+        {
+            processor.Dispose();
+        }
+
+        _processors.Clear();
+    }
+
     internal static string GetModelPath(string modelName, string? modelDirectory = null)
     {
         var safeName = NormalizeModelName(modelName);
@@ -291,6 +316,17 @@ public sealed class WhisperSpeechRecognizer : ISpeechRecognizer
         ModelInfo model,
         CancellationToken cancellationToken)
     {
+        if (TryGetCachedVerification(modelPath, model, out var cached))
+        {
+            if (cached)
+            {
+                return;
+            }
+
+            // 失败结论同样缓存：size+mtime 未变的坏文件不必每次重扫（PRD 要求）。
+            throw new InvalidDataException("语音模型 SHA-256 不匹配。");
+        }
+
         if (new FileInfo(modelPath).Length != model.Size)
         {
             throw new InvalidDataException("语音模型大小不正确。");
@@ -305,9 +341,71 @@ public sealed class WhisperSpeechRecognizer : ISpeechRecognizer
             useAsync: true);
         var hash = await SHA256.HashDataAsync(stream, cancellationToken);
         var actualHash = Convert.ToHexStringLower(hash);
+        CacheVerification(modelPath, model, actualHash);
         if (!actualHash.Equals(model.Sha256, StringComparison.Ordinal))
         {
             throw new InvalidDataException("语音模型 SHA-256 不匹配。");
+        }
+    }
+
+    // 校验结论缓存（进程级静态，跨 recognizer 实例共享）：size + LastWriteTimeUtc
+    // 未变即跳过全量哈希。Prepare / GetInstallStatus / AcquireUsage 不再每次重扫。
+    private static readonly ConcurrentDictionary<string, (long Length, DateTime LastWriteUtc, bool Verified)>
+        VerificationCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>命中且结论为“已通过”才返回 true（供安装状态查询）。</summary>
+    internal static bool TryGetCachedVerification(string modelPath, ModelInfo model) =>
+        TryGetCachedVerification(modelPath, model, out var verified) && verified;
+
+    /// <summary>命中即返回 true 并带出结论（含失败结论），供需要 Partial 判定的调用方避免重扫。</summary>
+    internal static bool TryGetCachedVerification(
+        string modelPath,
+        ModelInfo model,
+        out bool verified)
+    {
+        verified = false;
+        if (!VerificationCache.TryGetValue(modelPath, out var entry)
+            || entry.Length != model.Size)
+        {
+            return false;
+        }
+
+        try
+        {
+            var info = new FileInfo(modelPath);
+            if (!info.Exists
+                || info.Length != model.Size
+                || info.LastWriteTimeUtc != entry.LastWriteUtc)
+            {
+                return false;
+            }
+
+            verified = entry.Verified;
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    internal static void CacheVerification(string modelPath, ModelInfo model, string actualHash)
+    {
+        try
+        {
+            var info = new FileInfo(modelPath);
+            if (!info.Exists)
+            {
+                return;
+            }
+
+            VerificationCache[modelPath] = (
+                model.Size,
+                info.LastWriteTimeUtc,
+                actualHash.Equals(model.Sha256, StringComparison.Ordinal));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
         }
     }
 

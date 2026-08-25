@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Threading.Channels;
 using VoxLink.Audio;
 using VoxLink.Models;
+using System.Threading;
 
 namespace VoxLink.Services;
 
@@ -34,6 +35,7 @@ public sealed class TranslationSession : IAsyncDisposable
     private int _speechRefinementWarningRaised;
     private string? _outboundStreamingUtteranceId;
     private string? _inboundStreamingUtteranceId;
+    private Task? _speechPlayback;
     private readonly TaskCompletionSource _disposeCompletion =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int _disposeState;
@@ -308,6 +310,18 @@ public sealed class TranslationSession : IAsyncDisposable
             : null;
         _sessionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var sessionToken = _sessionCancellation.Token;
+        // 本地翻译服务后台预载 + 预热，消除首句数秒冷启动（云端服务无此能力，直接跳过）。
+        foreach (var preloadable in new IPreloadableRuntime?[]
+                 {
+                     _translator as IPreloadableRuntime,
+                     _refinementService as IPreloadableRuntime
+                 })
+        {
+            if (preloadable is not null)
+            {
+                _ = preloadable.PreloadAsync(sessionToken);
+            }
+        }
         _workItems = Channel.CreateBounded<SpeechWorkItem>(new BoundedChannelOptions(8)
         {
             FullMode = BoundedChannelFullMode.DropOldest,
@@ -387,11 +401,26 @@ public sealed class TranslationSession : IAsyncDisposable
 
         externalRegistration.Dispose();
         _textToSpeech.Stop();
+        // 先取消会话令牌再等后台朗读：让仍在 TTS 队列里排队、尚未开始播放的
+        // 后台朗读立刻退出，避免 Stop 放行后才开口（跨会话串音）。
+        cancellation?.Cancel();
+        // 等后台朗读收尾（给 2s 上限防卡停机）。超时或朗读任务自身故障只吞掉：
+        // 停机链路绝不能被朗读打断，否则采集、工作队列与服务释放全部被跳过。
+        var speechPlayback = Interlocked.Exchange(ref _speechPlayback, null);
+        if (speechPlayback is not null)
+        {
+            try
+            {
+                await speechPlayback.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+            }
+            catch
+            {
+            }
+        }
         StopCapture(microphone, microphoneStream, OnMicrophoneUtterance, OnMicrophonePcmChunk, OnDeviceFallback);
         StopCapture(loopback, loopbackStream, OnLoopbackUtterance, OnLoopbackPcmChunk, OnDeviceFallback);
         loopbackStream?.CompleteInput();
         workItems?.Writer.TryComplete();
-        cancellation?.Cancel();
 
         await DisposeCaptureAsync(microphone).ConfigureAwait(false);
         await DisposeCaptureAsync(loopback).ConfigureAwait(false);
@@ -858,14 +887,53 @@ public sealed class TranslationSession : IAsyncDisposable
             speechText = await PolishSpeechTextAsync(
                 speechText, speechLanguage, message.Direction, settings, cancellationToken).ConfigureAwait(false);
             RaiseStatus("正在输出语音", SessionActivity.Speaking);
-            await _textToSpeech.SpeakAsync(
+            // 朗读放后台：长句播放不应阻塞工作队列处理后续句（TTS 内部按
+            // 到达顺序串行播放）。Stop 时统一等待最后一个，避免跨会话串音。
+            StartBackgroundSpeech(
                 speechText,
                 speechLanguage,
-                settings.VoiceOutputDeviceId,
-                cancellationToken).ConfigureAwait(false);
+                settings,
+                cancellationToken);
         }
 
         RaiseReadyStatus();
+    }
+
+    private void StartBackgroundSpeech(
+        string speechText,
+        LanguageOption speechLanguage,
+        AppSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var playback = _textToSpeech.SpeakAsync(
+            speechText,
+            speechLanguage,
+            settings.VoiceOutputDeviceId,
+            cancellationToken);
+        Interlocked.Exchange(ref _speechPlayback, playback);
+        // 每个后台朗读任务自身都被观察：取消静默，真实失败上报为会话错误
+        // （与旧版内联 await 的失败可见性一致），不产生未观察任务异常。
+        _ = ObserveSpeechPlaybackAsync(playback);
+    }
+
+    private async Task ObserveSpeechPlaybackAsync(Task playback)
+    {
+        try
+        {
+            await playback.ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is OperationCanceledException or ObjectDisposedException)
+        {
+        }
+        catch (Exception exception)
+        {
+            if (_isRunning)
+            {
+                ErrorOccurred?.Invoke(this, new SessionErrorEventArgs(
+                    "语音朗读失败，翻译监听仍会继续。",
+                    exception));
+            }
+        }
     }
 
     internal static bool ShouldSpeakTranslation(

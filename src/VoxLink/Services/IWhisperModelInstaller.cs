@@ -64,6 +64,12 @@ internal sealed class WhisperModelInstallerAdapter : IWhisperModelInstaller
         }
 
         var model = WhisperSpeechRecognizer.GetModelInfo(modelName);
+        // 命中缓存（无论成败结论）都直接采用：坏文件不重扫是启动性能要求。
+        if (WhisperSpeechRecognizer.TryGetCachedVerification(modelPath, model, out var cached))
+        {
+            return cached ? LocalModelInstallState.Installed : LocalModelInstallState.Partial;
+        }
+
         return IsFileVerified(modelPath, model)
             ? LocalModelInstallState.Installed
             : LocalModelInstallState.Partial;
@@ -97,6 +103,7 @@ internal sealed class WhisperModelInstallerAdapter : IWhisperModelInstaller
                 FileAccess.Read,
                 FileShare.Read);
             var hash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(stream));
+            WhisperSpeechRecognizer.CacheVerification(modelPath, model, hash);
             return hash.Equals(model.Sha256, StringComparison.Ordinal);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)

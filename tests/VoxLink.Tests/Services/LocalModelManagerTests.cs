@@ -269,6 +269,52 @@ public sealed class LocalModelManagerTests : IDisposable
             { ModelId: "test-model", Category: LocalModelCategory.Translation, Progress: 1 });
     }
 
+    [Fact]
+    public void GetStatus_CachesVerificationPerFileAndRechecksOnModification()
+    {
+        // 同一文件 size+mtime 未变时不应重复哈希；文件被替换后必须重新校验。
+        using var manager = CreateManager(
+            new ScriptedHttpHandler(),
+            [TestDefinition(artifact: DummyArtifact())]);
+        SeedArtifact(manager, "test-model", "model.bin", DummyContent);
+
+        Assert.Equal(LocalModelInstallState.Installed, manager.GetStatus("test-model"));
+
+        // 同内容重写但保持 mtime 不变 → 缓存命中（仍 Installed，无需重新哈希）。
+        var artifact = DummyArtifact();
+        var artifactPath = Path.Combine(manager.RootDirectory, "test-model", "model.bin");
+        var lastWrite = File.GetLastWriteTimeUtc(artifactPath);
+        File.WriteAllBytes(artifactPath, DummyContent);
+        File.SetLastWriteTimeUtc(artifactPath, lastWrite);
+        Assert.Equal(LocalModelInstallState.Installed, manager.GetStatus("test-model"));
+
+        // 换成内容不匹配但长度相同的字节并更新 mtime → 缓存失效，重新哈希发现损坏。
+        var corrupted = new byte[artifact.ExpectedSize];
+        OtherContent.AsSpan().CopyTo(corrupted);
+        File.WriteAllBytes(artifactPath, corrupted);
+        File.SetLastWriteTimeUtc(artifactPath, lastWrite.AddSeconds(5));
+        Assert.Equal(LocalModelInstallState.Partial, manager.GetStatus("test-model"));
+
+        // 恢复正确内容 → 重新校验通过且结论入缓存。
+        File.WriteAllBytes(artifactPath, DummyContent);
+        File.SetLastWriteTimeUtc(artifactPath, lastWrite.AddSeconds(10));
+        Assert.Equal(LocalModelInstallState.Installed, manager.GetStatus("test-model"));
+    }
+
+    [Fact]
+    public async Task AcquireUsage_AfterInstall_HitsVerificationCacheWithoutRehash()
+    {
+        var handler = new ScriptedHttpHandler();
+        handler.EnqueueBytes(DummyContent);
+        using var manager = CreateManager(handler, [TestDefinition(artifact: DummyArtifact())]);
+
+        await manager.InstallAsync("test-model", CancellationToken.None);
+
+        // 安装完成后立刻取用：校验结论来自缓存，不应触发任何额外 HTTP 或失败。
+        using var lease = manager.AcquireUsage("test-model");
+        Assert.True(File.Exists(lease.ResolvePath("model.bin")));
+    }
+
     [Theory]
     [InlineData(LocalModelInstallKind.SingleFile)]
     [InlineData(LocalModelInstallKind.ManifestFiles)]

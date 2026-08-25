@@ -14,7 +14,7 @@ namespace VoxLink.Services;
 /// 每个请求使用隔离 context，单并发限制推理。它是纯翻译模型，
 /// 不提供自由文本生成（润色）能力。
 /// </summary>
-public sealed class LocalHyMtTextService : ITranslationService, IDisposable
+public sealed class LocalHyMtTextService : ITranslationService, IPreloadableRuntime, IDisposable
 {
     internal const int MaxTranslateTokens = 512;
 
@@ -51,6 +51,13 @@ public sealed class LocalHyMtTextService : ITranslationService, IDisposable
             cancellationToken).ConfigureAwait(false);
         // 简体中文最终输出统一走 LCMapStringEx 简体归一化（架构不变量，MiniCPM 同款路径）。
         return ChineseTextNormalizer.Normalize(translated, targetLanguage);
+    }
+
+    /// <summary>会话启动时后台预载权重并预热（消除首句数秒冷启动）。不阻塞启动。</summary>
+    public Task PreloadAsync(CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        return _pool.PreloadAsync(cancellationToken);
     }
 
     /// <summary>
@@ -147,7 +154,8 @@ public sealed class LocalHyMtTextService : ITranslationService, IDisposable
 internal sealed partial class LocalHyMtRuntimePool : IDisposable
 {
     internal const string HyMtGgufFileName = "HY-MT1.5-1.8B-Q4_K_M.gguf";
-    internal const uint ContextSize = 4096;
+    // 翻译提示词 + 512 输出 token 实测 <1k token，2048 足够且每句 context 分配减半。
+    internal const uint ContextSize = 2048;
     internal const int MaxOutputChars = 4096;
 
     private readonly ILocalModelManager _manager;
@@ -163,6 +171,7 @@ internal sealed partial class LocalHyMtRuntimePool : IDisposable
     private TaskCompletionSource? _operationsDrained;
     private bool _disposeStarted;
     private bool _disposed;
+    private int _warmupStarted;
 
     internal LocalHyMtRuntimePool(ILocalModelManager manager)
     {
@@ -215,6 +224,7 @@ internal sealed partial class LocalHyMtRuntimePool : IDisposable
         try
         {
             await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
+            EnsureWarmupStarted();
             await _inferenceGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
@@ -375,6 +385,83 @@ internal sealed partial class LocalHyMtRuntimePool : IDisposable
                 }
             }
         }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 后台预载权重并触发预热推理；调用方不必等待（首句翻译仍走正常路径，
+    /// 谁先就绪谁先服务）。加载失败延迟到真实请求再暴露。
+    /// </summary>
+    public Task PreloadAsync(CancellationToken cancellationToken)
+    {
+        BeginOperation();
+        // 不把 token 传给 Task.Run：令牌在委托启动前取消会跳过整个委托，
+        // finally 的 EndOperation 永不配对 → Dispose 排水永久挂起。取消
+        // 语义由 EnsureLoadedAsync 内部的令牌检查承担。
+        return Task.Run(async () =>
+        {
+            try
+            {
+                await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
+                EnsureWarmupStarted();
+            }
+            catch
+            {
+                // 后台预载失败延迟到首个真实请求再暴露；任务自身永不抛出，
+                // 避免调用方丢弃任务时产生未观察异常。
+            }
+            finally
+            {
+                EndOperation();
+            }
+        });
+    }
+
+    /// <summary>
+    /// 权重首次加载后做一次 1 token 后台推理，把 JIT / mmap 换页 / 线程池
+    /// 预热掉，避免真实首句承受数秒冷启动。失败静默（首句仍走正常路径）。
+    /// 注意：不等待完成——真实请求与预热并发抢 _inferenceGate，谁先到谁先跑。
+    /// </summary>
+    private void EnsureWarmupStarted()
+    {
+        if (Interlocked.CompareExchange(ref _warmupStarted, 1, 0) != 0)
+        {
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            // BeginOperation 放进 try/catch 之内：pool 已释放时立刻退出，
+            // 不留下无人观察的 ObjectDisposedException 任务。
+            try
+            {
+                BeginOperation();
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
+
+            try
+            {
+                if (Volatile.Read(ref _weights) is null)
+                {
+                    return;
+                }
+
+                try
+                {
+                    await CompleteAsync("你好", 1, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    // 预热失败不影响正常使用，交给首个真实请求去暴露错误。
+                }
+            }
+            finally
+            {
+                EndOperation();
+            }
+        });
     }
 
     private void BeginOperation()

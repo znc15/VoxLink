@@ -1050,7 +1050,7 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
         }
     }
 
-    private static async Task VerifyDirectoryArtifactsAsync(
+    private async Task VerifyDirectoryArtifactsAsync(
         string directory,
         IReadOnlyList<LocalModelArtifact> artifacts,
         CancellationToken cancellationToken)
@@ -1070,7 +1070,7 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
         }
     }
 
-    private static async Task VerifyFileAsync(
+    private async Task VerifyFileAsync(
         string path,
         long expectedSize,
         string sha256,
@@ -1079,6 +1079,11 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
         if (new FileInfo(path).Length != expectedSize)
         {
             throw new InvalidDataException("模型工件大小不正确。");
+        }
+
+        if (TryGetCachedVerification(path, expectedSize, sha256, out var verified) && verified)
+        {
+            return;
         }
 
         await using var stream = new FileStream(
@@ -1090,16 +1095,26 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
             useAsync: true);
         var hash = Convert.ToHexStringLower(await SHA256.HashDataAsync(stream, cancellationToken)
             .ConfigureAwait(false));
+        CacheVerification(path, expectedSize, sha256, hash);
         if (!hash.Equals(sha256, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidDataException("模型工件 SHA-256 不匹配。");
         }
     }
 
-    private static bool IsFileVerified(string path, LocalModelArtifact artifact)
+    private bool IsFileVerified(string path, LocalModelArtifact artifact)
     {
         try
         {
+            if (TryGetCachedVerification(
+                    path,
+                    artifact.ExpectedSize,
+                    artifact.Sha256,
+                    out var cached))
+            {
+                return cached;
+            }
+
             if (new FileInfo(path).Length != artifact.ExpectedSize)
             {
                 return false;
@@ -1107,11 +1122,79 @@ public sealed class LocalModelManager : ILocalModelManager, IDisposable, IAsyncD
 
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
             var hash = Convert.ToHexStringLower(SHA256.HashData(stream));
-            return hash.Equals(artifact.Sha256, StringComparison.OrdinalIgnoreCase);
+            var verified = hash.Equals(artifact.Sha256, StringComparison.OrdinalIgnoreCase);
+            CacheVerification(path, artifact.ExpectedSize, artifact.Sha256, hash);
+            return verified;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             return false;
+        }
+    }
+
+    // 校验结论缓存：同进程内 size + LastWriteTimeUtc 未变即视为已校验，
+    // 避免 listLocalModels / AcquireUsage / Prepare 每次全量重哈希数 GB 模型。
+    // 键含期望哈希，换模型版本（期望值变化）时自动失效。
+    private readonly ConcurrentDictionary<string, (long Length, DateTime LastWriteUtc, string Sha256, bool Verified)>
+        _verificationCache = new(StringComparer.OrdinalIgnoreCase);
+
+    private bool TryGetCachedVerification(
+        string path,
+        long expectedSize,
+        string expectedSha256,
+        out bool verified)
+    {
+        verified = false;
+        if (!_verificationCache.TryGetValue(path, out var entry)
+            || entry.Length != expectedSize
+            || !string.Equals(entry.Sha256, expectedSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        DateTime lastWriteUtc;
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists || info.Length != expectedSize)
+            {
+                return false;
+            }
+
+            lastWriteUtc = info.LastWriteTimeUtc;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+
+        if (entry.LastWriteUtc != lastWriteUtc)
+        {
+            return false;
+        }
+
+        verified = entry.Verified;
+        return true;
+    }
+
+    private void CacheVerification(string path, long expectedSize, string expectedSha256, string actualHash)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists)
+            {
+                return;
+            }
+
+            _verificationCache[path] = (
+                expectedSize,
+                info.LastWriteTimeUtc,
+                expectedSha256,
+                actualHash.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
         }
     }
 

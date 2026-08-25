@@ -170,6 +170,85 @@ public sealed class LocalRuntimeLifecycleTests
         Assert.Equal(1, manager.LeaseDisposeCount);
     }
 
+    [Fact]
+    public void LocalLlmContextSize_IsHalvedForFasterPerUtteranceSetup()
+    {
+        // 提示词 + 最大输出 token <1k，2048 足够；若调整请连同实测结论一起复核。
+        Assert.Equal(2048u, LocalMiniCpmRuntimePool.ContextSize);
+        Assert.Equal(2048u, LocalHyMtRuntimePool.ContextSize);
+    }
+
+    [Fact]
+    public async Task MiniCpmPool_PreloadWithCancelledToken_DoesNotBlockDispose()
+    {
+        // 会话令牌在预载任务启动前已取消：BeginOperation 已配对计数，
+        // Dispose 排水不能被永久挂住，任务自身也不得失败。
+        var manager = new RecordingModelManager();
+        var pool = new LocalMiniCpmRuntimePool(manager);
+        using var service = pool.CreateClient();
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+
+        await service.PreloadAsync(cancelled.Token).WaitAsync(TimeSpan.FromSeconds(2));
+
+        var dispose = Task.Run(pool.Dispose);
+        await dispose.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(0, manager.AcquireCount);
+    }
+
+    [Fact]
+    public async Task HyMtPool_PreloadLoadFailure_CompletesWithoutFaultingAndDisposeStillWorks()
+    {
+        // 预载失败（模型缺失）必须延迟到真实请求再暴露：任务不抛、Dispose 不挂。
+        var manager = new RecordingModelManager();
+        var pool = new LocalHyMtRuntimePool(manager);
+        using var service = pool.CreateClient();
+
+        await service.PreloadAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(1, manager.AcquireCount);
+
+        var dispose = Task.Run(pool.Dispose);
+        await dispose.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public async Task WhisperVerificationCache_ServesBothVerdictsUntilFileChanges()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"voxlink-tests-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var model = WhisperSpeechRecognizer.GetModelInfo("tiny");
+            var modelPath = WhisperSpeechRecognizer.GetModelPath("tiny", root);
+            using (var fill = new FileStream(modelPath, FileMode.Create, FileAccess.Write))
+            {
+                fill.SetLength(model.Size);
+            }
+
+            // 未命中缓存 → false；写入“校验失败”结论后命中失败结论。
+            Assert.False(WhisperSpeechRecognizer.TryGetCachedVerification(modelPath, model));
+            WhisperSpeechRecognizer.CacheVerification(modelPath, model, "deadbeef");
+            Assert.False(WhisperSpeechRecognizer.TryGetCachedVerification(modelPath, model));
+
+            // 同文件写入“校验通过”结论 → 命中成功路径（77MB 随机内容不可能
+            // 通过真实哈希，True 只可能来自缓存命中，即证明不再重扫）。
+            WhisperSpeechRecognizer.CacheVerification(modelPath, model, model.Sha256);
+            Assert.True(WhisperSpeechRecognizer.TryGetCachedVerification(modelPath, model));
+
+            // 大小变化（换模型 / 损坏截断）→ 缓存失效。
+            using (var shrink = new FileStream(modelPath, FileMode.Truncate, FileAccess.Write))
+            {
+                shrink.SetLength(model.Size - 1);
+            }
+
+            Assert.False(WhisperSpeechRecognizer.TryGetCachedVerification(modelPath, model));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private sealed class RecordingModelManager : ILocalModelManager
     {
         public event EventHandler<LocalModelProgressEventArgs>? ModelProgress
