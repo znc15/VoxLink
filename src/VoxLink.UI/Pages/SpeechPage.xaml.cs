@@ -23,6 +23,7 @@ public sealed partial class SpeechPage : Page
 
     private void SpeechPage_Loaded(object sender, RoutedEventArgs args)
     {
+        VoxLink.UI.Infrastructure.ComboBoxPopupPlacer.Apply(this);
         Controller.RenderDevices.CollectionChanged += RenderDevices_CollectionChanged;
         LoadSettingsIntoControls();
         Controller.PropertyChanged += Controller_PropertyChanged;

@@ -15,6 +15,7 @@ public sealed partial class SpeechServiceDialogContent : UserControl
         _controller = controller;
         _mode = controller.Settings.SpeechServiceMode;
         InitializeComponent();
+        VoxLink.UI.Infrastructure.ComboBoxPopupPlacer.Apply(this);
 
         NoConfigText.Visibility = _mode == SpeechServiceMode.SystemFallback
             ? Visibility.Visible

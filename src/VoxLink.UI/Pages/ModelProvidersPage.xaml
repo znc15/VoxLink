@@ -61,8 +61,7 @@
                         Grid.Row="1"
                         HorizontalAlignment="Stretch"
                         MaxDropDownHeight="320"
-                        DropDownOpened="ProviderBox_DropDownOpened"
-                        SelectionChanged="TranslationBackendBox_SelectionChanged">
+                                                SelectionChanged="TranslationBackendBox_SelectionChanged">
                         <ComboBoxItem Content="公共免密" Tag="PublicFree" />
                         <ComboBoxItem x:Name="HyMtGgufOption" Content="本地混元翻译 HY-MT1.5-1.8B（GGUF）" Tag="LocalHyMtGguf" />
                         <ComboBoxItem x:Name="MiniCpmOption" Content="本地 MiniCPM5-1B" Tag="LocalMiniCpm" />
@@ -99,8 +98,7 @@
                         Grid.Row="1"
                         HorizontalAlignment="Stretch"
                         MaxDropDownHeight="320"
-                        DropDownOpened="ProviderBox_DropDownOpened"
-                        SelectionChanged="AsrProviderBox_SelectionChanged">
+                                                SelectionChanged="AsrProviderBox_SelectionChanged">
                         <ComboBoxItem x:Name="WhisperTinyOption" Content="Whisper tiny（最快）" Tag="WhisperTiny" />
                         <ComboBoxItem x:Name="WhisperBaseOption" Content="Whisper base（推荐）" Tag="WhisperBase" />
                         <ComboBoxItem x:Name="WhisperSmallOption" Content="Whisper small（更准确）" Tag="WhisperSmall" />
@@ -141,8 +139,7 @@
                         Grid.Row="1"
                         HorizontalAlignment="Stretch"
                         MaxDropDownHeight="320"
-                        DropDownOpened="ProviderBox_DropDownOpened"
-                        SelectionChanged="SpeechServiceBox_SelectionChanged">
+                                                SelectionChanged="SpeechServiceBox_SelectionChanged">
                         <ComboBoxItem Content="系统语音" Tag="SystemFallback" />
                         <ComboBoxItem x:Name="KokoroOption" Content="本地 Kokoro-82M" Tag="Kokoro" />
                         <ComboBoxItem Content="远程语音服务" Tag="Remote" />

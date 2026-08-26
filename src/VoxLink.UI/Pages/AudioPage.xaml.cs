@@ -22,6 +22,7 @@ public sealed partial class AudioPage : Page
 
     private void AudioPage_Loaded(object sender, RoutedEventArgs args)
     {
+        VoxLink.UI.Infrastructure.ComboBoxPopupPlacer.Apply(this);
         Controller.MicrophoneDevices.CollectionChanged += Devices_CollectionChanged;
         Controller.RenderDevices.CollectionChanged += Devices_CollectionChanged;
         LoadSettingsIntoControls();

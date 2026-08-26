@@ -12,6 +12,7 @@ public sealed partial class AsrServiceDialogContent : UserControl
     {
         _controller = controller;
         InitializeComponent();
+        VoxLink.UI.Infrastructure.ComboBoxPopupPlacer.Apply(this);
         ApiKeyBox.Password = controller.Settings.AsrApiKey;
         AllowUploadSwitch.IsOn = controller.Settings.AllowCloudAudioUpload;
         BaseUrlBox.Text = controller.Settings.AsrBaseUrl;

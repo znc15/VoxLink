@@ -23,6 +23,7 @@ public sealed partial class ModelProvidersPage : Page
 
     private void ModelProvidersPage_Loaded(object sender, RoutedEventArgs args)
     {
+        Infrastructure.ComboBoxPopupPlacer.Apply(this);
         Controller.PropertyChanged += Controller_PropertyChanged;
         LoadSelections();
         RefreshState();
@@ -433,68 +434,4 @@ public sealed partial class ModelProvidersPage : Page
         Controller.DismissError();
 
     /// <summary>
-    /// 强制下拉列表弹出在控件正下方。WinUI 3 ComboBox 的模板 Popup 偏移恒为 0，
-    /// 实际按「选中项对齐控件」定位，选中项靠后时弹层整体翻到控件上方盖住界面。
-    /// 展开动画结束后测量弹层实际位置，统一改按控件底边对齐。
-    /// 纠正前先隐藏弹层内容：否则错误位置会先显示约 300ms 造成「先盖住按钮再跳下去」的闪烁。
-    /// </summary>
-    private async void ProviderBox_DropDownOpened(object? sender, object args)
-    {
-        if (sender is not ComboBox comboBox)
-        {
-            return;
-        }
-
-        var popup = FindTemplatePopup(comboBox);
-        var content = popup?.Child as FrameworkElement;
-        if (popup is null || content is null)
-        {
-            return;
-        }
-
-        content.Opacity = 0;
-        try
-        {
-            // 等展开动画结束（约 200ms）再测量，动画期间弹层还在位移
-            await Task.Delay(280);
-
-            // 弹层内容顶部相对 ComboBox 顶部的距离（负值 = 翻到了上方）。
-            // TransformToVisual 测的是渲染后位置，已含 VerticalOffset 效果，直接补差即可。
-            var top = content.TransformToVisual(comboBox).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
-            var desired = comboBox.ActualHeight + 2;
-            var delta = desired - top;
-            if (Math.Abs(delta) > 0.5)
-            {
-                popup.VerticalOffset += delta;
-            }
-
-            content.Opacity = 1;
-        }
-        catch (Exception exception) when (exception is COMException or InvalidOperationException)
-        {
-            // 元素已收起或已从树中移除时忽略，但仍要恢复可见性
-            content.Opacity = 1;
-        }
-    }
-
-    private static Microsoft.UI.Xaml.Controls.Primitives.Popup? FindTemplatePopup(FrameworkElement root)
-    {
-        var count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root);
-        for (var i = 0; i < count; i++)
-        {
-            if (Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i)
-                is Microsoft.UI.Xaml.Controls.Primitives.Popup popup)
-            {
-                return popup;
-            }
-
-            if (Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i) is FrameworkElement child
-                && FindTemplatePopup(child) is { } nested)
-            {
-                return nested;
-            }
-        }
-
-        return null;
-    }
 }

@@ -24,6 +24,7 @@ public sealed partial class LivePage : Page
 
     private void LivePage_Loaded(object sender, RoutedEventArgs args)
     {
+        VoxLink.UI.Infrastructure.ComboBoxPopupPlacer.Apply(this);
         Controller.PropertyChanged += Controller_PropertyChanged;
         Controller.Messages.CollectionChanged += Messages_CollectionChanged;
         RefreshState();

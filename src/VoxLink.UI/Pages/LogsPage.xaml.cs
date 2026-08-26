@@ -30,6 +30,7 @@ public sealed partial class LogsPage : Page
 
     private void LogsPage_Loaded(object sender, RoutedEventArgs e)
     {
+        VoxLink.UI.Infrastructure.ComboBoxPopupPlacer.Apply(this);
         _scrollViewer = FindScrollViewer(LogList);
         if (_scrollViewer is not null)
         {

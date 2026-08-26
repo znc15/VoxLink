@@ -18,6 +18,7 @@ public sealed partial class OnboardingDialog : ContentDialog
     {
         _controller = controller;
         InitializeComponent();
+        VoxLink.UI.Infrastructure.ComboBoxPopupPlacer.Apply(this);
         LoadSettings();
         _loading = false;
         UpdateStep();
