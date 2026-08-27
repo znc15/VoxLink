@@ -13,6 +13,9 @@ public partial class App : Application
     private Mutex? _singleInstanceMutex;
     private Window? _window;
 
+    /// <summary>当前主窗口实例，供系统文件/文件夹选择器等需要窗口句柄的 API 使用。</summary>
+    public static MainWindow? MainWindow { get; private set; }
+
     public App()
     {
         InitializeComponent();
@@ -38,6 +41,7 @@ public partial class App : Application
             new Infrastructure.DispatcherQueueSynchronizationContext(dispatcher),
             autoCheckForUpdates: true);
         _window = new MainWindow();
+        MainWindow = (MainWindow)_window;
         _window.Activate();
         _ = Controller.InitializeAsync();
     }

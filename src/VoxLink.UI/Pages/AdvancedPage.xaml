@@ -24,6 +24,10 @@
                         IsOn="{x:Bind Controller.Settings.TranscriptionOnly, Mode=TwoWay}"
                         OffContent="识别并翻译"
                         OnContent="只显示原文" />
+                    <TextBlock
+                        Style="{StaticResource CaptionStyle}"
+                        Text="开启后仅识别并显示原文，不做翻译、不发送 Chatbox、不朗读语音，可作纯语音转写使用；关闭则恢复完整的识别 → 翻译 → 发送链路。会话行为开关用于在不想打扰对方或网络/服务不可用时快速切换为本地听写。"
+                        TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
 
@@ -72,16 +76,40 @@
                         <TextBlock Style="{StaticResource SectionTitleStyle}" Text="本地模型存储" />
                         <TextBlock Style="{StaticResource CaptionStyle}" Text="留空使用默认位置；更改后重新启动 VoxLink 生效。" />
                     </StackPanel>
-                    <TextBox
-                        x:Name="LocalModelDirectoryBox"
-                        Header="本地模型保存位置"
-                        PlaceholderText="留空使用默认位置"
-                        Text="{x:Bind Controller.Settings.LocalModelDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                    <TextBox
-                        x:Name="ManagedRuntimeDirectoryBox"
-                        Header="托管运行时保存位置"
-                        PlaceholderText="留空使用默认位置"
-                        Text="{x:Bind Controller.Settings.ManagedRuntimeDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox
+                            x:Name="LocalModelDirectoryBox"
+                            Header="本地模型保存位置"
+                            PlaceholderText="留空使用默认位置"
+                            Text="{x:Bind Controller.Settings.LocalModelDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <Button
+                            Grid.Column="1"
+                            Margin="0,18,0,0"
+                            Click="BrowseLocalModelDirectory_Click"
+                            Content="浏览…"
+                            ToolTipService.ToolTip="用系统文件管理器选择本地模型存储位置" />
+                    </Grid>
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox
+                            x:Name="ManagedRuntimeDirectoryBox"
+                            Header="托管运行时保存位置"
+                            PlaceholderText="留空使用默认位置"
+                            Text="{x:Bind Controller.Settings.ManagedRuntimeDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <Button
+                            Grid.Column="1"
+                            Margin="0,18,0,0"
+                            Click="BrowseManagedRuntimeDirectory_Click"
+                            Content="浏览…"
+                            ToolTipService.ToolTip="用系统文件管理器选择托管运行时存储位置" />
+                    </Grid>
                 </StackPanel>
             </Border>
         </StackPanel>

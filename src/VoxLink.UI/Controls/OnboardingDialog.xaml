@@ -30,6 +30,20 @@
                 Severity="Warning" />
 
             <StackPanel x:Name="DevicesStep" Spacing="14">
+                <StackPanel Spacing="4">
+                    <TextBlock FontWeight="SemiBold" Text="桌面字幕悬浮窗样式预览" />
+                    <Border
+                        Padding="18,12"
+                        Background="#E6192220"
+                        BorderBrush="#6AFFFFFF"
+                        BorderThickness="1"
+                        CornerRadius="{StaticResource OverlayCornerRadius}">
+                        <TextBlock
+                            Foreground="White"
+                            Text="对方的译文会显示在这里；悬浮窗边框与正式桌面字幕一致使用圆角样式。"
+                            TextWrapping="Wrap" />
+                    </Border>
+                </StackPanel>
                 <Grid ColumnSpacing="12">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />

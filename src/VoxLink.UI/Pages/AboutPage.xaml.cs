@@ -1,9 +1,13 @@
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using VoxLink.UI.Core.ViewModels;
+using Windows.System;
 
 namespace VoxLink.UI.Pages;
+
+/// <summary>关于页：版本、项目链接与运行状态。</summary>
 
 public sealed partial class AboutPage : Page
 {
@@ -58,4 +62,34 @@ public sealed partial class AboutPage : Page
 
     private void OpenOnboarding_Click(object sender, RoutedEventArgs args) =>
         Controller.RequestOnboarding();
+
+    private async void OpenGitHub_Click(object sender, RoutedEventArgs args) =>
+        await OpenUriAsync(new Uri("https://github.com/znc15/VoxLink"));
+
+    private async void OpenReleases_Click(object sender, RoutedEventArgs args) =>
+        await OpenUriAsync(new Uri("https://github.com/znc15/VoxLink/releases"));
+
+    private async void OpenIssues_Click(object sender, RoutedEventArgs args) =>
+        await OpenUriAsync(new Uri("https://github.com/znc15/VoxLink/issues"));
+
+    private async void OpenSite_Click(object sender, RoutedEventArgs args) =>
+        await OpenUriAsync(new Uri("https://znc15.github.io/VoxLink/"));
+
+    private async void OpenLicense_Click(object sender, RoutedEventArgs args) =>
+        await OpenUriAsync(new Uri("https://github.com/znc15/VoxLink/blob/main/LICENSE"));
+
+    private async void OpenThirdPartyNotices_Click(object sender, RoutedEventArgs args) =>
+        await OpenUriAsync(new Uri("https://github.com/znc15/VoxLink/blob/main/THIRD-PARTY-NOTICES.md"));
+
+    private static async Task OpenUriAsync(Uri uri)
+    {
+        try
+        {
+            await Launcher.LaunchUriAsync(uri);
+        }
+        catch (Exception exception) when (exception is COMException or InvalidOperationException)
+        {
+            System.Diagnostics.Debug.WriteLine(exception);
+        }
+    }
 }

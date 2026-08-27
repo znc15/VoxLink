@@ -8,10 +8,10 @@ namespace VoxLink.UI.Infrastructure;
 
 /// <summary>
 /// 修复 WinUI 3 ComboBox 下拉弹层定位：模板 Popup 偏移恒为 0，实际按
-/// 「选中项对齐控件」定位，选中项靠后时弹层整体翻到控件上方盖住界面。
+/// 「选中项对齐控件」定位，选中项靠后时弹层整体翻到控件上方/侧向盖住界面。
 /// 页面 Loaded 时调 <see cref="Apply"/>（对整个页面的可视树生效，
 /// WinUI 3 XAML 编译路径下自定义附加属性不可靠，故用代码挂接）。
-/// 通过 Popup.Opened（内容布局完成后）立即改按「控件底边 + 2px」对齐：
+/// 通过 Popup.Opened（内容布局完成后）立即改按「控件左边缘 + 底边 + 2px」对齐：
 /// 不隐藏内容、不等动画结束，展开动画从正确位置照常播放。
 /// </summary>
 public static class ComboBoxPopupPlacer
@@ -82,14 +82,20 @@ public static class ComboBoxPopupPlacer
 
         try
         {
-            // 弹层内容顶部相对 ComboBox 顶部的距离（负值 = 翻到了上方）。
-            // TransformToVisual 测布局位置（已含 VerticalOffset），直接补差。
-            var top = content.TransformToVisual(comboBox).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
-            var desired = comboBox.ActualHeight + 2;
-            var delta = desired - top;
-            if (Math.Abs(delta) > 0.5)
+            // 弹层内容左上角相对 ComboBox 左上角的距离（负值 = 翻到上方或左移）。
+            // TransformToVisual 测布局位置（已含 Popup 偏移），直接补差，
+            // 让选项列表的下边缘对齐下拉按钮下边缘、左边缘对齐下拉按钮左边缘。
+            var origin = content.TransformToVisual(comboBox).TransformPoint(new Windows.Foundation.Point(0, 0));
+            var desiredTop = comboBox.ActualHeight + 2;
+            var verticalDelta = desiredTop - origin.Y;
+            if (Math.Abs(verticalDelta) > 0.5)
             {
-                popup.VerticalOffset += delta;
+                popup.VerticalOffset += verticalDelta;
+            }
+
+            if (Math.Abs(origin.X) > 0.5)
+            {
+                popup.HorizontalOffset -= origin.X;
             }
         }
         catch (Exception exception) when (exception is COMException or InvalidOperationException)
