@@ -82,6 +82,16 @@ public enum SpeechServiceMode
     Kokoro
 }
 
+/// <summary>桌面字幕悬浮窗的显示方式。</summary>
+public enum DesktopOverlayDisplayMode
+{
+    /// <summary>开启悬浮窗后始终显示，不自动隐藏。</summary>
+    AlwaysVisible,
+
+    /// <summary>收到新字幕时显示，等待指定秒数后自动隐藏。</summary>
+    AutoHide
+}
+
 public sealed class AppSettings : ObservableObject
 {
     private bool _enableSpeechRefinement;
@@ -124,7 +134,7 @@ public sealed class AppSettings : ObservableObject
     private string _speechModel = "qwen3-tts-flash";
     private string _speechVoice = "Cherry";
     private Dictionary<string, string> _speechHeaders = new(StringComparer.OrdinalIgnoreCase);
-    private string _whisperModel = "tiny";
+    private string _whisperModel = "base";
     private double _voiceThreshold = 0.018;
     private int _silenceDurationMs = 650;
     private bool _smartSentenceSegmentation = true;
@@ -158,6 +168,8 @@ public sealed class AppSettings : ObservableObject
     private int _desktopOverlayFontSize = 24;
     private bool _desktopOverlayTopmost = true;
     private bool _desktopOverlayLockPosition = true;
+    private DesktopOverlayDisplayMode _desktopOverlayDisplayMode = DesktopOverlayDisplayMode.AutoHide;
+    private int _desktopOverlayAutoHideSeconds = 9;
     private string _localModelDirectory = string.Empty;
     private string _managedRuntimeDirectory = string.Empty;
 
@@ -370,6 +382,14 @@ public sealed class AppSettings : ObservableObject
     }
     public bool DesktopOverlayTopmost { get => _desktopOverlayTopmost; set => SetProperty(ref _desktopOverlayTopmost, value); }
     public bool DesktopOverlayLockPosition { get => _desktopOverlayLockPosition; set => SetProperty(ref _desktopOverlayLockPosition, value); }
+    public DesktopOverlayDisplayMode DesktopOverlayDisplayMode { get => _desktopOverlayDisplayMode; set => SetProperty(ref _desktopOverlayDisplayMode, value); }
+
+    /// <summary>自动隐藏等待秒数（3–300），仅在 AutoHide 模式下生效。</summary>
+    public int DesktopOverlayAutoHideSeconds
+    {
+        get => _desktopOverlayAutoHideSeconds;
+        set => SetProperty(ref _desktopOverlayAutoHideSeconds, Math.Clamp(value, 3, 300));
+    }
     public string LocalModelDirectory { get => _localModelDirectory; set => SetProperty(ref _localModelDirectory, value); }
     public string ManagedRuntimeDirectory { get => _managedRuntimeDirectory; set => SetProperty(ref _managedRuntimeDirectory, value); }
 
@@ -620,6 +640,14 @@ public sealed class AppSettings : ObservableObject
             changed = true;
         }
 
+        // tiny / small 已从产品中移除：旧设置自动升级到 base，保留用户可用的识别能力。
+        if (WhisperModel.Equals("tiny", StringComparison.OrdinalIgnoreCase)
+            || WhisperModel.Equals("small", StringComparison.OrdinalIgnoreCase))
+        {
+            WhisperModel = "base";
+            changed = true;
+        }
+
         return changed;
     }
 
@@ -715,6 +743,8 @@ public sealed class AppSettings : ObservableObject
         ["desktopOverlayFontSize"] = DesktopOverlayFontSize,
         ["desktopOverlayTopmost"] = DesktopOverlayTopmost,
         ["desktopOverlayLockPosition"] = DesktopOverlayLockPosition,
+        ["desktopOverlayDisplayMode"] = JsonNamingPolicy.CamelCase.ConvertName(DesktopOverlayDisplayMode.ToString()),
+        ["desktopOverlayAutoHideSeconds"] = DesktopOverlayAutoHideSeconds,
         ["localModelDirectory"] = LocalModelDirectory,
         ["managedRuntimeDirectory"] = ManagedRuntimeDirectory
     };

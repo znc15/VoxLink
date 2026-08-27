@@ -24,6 +24,8 @@ public sealed partial class MainWindow : Window
     private const uint DefaultSize = 0x0040;
     private const int SmCxsmicon = 49;
     private const int SmCysmicon = 50;
+    private const int SmCxscreen = 0;
+    private const int SmCyscreen = 1;
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr LoadImageW(
@@ -61,7 +63,12 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
-        AppWindow.Resize(new SizeInt32(1280, 800));
+        // 默认窗口按屏幕尺寸自适应放大到合适的预设范围（1100–1440 × 720–900）。
+        var screenWidth = Math.Max(GetSystemMetrics(SmCxscreen), 1280);
+        var screenHeight = Math.Max(GetSystemMetrics(SmCyscreen), 720);
+        var defaultWidth = Math.Clamp((int)(screenWidth * 0.82), 1100, 1440);
+        var defaultHeight = Math.Clamp((int)(screenHeight * 0.82), 720, 900);
+        AppWindow.Resize(new SizeInt32(defaultWidth, defaultHeight));
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.PreferredMinimumWidth = 640;
@@ -441,26 +448,12 @@ public sealed partial class MainWindow : Window
         var asrItems = new List<TrayIconService.TrayMenuItem>
         {
             new(
-                "Whisper tiny",
-                () => ActivateLocal(LocalModelIds.WhisperTiny),
-                Checked: !settings.UseCloudAsr
-                    && settings.AsrProtocol != AsrProtocol.LocalSenseVoice
-                    && settings.WhisperModel == "tiny",
-                Enabled: canSwitch && Installed(LocalModelIds.WhisperTiny)),
-            new(
                 "Whisper base",
                 () => ActivateLocal(LocalModelIds.WhisperBase),
                 Checked: !settings.UseCloudAsr
                     && settings.AsrProtocol != AsrProtocol.LocalSenseVoice
                     && settings.WhisperModel == "base",
                 Enabled: canSwitch && Installed(LocalModelIds.WhisperBase)),
-            new(
-                "Whisper small",
-                () => ActivateLocal(LocalModelIds.WhisperSmall),
-                Checked: !settings.UseCloudAsr
-                    && settings.AsrProtocol != AsrProtocol.LocalSenseVoice
-                    && settings.WhisperModel == "small",
-                Enabled: canSwitch && Installed(LocalModelIds.WhisperSmall)),
             new(
                 "Whisper large-v3-turbo",
                 () => ActivateLocal(LocalModelIds.WhisperLargeV3Turbo),

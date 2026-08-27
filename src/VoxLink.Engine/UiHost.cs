@@ -57,7 +57,9 @@ internal sealed class UiHost : IDisposable
                 settings.DesktopOverlayHeight,
                 settings.DesktopOverlayFontSize,
                 settings.DesktopOverlayTopmost,
-                settings.DesktopOverlayLockPosition);
+                settings.DesktopOverlayLockPosition,
+                settings.DesktopOverlayDisplayMode,
+                settings.DesktopOverlayAutoHideSeconds);
             _steamVrOverlay!.Configure(
                 settings.ShowVrOverlay,
                 settings.VrOverlayWidthMeters,

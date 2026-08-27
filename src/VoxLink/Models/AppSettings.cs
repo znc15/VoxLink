@@ -56,6 +56,12 @@ public enum OutboundSpeechContent
     Original
 }
 
+public enum DesktopOverlayDisplayMode
+{
+    AlwaysVisible,
+    AutoHide
+}
+
 public enum ManagedTtsModel
 {
     DotsTts,
@@ -154,7 +160,7 @@ public sealed class AppSettings
     public IReadOnlyDictionary<string, string> TextToSpeechHeaders { get; set; } =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-    public string WhisperModel { get; set; } = "tiny";
+    public string WhisperModel { get; set; } = "base";
 
     public double VoiceThreshold { get; set; } = 0.018;
 
@@ -217,6 +223,10 @@ public sealed class AppSettings
     public bool DesktopOverlayTopmost { get; set; } = true;
 
     public bool DesktopOverlayLockPosition { get; set; } = true;
+
+    public DesktopOverlayDisplayMode DesktopOverlayDisplayMode { get; set; } = DesktopOverlayDisplayMode.AutoHide;
+
+    public int DesktopOverlayAutoHideSeconds { get; set; } = 9;
 
     public string LocalModelDirectory { get; set; } = string.Empty;
 

@@ -18,6 +18,8 @@ public partial class OverlayWindow : Window
     private bool _enabled = true;
     private bool _lockPosition = true;
     private bool _hasSavedPlacement;
+    private DesktopOverlayDisplayMode _displayMode = DesktopOverlayDisplayMode.AutoHide;
+    private int _autoHideSeconds = 9;
 
     public OverlayWindow()
     {
@@ -41,9 +43,14 @@ public partial class OverlayWindow : Window
         double? height,
         int fontSize,
         bool topmost,
-        bool lockPosition)
+        bool lockPosition,
+        DesktopOverlayDisplayMode displayMode = DesktopOverlayDisplayMode.AutoHide,
+        int autoHideSeconds = 9)
     {
         _lockPosition = lockPosition;
+        _displayMode = displayMode;
+        _autoHideSeconds = Math.Clamp(autoHideSeconds, 1, 3600);
+        _hideTimer.Interval = TimeSpan.FromSeconds(_autoHideSeconds);
         Topmost = topmost;
         ApplyFontSize(fontSize);
         if (left is null && top is null && width is null && height is null)
@@ -91,6 +98,7 @@ public partial class OverlayWindow : Window
 
         ResizeThumb.Visibility = lockPosition ? Visibility.Collapsed : Visibility.Visible;
         UpdateTransparency();
+        ApplyVisibility();
     }
 
     public void ShowSubtitle(ConversationMessage message)
@@ -127,17 +135,46 @@ public partial class OverlayWindow : Window
         {
             UpdateLayout();
         }
+
+        // 永久显示模式不自动隐藏；自动隐藏模式从最近一条字幕开始计时。
         _hideTimer.Stop();
-        _hideTimer.Start();
+        if (_displayMode == DesktopOverlayDisplayMode.AutoHide)
+        {
+            _hideTimer.Start();
+        }
     }
 
     public void SetEnabled(bool enabled)
     {
         _enabled = enabled;
-        if (!enabled)
+        ApplyVisibility();
+    }
+
+    /// <summary>按启用状态与显示方式统一窗口可见性：永久显示立即出现，自动隐藏保持隐藏直到新字幕。</summary>
+    private void ApplyVisibility()
+    {
+        if (!_enabled)
         {
             _hideTimer.Stop();
             Hide();
+            return;
+        }
+
+        if (_displayMode != DesktopOverlayDisplayMode.AlwaysVisible || IsVisible)
+        {
+            return;
+        }
+
+        if (_hasSavedPlacement)
+        {
+            ClampToVirtualScreen();
+        }
+
+        Show();
+        UpdateLayout();
+        if (!_hasSavedPlacement)
+        {
+            PositionAtBottom();
         }
     }
 

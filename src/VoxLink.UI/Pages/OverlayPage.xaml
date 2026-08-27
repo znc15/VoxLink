@@ -48,6 +48,34 @@
                         OffContent="不置顶"
                         OnContent="置顶" />
 
+                    <ComboBox
+                        x:Name="DesktopDisplayModeBox"
+                        Header="显示方式"
+                        HorizontalAlignment="Stretch"
+                        SelectionChanged="DesktopDisplayModeBox_SelectionChanged">
+                        <ComboBoxItem Content="永久显示（始终可见）" Tag="AlwaysVisible" />
+                        <ComboBoxItem Content="自动隐藏" Tag="AutoHide" />
+                    </ComboBox>
+
+                    <StackPanel x:Name="AutoHideSecondsPanel" Spacing="6">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock FontWeight="SemiBold" Text="无新字幕时自动隐藏（秒）" />
+                            <TextBlock x:Name="DesktopAutoHideValueText" Grid.Column="1" Style="{StaticResource CaptionStyle}" />
+                        </Grid>
+                        <Slider
+                            x:Name="DesktopAutoHideSlider"
+                            Maximum="120"
+                            Minimum="3"
+                            SmallChange="1"
+                            StepFrequency="1"
+                            ValueChanged="DesktopAutoHideSlider_ValueChanged" />
+                        <TextBlock Style="{StaticResource CaptionStyle}" Text="自动隐藏模式下，收到新字幕会重新显示并重新计时。" />
+                    </StackPanel>
+
                     <ToggleSwitch
                         Header="固定位置"
                         IsOn="{x:Bind Controller.Settings.DesktopOverlayLockPosition, Mode=TwoWay}"

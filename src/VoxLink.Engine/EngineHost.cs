@@ -710,6 +710,16 @@ internal sealed class EngineHost : IAsyncDisposable
         {
             settings.DesktopOverlayHeight = Math.Clamp(overlayHeight, 88, 2000);
         }
+        settings.DesktopOverlayAutoHideSeconds = Math.Clamp(
+            settings.DesktopOverlayAutoHideSeconds,
+            3,
+            300);
+
+        // tiny / small 已从产品中移除：旧版本设置自动升级到 base。
+        if (settings.WhisperModel is "tiny" or "small")
+        {
+            settings.WhisperModel = "base";
+        }
     }
 
     private static string VoiceOutputTestText(LanguageOption language) => language.Code switch
