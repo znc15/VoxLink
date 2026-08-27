@@ -12,6 +12,7 @@ namespace VoxLink.UI.Pages;
 public sealed partial class LivePage : Page
 {
     private bool? _isNarrowLanguageLayout;
+    private bool _loadingLanguage;
 
     public LivePage()
     {
@@ -27,6 +28,7 @@ public sealed partial class LivePage : Page
         VoxLink.UI.Infrastructure.ComboBoxPopupPlacer.Apply(this);
         Controller.PropertyChanged += Controller_PropertyChanged;
         Controller.Messages.CollectionChanged += Messages_CollectionChanged;
+        ApplyLanguageSelections();
         RefreshState();
     }
 
@@ -36,7 +38,17 @@ public sealed partial class LivePage : Page
         Controller.Messages.CollectionChanged -= Messages_CollectionChanged;
     }
 
-    private void Controller_PropertyChanged(object? sender, PropertyChangedEventArgs args) => RefreshState();
+    private void Controller_PropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        // 启动时页面先于设置加载完成：Settings 替换后显式回填语言选择，
+        // 确保第二目标语言等保存在 settings.json 的选项在重启后仍被恢复。
+        if (args.PropertyName == nameof(AppController.Settings))
+        {
+            ApplyLanguageSelections();
+        }
+
+        RefreshState();
+    }
     private void Messages_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs args) => RefreshMessages();
 
     private void RefreshState()
@@ -137,6 +149,23 @@ public sealed partial class LivePage : Page
         Grid.SetColumn(SecondaryLanguageBox, 2);
     }
 
+    /// <summary>把已保存的语言设置显式写回下拉框，避免初始化时序导致选择被清空。</summary>
+    private void ApplyLanguageSelections()
+    {
+        _loadingLanguage = true;
+        try
+        {
+            MyLanguageBox.SelectedValue = Controller.Settings.MyLanguageCode;
+            OtherLanguageBox.SelectedValue = Controller.Settings.OtherLanguageCode;
+            var secondary = Controller.Settings.SecondaryTargetLanguageCode;
+            SecondaryLanguageBox.SelectedValue = string.IsNullOrEmpty(secondary) ? string.Empty : secondary;
+        }
+        finally
+        {
+            _loadingLanguage = false;
+        }
+    }
+
     private void ErrorInfoBar_Closed(InfoBar sender, InfoBarClosedEventArgs args)
     {
         ErrorInfoBar.Visibility = Visibility.Collapsed;
@@ -155,7 +184,15 @@ public sealed partial class LivePage : Page
     }
 
     private void OpenRelease_Click(object sender, RoutedEventArgs args) => Controller.OpenLatestReleasePage();
-    private void Language_SelectionChanged(object sender, SelectionChangedEventArgs args) => Controller.NotifySettingsChanged();
+    private void Language_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (_loadingLanguage)
+        {
+            return;
+        }
+
+        Controller.NotifySettingsChanged();
+    }
     private void SwapButton_Click(object sender, RoutedEventArgs args) => Controller.SwapLanguages();
 
     private async void SessionButton_Click(object sender, RoutedEventArgs args) => await Controller.ToggleSessionAsync();
