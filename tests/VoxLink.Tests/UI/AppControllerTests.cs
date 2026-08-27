@@ -794,7 +794,7 @@ public sealed class AppControllerTests
         var gateway = new FakeEngineGateway
         {
             ModelsResponse = ModelsPayload(
-                LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"))
+                LocalModelJson(LocalModelIds.WhisperBase, "asr", "installed"))
         };
         await using var controller = new AppController(
             gateway,
@@ -1154,7 +1154,7 @@ public sealed class AppControllerTests
         var gateway = new FakeEngineGateway
         {
             ModelsResponse = ModelsPayload(
-                LocalModelJson(LocalModelIds.WhisperTiny, category: "asr", installState: "installed"))
+                LocalModelJson(LocalModelIds.WhisperBase, category: "asr", installState: "installed"))
         };
         await using var controller = new AppController(
             gateway,
@@ -1164,7 +1164,7 @@ public sealed class AppControllerTests
         await controller.ToggleSessionAsync();
         Assert.True(controller.IsRunning);
 
-        await controller.TestLocalModelAsync(LocalModelIds.WhisperTiny);
+        await controller.TestLocalModelAsync(LocalModelIds.WhisperBase);
 
         Assert.Contains("请先停止翻译", controller.ErrorMessage);
         Assert.DoesNotContain("testLocalModel", gateway.Requests);
@@ -1687,7 +1687,7 @@ public sealed class AppControllerTests
         var gateway = new FakeEngineGateway
         {
             ModelsResponse = ModelsPayload(
-                LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"),
+                LocalModelJson(LocalModelIds.WhisperLargeV3Turbo, "asr", "installed"),
                 LocalModelJson(LocalModelIds.WhisperBase, "asr", "installed"),
                 LocalModelJson(LocalModelIds.MiniCpm51BGguf, "translation", "installed"),
                 LocalModelJson(LocalModelIds.Kokoro82M, "tts", "installed"))
@@ -1699,15 +1699,15 @@ public sealed class AppControllerTests
         await controller.InitializeAsync();
 
         gateway.ModelsResponse = ModelsPayload(
-            LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"),
+            LocalModelJson(LocalModelIds.WhisperLargeV3Turbo, "asr", "installed"),
             LocalModelJson(LocalModelIds.WhisperBase, "asr"),
             LocalModelJson(LocalModelIds.MiniCpm51BGguf, "translation", "installed"),
             LocalModelJson(LocalModelIds.Kokoro82M, "tts", "installed"));
         await controller.RemoveLocalModelWithFallbackAsync(LocalModelIds.WhisperBase);
-        Assert.Equal("tiny", controller.Settings.WhisperModel);
+        Assert.Equal("large-v3-turbo", controller.Settings.WhisperModel);
 
         gateway.ModelsResponse = ModelsPayload(
-            LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"),
+            LocalModelJson(LocalModelIds.WhisperLargeV3Turbo, "asr", "installed"),
             LocalModelJson(LocalModelIds.WhisperBase, "asr"),
             LocalModelJson(LocalModelIds.MiniCpm51BGguf, "translation"),
             LocalModelJson(LocalModelIds.Kokoro82M, "tts", "installed"));
@@ -1716,7 +1716,7 @@ public sealed class AppControllerTests
         Assert.Equal(TranslationBackend.PublicFree, controller.Settings.TranslationBackend);
 
         gateway.ModelsResponse = ModelsPayload(
-            LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"),
+            LocalModelJson(LocalModelIds.WhisperLargeV3Turbo, "asr", "installed"),
             LocalModelJson(LocalModelIds.WhisperBase, "asr"),
             LocalModelJson(LocalModelIds.MiniCpm51BGguf, "translation"),
             LocalModelJson(LocalModelIds.Kokoro82M, "tts"));
@@ -1730,7 +1730,7 @@ public sealed class AppControllerTests
         var gateway = new FakeEngineGateway
         {
             ModelsResponse = ModelsPayload(
-                LocalModelJson(LocalModelIds.WhisperTiny, category: "asr"))
+                LocalModelJson(LocalModelIds.WhisperBase, category: "asr"))
         };
         await using var controller = new AppController(
             gateway,
@@ -1738,7 +1738,7 @@ public sealed class AppControllerTests
             new InlineSynchronizationContext());
         await controller.InitializeAsync();
         gateway.ModelsResponse = ModelsPayload(
-            LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"));
+            LocalModelJson(LocalModelIds.WhisperBase, "asr", "installed"));
 
         await controller.ToggleSessionAsync();
 
@@ -1785,7 +1785,7 @@ public sealed class AppControllerTests
             UseCloudAsr = true,
             AsrProvider = AsrProvider.Soniox,
             AsrProtocol = AsrProtocol.SonioxStreaming,
-            WhisperModel = "small",
+            WhisperModel = "base",
             UseRemoteSpeech = true
         };
         var gateway = new FakeEngineGateway
@@ -1810,7 +1810,7 @@ public sealed class AppControllerTests
         Assert.True(controller.Settings.UseCloudAsr);
         Assert.Equal(AsrProvider.Soniox, controller.Settings.AsrProvider);
         Assert.Equal(AsrProtocol.SonioxStreaming, controller.Settings.AsrProtocol);
-        Assert.Equal("small", controller.Settings.WhisperModel);
+        Assert.Equal("base", controller.Settings.WhisperModel);
         Assert.Equal(SpeechServiceMode.Remote, controller.Settings.SpeechServiceMode);
     }
 
@@ -1820,7 +1820,7 @@ public sealed class AppControllerTests
         var gateway = new FakeEngineGateway
         {
             ModelsResponse = ModelsPayload(
-                LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"))
+                LocalModelJson(LocalModelIds.WhisperBase, "asr", "installed"))
         };
         await using var controller = new AppController(
             gateway,
@@ -1829,7 +1829,7 @@ public sealed class AppControllerTests
         await controller.InitializeAsync();
         await controller.ToggleSessionAsync();
 
-        await controller.RemoveLocalModelWithFallbackAsync(LocalModelIds.WhisperTiny);
+        await controller.RemoveLocalModelWithFallbackAsync(LocalModelIds.WhisperBase);
 
         Assert.True(controller.IsRunning);
         Assert.DoesNotContain("removeLocalModel", gateway.Requests);
@@ -1842,7 +1842,7 @@ public sealed class AppControllerTests
         var gateway = new FakeEngineGateway
         {
             ModelsResponse = ModelsPayload(
-                LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"))
+                LocalModelJson(LocalModelIds.WhisperBase, "asr", "installed"))
         };
         await using var controller = new AppController(
             gateway,
@@ -1850,9 +1850,9 @@ public sealed class AppControllerTests
             new InlineSynchronizationContext());
         await controller.InitializeAsync();
         gateway.ModelsResponse = ModelsPayload(
-            LocalModelJson(LocalModelIds.WhisperTiny, "asr"));
+            LocalModelJson(LocalModelIds.WhisperBase, "asr"));
 
-        await controller.RemoveLocalModelWithFallbackAsync(LocalModelIds.WhisperTiny);
+        await controller.RemoveLocalModelWithFallbackAsync(LocalModelIds.WhisperBase);
         await controller.ToggleSessionAsync();
 
         Assert.Equal(string.Empty, controller.Settings.WhisperModel);
@@ -1960,7 +1960,7 @@ public sealed class AppControllerTests
         var gateway = new FakeEngineGateway
         {
             ModelsResponse = ModelsPayload(
-                LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"),
+                LocalModelJson(LocalModelIds.WhisperBase, "asr", "installed"),
                 LocalModelJson("minicpm5-1b", category: "translation")),
             BlockInstall = true
         };
@@ -1980,7 +1980,7 @@ public sealed class AppControllerTests
         Assert.Equal("当前有操作正在进行，请稍后重试。", controller.ErrorMessage);
         Assert.False(install.IsCompleted);
         gateway.ModelsResponse = ModelsPayload(
-            LocalModelJson(LocalModelIds.WhisperTiny, "asr", "installed"),
+            LocalModelJson(LocalModelIds.WhisperBase, "asr", "installed"),
             LocalModelJson("minicpm5-1b", category: "translation", installState: "installed"));
         gateway.InstallRelease.TrySetResult();
         await install.WaitAsync(TimeSpan.FromSeconds(15));

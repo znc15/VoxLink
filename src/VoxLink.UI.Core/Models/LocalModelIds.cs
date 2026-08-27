@@ -14,17 +14,15 @@ public static class LocalModelIds
 
     public static string WhisperId(string? modelName) => modelName?.Trim().ToLowerInvariant() switch
     {
-        "base" => WhisperBase,
-        "small" => WhisperSmall,
+        // tiny / small 已从产品中移除，旧值自动归一到 base。
+        "base" or "tiny" or "small" => WhisperBase,
         "large-v3-turbo" => WhisperLargeV3Turbo,
-        _ => WhisperTiny
+        _ => WhisperBase
     };
 
     public static string? WhisperName(string? modelId) => modelId switch
     {
-        WhisperTiny => "tiny",
         WhisperBase => "base",
-        WhisperSmall => "small",
         WhisperLargeV3Turbo => "large-v3-turbo",
         _ => null
     };

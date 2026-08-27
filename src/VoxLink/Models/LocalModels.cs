@@ -112,7 +112,7 @@ public sealed record LocalModelDefinition
     /// <summary>压缩包下载源；存在时安装流程为下载 → 校验 → 解压 → 校验工件。</summary>
     public LocalModelArchiveSource? Archive { get; init; }
 
-    /// <summary>WhisperGgml 条目对应的现有 Whisper 模型名（tiny/base/small）。</summary>
+    /// <summary>WhisperGgml 条目对应的现有 Whisper 模型名（base/large-v3-turbo）；tiny/small 已不再提供。</summary>
     public string? WhisperModelName { get; init; }
 
     /// <summary>

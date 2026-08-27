@@ -99,9 +99,7 @@
                         HorizontalAlignment="Stretch"
                         MaxDropDownHeight="320"
                                                 SelectionChanged="AsrProviderBox_SelectionChanged">
-                        <ComboBoxItem x:Name="WhisperTinyOption" Content="Whisper tiny（最快）" Tag="WhisperTiny" />
                         <ComboBoxItem x:Name="WhisperBaseOption" Content="Whisper base（推荐）" Tag="WhisperBase" />
-                        <ComboBoxItem x:Name="WhisperSmallOption" Content="Whisper small（更准确）" Tag="WhisperSmall" />
                         <ComboBoxItem x:Name="WhisperLargeV3TurboOption" Content="Whisper large-v3-turbo（最准确）" Tag="WhisperLargeV3Turbo" />
                         <ComboBoxItem x:Name="SenseVoiceOption" Content="本地 SenseVoice（更快出字）" Tag="SenseVoice" />
                         <ComboBoxItem Content="Soniox" Tag="Soniox" />

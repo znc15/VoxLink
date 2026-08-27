@@ -71,12 +71,11 @@ public sealed partial class ModelProvidersPage : Page
             return "SenseVoice";
         }
 
+        // tiny / small 已从产品中移除，旧值一律归一到 base。
         return Controller.Settings.WhisperModel.ToLowerInvariant() switch
         {
-            "base" => "WhisperBase",
-            "small" => "WhisperSmall",
             "large-v3-turbo" => "WhisperLargeV3Turbo",
-            _ => "WhisperTiny"
+            _ => "WhisperBase"
         };
     }
 
@@ -109,7 +108,6 @@ public sealed partial class ModelProvidersPage : Page
         UpdateLocalOption(HyMtGgufOption, "本地混元翻译 HY-MT1.5-1.8B（GGUF）", LocalModelIds.HyMt15Gguf);
         UpdateLocalOption(MiniCpmOption, "本地 MiniCPM5-1B", LocalModelIds.MiniCpm51BGguf);
         UpdateLocalOption(WhisperBaseOption, "Whisper base（推荐）", LocalModelIds.WhisperBase);
-        UpdateLocalOption(WhisperSmallOption, "Whisper small（更准确）", LocalModelIds.WhisperSmall);
         UpdateLocalOption(WhisperLargeV3TurboOption, "Whisper large-v3-turbo（最准确）", LocalModelIds.WhisperLargeV3Turbo);
         UpdateLocalOption(SenseVoiceOption, "本地 SenseVoice（更快出字）", LocalModelIds.SenseVoiceSmall);
         UpdateLocalOption(KokoroOption, "本地 Kokoro-82M", LocalModelIds.Kokoro82M);
@@ -172,9 +170,7 @@ public sealed partial class ModelProvidersPage : Page
 
         var localModelId = tag switch
         {
-            "WhisperTiny" => LocalModelIds.WhisperTiny,
             "WhisperBase" => LocalModelIds.WhisperBase,
-            "WhisperSmall" => LocalModelIds.WhisperSmall,
             "WhisperLargeV3Turbo" => LocalModelIds.WhisperLargeV3Turbo,
             "SenseVoice" => LocalModelIds.SenseVoiceSmall,
             _ => null
@@ -323,9 +319,7 @@ public sealed partial class ModelProvidersPage : Page
 
     private static string AsrServiceLabel(string tag) => tag switch
     {
-        "WhisperTiny" => "Whisper tiny",
         "WhisperBase" => "Whisper base",
-        "WhisperSmall" => "Whisper small",
         "WhisperLargeV3Turbo" => "Whisper large-v3-turbo",
         "SenseVoice" => "本地 SenseVoice",
         "Soniox" => "Soniox",

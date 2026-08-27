@@ -1029,6 +1029,17 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             }
 
             InstallableLocalModels.Add(item);
+
+            // tiny / small 已从产品中移除：仍在 LocalModels 中保留以兼容引擎目录协议
+            // 与旧安装状态，但不再进入「本地模型」页的语音识别列表。
+            var isRetiredAsr = item.Category == "asr"
+                && (item.Id == LocalModelIds.WhisperTiny
+                    || item.Id == LocalModelIds.WhisperSmall);
+            if (isRetiredAsr)
+            {
+                continue;
+            }
+
             switch (item.Category)
             {
                 case "asr":
@@ -1973,8 +1984,6 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             var fallback = new[]
             {
                 LocalModelIds.WhisperBase,
-                LocalModelIds.WhisperTiny,
-                LocalModelIds.WhisperSmall,
                 LocalModelIds.WhisperLargeV3Turbo
             }.FirstOrDefault(id => !id.Equals(modelId, StringComparison.Ordinal) && IsInstalled(id));
             if (fallback is not null)
@@ -1994,8 +2003,6 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             var fallback = new[]
             {
                 LocalModelIds.WhisperBase,
-                LocalModelIds.WhisperTiny,
-                LocalModelIds.WhisperSmall,
                 LocalModelIds.WhisperLargeV3Turbo
             }.FirstOrDefault(IsInstalled);
             Settings.AsrProtocol = AsrProtocol.LocalWhisper;
