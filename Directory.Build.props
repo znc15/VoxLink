@@ -4,8 +4,8 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <WarningsNotAsErrors>NU1900</WarningsNotAsErrors>
     <Deterministic>true</Deterministic>
-    <Version>1.5.4</Version>
-    <FileVersion>1.5.4.0</FileVersion>
-    <AssemblyVersion>1.5.4.0</AssemblyVersion>
+    <Version>1.6.0</Version>
+    <FileVersion>1.6.0.0</FileVersion>
+    <AssemblyVersion>1.6.0.0</AssemblyVersion>
   </PropertyGroup>
 </Project>
