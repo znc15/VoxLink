@@ -3,6 +3,7 @@ using System.ComponentModel;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using VoxLink.UI.Core.Models;
 using VoxLink.UI.Core.ViewModels;
 
 namespace VoxLink.UI.Pages;
@@ -52,6 +53,12 @@ public sealed partial class AudioPage : Page
         {
             Bindings.Update();
             ReapplyDeviceSelections();
+            VoicePreprocessingModeButtons.SelectedIndex = Controller.Settings.VoicePreprocessingMode switch
+            {
+                VoicePreprocessingMode.WebRtc => 1,
+                VoicePreprocessingMode.RNNoise => 2,
+                _ => 0
+            };
         }
         finally
         {
@@ -109,6 +116,21 @@ public sealed partial class AudioPage : Page
 
     private async void RefreshDevices_Click(object sender, RoutedEventArgs args) =>
         await Controller.RefreshDevicesAsync();
+
+    private void VoicePreprocessingMode_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (_loading || VoicePreprocessingModeButtons.SelectedIndex < 0)
+        {
+            return;
+        }
+
+        Controller.Settings.VoicePreprocessingMode = VoicePreprocessingModeButtons.SelectedIndex switch
+        {
+            1 => VoicePreprocessingMode.WebRtc,
+            2 => VoicePreprocessingMode.RNNoise,
+            _ => VoicePreprocessingMode.Off
+        };
+    }
 
     private void ThresholdSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs args)
     {

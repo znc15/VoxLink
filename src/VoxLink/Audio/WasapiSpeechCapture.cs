@@ -10,6 +10,7 @@ public sealed class WasapiSpeechCapture : IAsyncDisposable
     private readonly bool _loopback;
     private readonly Func<bool>? _shouldSuppress;
     private readonly VoiceActivitySegmenter _segmenter;
+    private readonly IVoicePreprocessor? _voicePreprocessor;
     private readonly int _silenceDurationMs;
     private readonly object _sync = new();
     private IWaveIn? _capture;
@@ -26,11 +27,13 @@ public sealed class WasapiSpeechCapture : IAsyncDisposable
         double threshold,
         int silenceDurationMs,
         Func<bool>? shouldSuppress = null,
-        bool smartSentenceSegmentation = true)
+        bool smartSentenceSegmentation = true,
+        IVoicePreprocessor? voicePreprocessor = null)
     {
         _deviceId = deviceId;
         _loopback = loopback;
         _shouldSuppress = shouldSuppress;
+        _voicePreprocessor = voicePreprocessor;
         _silenceDurationMs = Math.Clamp(silenceDurationMs, 200, 2_500);
         _segmenter = new VoiceActivitySegmenter(
             threshold,
@@ -125,6 +128,7 @@ public sealed class WasapiSpeechCapture : IAsyncDisposable
         }
 
         resources.Dispose();
+        _voicePreprocessor?.Dispose();
         return ValueTask.CompletedTask;
     }
 
@@ -187,6 +191,13 @@ public sealed class WasapiSpeechCapture : IAsyncDisposable
                 eventArgs.Buffer,
                 eventArgs.BytesRecorded,
                 waveFormat);
+
+        // 仅对麦克风采集启用语音增强（WebRTC / RNNoise），提升 VAD 与 ASR 的输入质量；
+        // 系统回环保留原始音频，避免改变游戏/媒体听感。
+        if (samples is { Length: > 0 } && _voicePreprocessor is not null)
+        {
+            _voicePreprocessor.ProcessInPlace(samples);
+        }
 
         var emitChunk = false;
         lock (_sync)

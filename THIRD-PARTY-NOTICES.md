@@ -33,6 +33,8 @@ The retired Flutter frontend under `src/voxlink_app` is not built into or distri
 - System.Speech, MIT License: <https://github.com/dotnet/runtime>
 - sherpa-onnx `1.13.4` managed API and Windows x64 runtime, Apache License 2.0: <https://github.com/k2-fsa/sherpa-onnx/tree/v1.13.4>
 - Microsoft ONNX Runtime `1.27.0`, MIT License: <https://github.com/microsoft/onnxruntime/tree/v1.27.0>
+- SoundFlow.Extensions.WebRtc.Apm `1.4.0`, MIT License: <https://github.com/LSXPrime/SoundFlow>; the bundled native `webrtc-apm.dll` is derived from Google's WebRTC Audio Processing Module (BSD 3-Clause) and carries `SOUNDFLOW-THIRD-PARTY-NOTICES.txt`
+- YellowDogMan.RRNoise.NET `0.1.9`, MIT License: <https://github.com/Yellow-Dog-Man/RNNoise.Net>; the bundled native `rnnoise.dll` is derived from xiph/rnnoise (BSD 3-Clause): <https://github.com/xiph/rnnoise>
 
 Source versions, upstream commits, and imported-file SHA-256 values are recorded in `src/VoxLink/ThirdParty/SherpaOnnx/README.md` and distributed as `engine/SHERPA-ONNX-NOTICES.md`. Windows App SDK self-contained ML assets in the release root remain covered by `WINDOWS-APP-SDK-LICENSE.txt` and `WINDOWS-APP-SDK-NOTICES.txt`; the separate files under `engine/` cover the sherpa runtime's ONNX Runtime dependency.
 

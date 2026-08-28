@@ -561,13 +561,15 @@ public sealed class TranslationSession : IAsyncDisposable
     {
         if (settings.CaptureMicrophone)
         {
+            var microphonePreprocessor = VoicePreprocessorFactory.Create(settings.VoicePreprocessingEngine);
             _microphoneCapture = new WasapiSpeechCapture(
                 settings.MicrophoneDeviceId,
                 loopback: false,
                 settings.VoiceThreshold,
                 settings.SilenceDurationMs,
                 () => _textToSpeech.IsSpeaking || _vrChatMuted,
-                settings.SmartSentenceSegmentation);
+                settings.SmartSentenceSegmentation,
+                microphonePreprocessor);
             _microphoneCapture.UtteranceReady += OnMicrophoneUtterance;
             _microphoneCapture.CaptureFailed += OnCaptureFailed;
             _microphoneCapture.DeviceFallbackOccurred += OnDeviceFallback;
@@ -946,7 +948,8 @@ public sealed class TranslationSession : IAsyncDisposable
             && message.IsFinal
             && message.Direction switch
             {
-                TranslationDirection.Inbound => settings.SpeakInboundTranslation,
+                // 「朗读对方语音」功能已移除：入站译文只显示字幕，不再朗读。
+                TranslationDirection.Inbound => false,
                 TranslationDirection.Outbound or TranslationDirection.Typed => settings.SpeakMyTranslation,
                 _ => false
             };

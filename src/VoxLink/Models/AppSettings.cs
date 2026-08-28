@@ -62,6 +62,13 @@ public enum DesktopOverlayDisplayMode
     AutoHide
 }
 
+public enum VoicePreprocessingEngine
+{
+    Off,
+    WebRtc,
+    RNNoise
+}
+
 public enum ManagedTtsModel
 {
     DotsTts,
@@ -168,6 +175,9 @@ public sealed class AppSettings
 
     public bool SmartSentenceSegmentation { get; set; } = true;
 
+    /// <summary>麦克风语音增强引擎：Off / WebRtc / RNNoise，可在设置中切换；仅作用于用户输入语音。</summary>
+    public VoicePreprocessingEngine VoicePreprocessingEngine { get; set; } = VoicePreprocessingEngine.WebRtc;
+
     public bool TranscriptionOnly { get; set; }
 
     public SpeakerLabelMode SpeakerLabelMode { get; set; } = SpeakerLabelMode.Off;
@@ -177,8 +187,6 @@ public sealed class AppSettings
     public OutboundSpeechContent OutboundSpeechContent { get; set; } = OutboundSpeechContent.Translation;
 
     public bool SpeakMyTranslation { get; set; } = true;
-
-    public bool SpeakInboundTranslation { get; set; }
 
     public bool ShowOverlay { get; set; } = true;
 

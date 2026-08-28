@@ -92,6 +92,19 @@ public enum DesktopOverlayDisplayMode
     AutoHide
 }
 
+/// <summary>麦克风语音增强引擎（可切换）。</summary>
+public enum VoicePreprocessingMode
+{
+    /// <summary>关闭语音后处理。</summary>
+    Off,
+
+    /// <summary>WebRTC AudioProcessing Module：降噪 + 自动增益 + 高通（推荐）。</summary>
+    WebRtc,
+
+    /// <summary>RNNoise 神经网络降噪。</summary>
+    RNNoise
+}
+
 public sealed class AppSettings : ObservableObject
 {
     private bool _enableSpeechRefinement;
@@ -138,12 +151,12 @@ public sealed class AppSettings : ObservableObject
     private double _voiceThreshold = 0.018;
     private int _silenceDurationMs = 650;
     private bool _smartSentenceSegmentation = true;
+    private VoicePreprocessingMode _voicePreprocessingMode = VoicePreprocessingMode.WebRtc;
     private bool _transcriptionOnly;
     private SpeakerLabelMode _speakerLabelMode;
     private string _speakerEmbeddingModel = "3dspeaker-zh-en";
     private OutboundSpeechContent _outboundSpeechContent = OutboundSpeechContent.Translation;
     private bool _speakMyTranslation;
-    private bool _speakInboundTranslation;
     private bool _showOverlay = true;
     private bool _showVrOverlay;
     private double _vrOverlayWidthMeters = 1.6;
@@ -331,6 +344,10 @@ public sealed class AppSettings : ObservableObject
     public double VoiceThreshold { get => _voiceThreshold; set => SetProperty(ref _voiceThreshold, Math.Clamp(value, 0.005, 0.08)); }
     public int SilenceDurationMs { get => _silenceDurationMs; set => SetProperty(ref _silenceDurationMs, Math.Clamp(value, 300, 1800)); }
     public bool SmartSentenceSegmentation { get => _smartSentenceSegmentation; set => SetProperty(ref _smartSentenceSegmentation, value); }
+
+    /// <summary>麦克风语音增强引擎：Off / WebRtc / RNNoise，仅作用于用户输入语音。</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter<VoicePreprocessingMode>))]
+    public VoicePreprocessingMode VoicePreprocessingMode { get => _voicePreprocessingMode; set => SetProperty(ref _voicePreprocessingMode, value); }
     public bool TranscriptionOnly { get => _transcriptionOnly; set => SetProperty(ref _transcriptionOnly, value); }
 
     [JsonConverter(typeof(JsonStringEnumConverter<SpeakerLabelMode>))]
@@ -341,7 +358,6 @@ public sealed class AppSettings : ObservableObject
     [JsonConverter(typeof(JsonStringEnumConverter<OutboundSpeechContent>))]
     public OutboundSpeechContent OutboundSpeechContent { get => _outboundSpeechContent; set => SetProperty(ref _outboundSpeechContent, value); }
     public bool SpeakMyTranslation { get => _speakMyTranslation; set => SetProperty(ref _speakMyTranslation, value); }
-    public bool SpeakInboundTranslation { get => _speakInboundTranslation; set => SetProperty(ref _speakInboundTranslation, value); }
     public bool ShowOverlay { get => _showOverlay; set => SetProperty(ref _showOverlay, value); }
     public bool ShowVrOverlay { get => _showVrOverlay; set => SetProperty(ref _showVrOverlay, value); }
     public double VrOverlayWidthMeters { get => _vrOverlayWidthMeters; set => SetProperty(ref _vrOverlayWidthMeters, Math.Clamp(value, 0.6, 3.0)); }
@@ -716,12 +732,12 @@ public sealed class AppSettings : ObservableObject
         ["voiceThreshold"] = VoiceThreshold,
         ["silenceDurationMs"] = SilenceDurationMs,
         ["smartSentenceSegmentation"] = SmartSentenceSegmentation,
+        ["voicePreprocessingMode"] = JsonNamingPolicy.CamelCase.ConvertName(VoicePreprocessingMode.ToString()),
         ["transcriptionOnly"] = TranscriptionOnly,
         ["speakerLabelMode"] = JsonNamingPolicy.CamelCase.ConvertName(SpeakerLabelMode.ToString()),
         ["speakerEmbeddingModel"] = SpeakerEmbeddingModel,
         ["outboundSpeechContent"] = JsonNamingPolicy.CamelCase.ConvertName(OutboundSpeechContent.ToString()),
         ["speakMyTranslation"] = SpeakMyTranslation,
-        ["speakInboundTranslation"] = SpeakInboundTranslation,
         ["showOverlay"] = ShowOverlay,
         ["showVrOverlay"] = ShowVrOverlay,
         ["vrOverlayWidthMeters"] = VrOverlayWidthMeters,

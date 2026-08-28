@@ -83,6 +83,25 @@
                 </StackPanel>
             </Border>
             <Border Style="{StaticResource PanelBorderStyle}">
+                <StackPanel Spacing="14">
+                    <StackPanel Spacing="3">
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="麦克风语音增强" />
+                        <TextBlock
+                            Style="{StaticResource CaptionStyle}"
+                            Text="对用户输入语音做降噪与自动增益（AGC），让说话音量更稳定，提升语音识别准确率。可在 WebRTC（效果最成熟）与 RNNoise（轻量）之间切换，或关闭；重新开始会话后生效。系统音频回环保留原声，不套用此处理。"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                    <RadioButtons
+                        x:Name="VoicePreprocessingModeButtons"
+                        Header="语音增强方案"
+                        SelectionChanged="VoicePreprocessingMode_SelectionChanged">
+                        <RadioButton Content="关闭" Tag="Off" />
+                        <RadioButton Content="WebRTC（推荐）" Tag="WebRtc" />
+                        <RadioButton Content="RNNoise（轻量）" Tag="RNNoise" />
+                    </RadioButtons>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource PanelBorderStyle}">
                 <StackPanel Spacing="18">
                     <StackPanel Spacing="3">
                         <TextBlock Style="{StaticResource SectionTitleStyle}" Text="语音活动检测" />
