@@ -88,7 +88,9 @@
                             Text="{x:Bind Controller.Settings.LocalModelDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                         <Button
                             Grid.Column="1"
-                            Margin="0,18,0,0"
+                            MinHeight="32"
+                            Margin="8,0,0,0"
+                            VerticalAlignment="Bottom"
                             Click="BrowseLocalModelDirectory_Click"
                             Content="浏览…"
                             ToolTipService.ToolTip="用系统文件管理器选择本地模型存储位置" />
@@ -105,7 +107,9 @@
                             Text="{x:Bind Controller.Settings.ManagedRuntimeDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                         <Button
                             Grid.Column="1"
-                            Margin="0,18,0,0"
+                            MinHeight="32"
+                            Margin="8,0,0,0"
+                            VerticalAlignment="Bottom"
                             Click="BrowseManagedRuntimeDirectory_Click"
                             Content="浏览…"
                             ToolTipService.ToolTip="用系统文件管理器选择托管运行时存储位置" />

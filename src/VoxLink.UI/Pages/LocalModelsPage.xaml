@@ -103,7 +103,6 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel Spacing="3">
                         <TextBlock Style="{StaticResource SectionTitleStyle}" Text="推荐模型" />
-                        <TextBlock Style="{StaticResource CaptionStyle}" Text="装上识别、翻译、语音三个推荐模型，直接开用" />
                     </StackPanel>
                     <Button
                         x:Name="InstallRecommendedButton"
