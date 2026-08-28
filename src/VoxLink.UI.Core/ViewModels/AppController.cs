@@ -1259,7 +1259,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     }
 
     private string? ValidateConfiguredSpeechSettings() =>
-        Settings.SpeakMyTranslation || Settings.SpeakInboundTranslation
+        Settings.SpeakMyTranslation
             ? ValidateSpeechSettings()
             : null;
 
@@ -1896,7 +1896,7 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         }
 
         if (!Settings.TranscriptionOnly
-            && (Settings.SpeakMyTranslation || Settings.SpeakInboundTranslation)
+            && Settings.SpeakMyTranslation
             && Settings.SpeechServiceMode == SpeechServiceMode.Kokoro)
         {
             required.Add(LocalModelIds.Kokoro82M);

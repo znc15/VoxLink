@@ -53,7 +53,6 @@ public sealed class SettingsRepositoryTests : IDisposable
             SmartSentenceSegmentation = false,
             TranscriptionOnly = true,
             SpeakerLabelMode = SpeakerLabelMode.Cloud,
-            SpeakInboundTranslation = true,
             TranslationHeaders = new Dictionary<string, string>
             {
                 ["X-Translation-Token"] = "translation-header-secret"
@@ -115,7 +114,6 @@ public sealed class SettingsRepositoryTests : IDisposable
         Assert.True(loaded.OnboardingCompleted);
         Assert.Equal(OutboundSpeechContent.Original, loaded.OutboundSpeechContent);
         Assert.True(loaded.SpeakMyTranslation);
-        Assert.True(loaded.SpeakInboundTranslation);
         Assert.True(loaded.ShowVrOverlay);
         Assert.Equal(2.2, loaded.VrOverlayWidthMeters);
         Assert.Equal(2.6, loaded.VrOverlayDistanceMeters);

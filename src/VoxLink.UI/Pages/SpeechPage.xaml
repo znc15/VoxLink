@@ -126,20 +126,6 @@
                 </StackPanel>
             </Border>
 
-            <Border Style="{StaticResource PanelBorderStyle}">
-                <StackPanel Spacing="14">
-                    <StackPanel Spacing="3">
-                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="朗读对方语音" />
-                        <TextBlock Style="{StaticResource CaptionStyle}" Text="把 VRChat 中对方语音的译文朗读出来（输出到上面的语音输出设备）。" />
-                    </StackPanel>
-
-                    <ToggleSwitch
-                        Header="朗读对方语音译文"
-                        IsOn="{x:Bind Controller.Settings.SpeakInboundTranslation, Mode=TwoWay}"
-                        OffContent="关闭"
-                        OnContent="开启" />
-                </StackPanel>
-            </Border>
         </StackPanel>
     </ScrollViewer>
 </Page>

@@ -113,16 +113,16 @@ public sealed class TranslationSessionFeatureTests
     [Fact]
     public void ShouldSpeakTranslation_SeparatesInboundOutboundAndTranscriptionOnly()
     {
+        // 「朗读对方语音」已移除：入站译文只显示字幕，永远不朗读。
         var settings = new AppSettings
         {
             SpeakMyTranslation = false,
-            SpeakInboundTranslation = true
         };
         var inbound = Message(TranslationDirection.Inbound);
         var outbound = Message(TranslationDirection.Outbound);
         var typed = Message(TranslationDirection.Typed);
 
-        Assert.True(TranslationSession.ShouldSpeakTranslation(inbound, settings));
+        Assert.False(TranslationSession.ShouldSpeakTranslation(inbound, settings));
         Assert.False(TranslationSession.ShouldSpeakTranslation(outbound, settings));
         Assert.False(TranslationSession.ShouldSpeakTranslation(typed, settings));
         Assert.False(TranslationSession.ShouldSpeakTranslation(
@@ -133,7 +133,6 @@ public sealed class TranslationSessionFeatureTests
             settings));
 
         settings.SpeakMyTranslation = true;
-        settings.SpeakInboundTranslation = false;
         Assert.False(TranslationSession.ShouldSpeakTranslation(inbound, settings));
         Assert.True(TranslationSession.ShouldSpeakTranslation(outbound, settings));
         Assert.True(TranslationSession.ShouldSpeakTranslation(typed, settings));

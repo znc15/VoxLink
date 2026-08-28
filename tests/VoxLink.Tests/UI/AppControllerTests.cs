@@ -64,7 +64,6 @@ public sealed class AppControllerTests
             SpeakerEmbeddingModel = "speaker-model",
             OutboundSpeechContent = OutboundSpeechContent.Original,
             SpeakMyTranslation = false,
-            SpeakInboundTranslation = true,
             ShowOverlay = false,
             ShowVrOverlay = true,
             VrOverlayWidthMeters = 2.1,
@@ -122,7 +121,6 @@ public sealed class AppControllerTests
         Assert.Equal("speaker-model", engineSettings.SpeakerEmbeddingModel);
         Assert.Equal(VoxLink.Models.OutboundSpeechContent.Original, engineSettings.OutboundSpeechContent);
         Assert.False(engineSettings.SpeakMyTranslation);
-        Assert.True(engineSettings.SpeakInboundTranslation);
         Assert.False(engineSettings.ShowOverlay);
         Assert.True(engineSettings.ShowVrOverlay);
         Assert.Equal(2.1, engineSettings.VrOverlayWidthMeters);
