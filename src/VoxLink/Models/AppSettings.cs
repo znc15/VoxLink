@@ -33,6 +33,7 @@ public enum AsrProtocol
 {
     LocalWhisper,
     LocalSenseVoice,
+    LocalFireRedAsr2Ctc,
 
     // 已下线的应用托管 MOSS 模型 wire 值：仅用于兼容旧设置反序列化，
     // 引擎侧不再有目录条目可进入该协议。

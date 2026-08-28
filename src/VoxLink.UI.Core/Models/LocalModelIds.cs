@@ -10,6 +10,7 @@ public static class LocalModelIds
     public const string MiniCpm51BGguf = "minicpm5-1b-gguf";
     public const string HyMt15Gguf = "hy-mt15-18b-gguf";
     public const string SenseVoiceSmall = "sensevoice-small";
+    public const string FireRedAsr2Ctc = "fire-red-asr2-ctc";
     public const string Kokoro82M = "kokoro-82m";
 
     public static string WhisperId(string? modelName) => modelName?.Trim().ToLowerInvariant() switch

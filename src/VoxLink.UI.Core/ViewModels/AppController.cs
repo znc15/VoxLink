@@ -1155,7 +1155,12 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     {
         if (!Settings.UseCloudAsr)
         {
-            return ValidateLocalWhisperSettings();
+            return Settings.AsrProtocol switch
+            {
+                AsrProtocol.LocalSenseVoice => null,
+                AsrProtocol.LocalFireRedAsr2Ctc => null,
+                _ => ValidateLocalWhisperSettings()
+            };
         }
 
         if (Settings.AsrProvider == AsrProvider.LocalWhisper)
@@ -1170,7 +1175,11 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
     {
         if (!Settings.UsesCloudAsr)
         {
-            return ValidateLocalWhisperSettings();
+            return Settings.AsrProtocol switch
+            {
+                AsrProtocol.LocalSenseVoice or AsrProtocol.LocalFireRedAsr2Ctc => null,
+                _ => ValidateLocalWhisperSettings()
+            };
         }
 
         var compatibilityError = ValidateAsrProviderProtocol();
@@ -1876,9 +1885,12 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         var required = new List<string>();
         if (!Settings.UseCloudAsr)
         {
-            required.Add(Settings.AsrProtocol == AsrProtocol.LocalSenseVoice
-                ? LocalModelIds.SenseVoiceSmall
-                : LocalModelIds.WhisperId(Settings.WhisperModel));
+            required.Add(Settings.AsrProtocol switch
+            {
+                AsrProtocol.LocalSenseVoice => LocalModelIds.SenseVoiceSmall,
+                AsrProtocol.LocalFireRedAsr2Ctc => LocalModelIds.FireRedAsr2Ctc,
+                _ => LocalModelIds.WhisperId(Settings.WhisperModel)
+            });
         }
 
         if (!Settings.TranscriptionOnly && Settings.UseAiTranslation)
@@ -1921,6 +1933,8 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             && LocalModelIds.WhisperId(Settings.WhisperModel).Equals(modelId, StringComparison.Ordinal),
         LocalModelIds.SenseVoiceSmall => !Settings.UseCloudAsr
             && Settings.AsrProtocol == AsrProtocol.LocalSenseVoice,
+        LocalModelIds.FireRedAsr2Ctc => !Settings.UseCloudAsr
+            && Settings.AsrProtocol == AsrProtocol.LocalFireRedAsr2Ctc,
         LocalModelIds.MiniCpm51BGguf => Settings.UseAiTranslation
             && Settings.TranslationBackend == TranslationBackend.LocalMiniCpm,
         LocalModelIds.HyMt15Gguf => Settings.UseAiTranslation
@@ -1949,6 +1963,11 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
         {
             Settings.SelectAsrProvider(AsrProvider.LocalWhisper);
             Settings.AsrProtocol = AsrProtocol.LocalSenseVoice;
+        }
+        else if (modelId.Equals(LocalModelIds.FireRedAsr2Ctc, StringComparison.Ordinal))
+        {
+            Settings.SelectAsrProvider(AsrProvider.LocalWhisper);
+            Settings.AsrProtocol = AsrProtocol.LocalFireRedAsr2Ctc;
         }
         else if (modelId.Equals(LocalModelIds.MiniCpm51BGguf, StringComparison.Ordinal))
         {
@@ -1995,9 +2014,12 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
                 Settings.WhisperModel = string.Empty;
             }
         }
-        else if (modelId.Equals(LocalModelIds.SenseVoiceSmall, StringComparison.Ordinal)
-            && !Settings.UseCloudAsr
-            && Settings.AsrProtocol == AsrProtocol.LocalSenseVoice)
+        else if ((modelId.Equals(LocalModelIds.SenseVoiceSmall, StringComparison.Ordinal)
+                  && !Settings.UseCloudAsr
+                  && Settings.AsrProtocol == AsrProtocol.LocalSenseVoice)
+                 || (modelId.Equals(LocalModelIds.FireRedAsr2Ctc, StringComparison.Ordinal)
+                     && !Settings.UseCloudAsr
+                     && Settings.AsrProtocol == AsrProtocol.LocalFireRedAsr2Ctc))
         {
             // 回退到已安装的 Whisper；全都没有时清空模型名，走默认
             var fallback = new[]
@@ -2098,7 +2120,9 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
 
         var compatible = Settings.AsrProvider switch
         {
-            AsrProvider.LocalWhisper => Settings.AsrProtocol == AsrProtocol.LocalWhisper,
+            AsrProvider.LocalWhisper => Settings.AsrProtocol is AsrProtocol.LocalWhisper
+                or AsrProtocol.LocalSenseVoice
+                or AsrProtocol.LocalFireRedAsr2Ctc,
             AsrProvider.LocalManagedMoss => Settings.AsrProtocol == AsrProtocol.LocalManagedMoss,
             AsrProvider.DashScope => Settings.AsrProtocol == AsrProtocol.DashScopeStreaming,
             AsrProvider.Soniox => Settings.AsrProtocol == AsrProtocol.SonioxStreaming,

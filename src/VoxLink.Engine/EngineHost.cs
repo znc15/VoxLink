@@ -1152,6 +1152,14 @@ internal sealed class EngineHost : IAsyncDisposable
         {
             testSettings.AsrProtocol = AsrProtocol.LocalManagedMoss;
         }
+        else if (definition.Id == LocalModelIds.SenseVoiceSmall)
+        {
+            testSettings.AsrProtocol = AsrProtocol.LocalSenseVoice;
+        }
+        else if (definition.Id == LocalModelIds.FireRedAsr2Ctc)
+        {
+            testSettings.AsrProtocol = AsrProtocol.LocalFireRedAsr2Ctc;
+        }
         else
         {
             testSettings.AsrProtocol = AsrProtocol.LocalWhisper;

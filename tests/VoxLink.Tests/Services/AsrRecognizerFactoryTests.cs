@@ -29,6 +29,30 @@ public sealed class AsrRecognizerFactoryTests
         Assert.Equal(LocalModelIds.SenseVoiceSmall, manager.AcquiredModelId);
     }
 
+    [Fact]
+    public async Task Create_LocalFireRedAsr2Ctc_UsesNativeRecognizerAndRequiresInstalledModel()
+    {
+        var manager = new MissingModelManager();
+        await using var factory = new AsrRecognizerFactory(
+            new HttpClient(),
+            new WhisperSpeechRecognizer(),
+            new ClientAsrWebSocketFactory(),
+            manager);
+        var settings = new AppSettings
+        {
+            AsrProtocol = AsrProtocol.LocalFireRedAsr2Ctc
+        };
+
+        await using var recognizer = factory.Create(settings);
+
+        Assert.IsType<LocalFireRedAsr2CtcRecognizer>(recognizer);
+        Assert.Equal(AsrTransport.Local, recognizer.Capabilities.Transport);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            recognizer.PrepareAsync(CancellationToken.None));
+        Assert.Contains("尚未安装", error.Message, StringComparison.Ordinal);
+        Assert.Equal(LocalModelIds.FireRedAsr2Ctc, manager.AcquiredModelId);
+    }
+
     private sealed class MissingModelManager : ILocalModelManager
     {
         public event EventHandler<LocalModelProgressEventArgs>? ModelProgress

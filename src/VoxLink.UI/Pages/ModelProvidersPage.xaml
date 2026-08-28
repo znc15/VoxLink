@@ -102,6 +102,7 @@
                         <ComboBoxItem x:Name="WhisperBaseOption" Content="Whisper base（推荐）" Tag="WhisperBase" />
                         <ComboBoxItem x:Name="WhisperLargeV3TurboOption" Content="Whisper large-v3-turbo（最准确）" Tag="WhisperLargeV3Turbo" />
                         <ComboBoxItem x:Name="SenseVoiceOption" Content="本地 SenseVoice（更快出字）" Tag="SenseVoice" />
+                        <ComboBoxItem x:Name="FireRedAsr2CtcOption" Content="FireRedASR2-CTC（最准确）" Tag="FireRedAsr2Ctc" />
                         <ComboBoxItem Content="Soniox" Tag="Soniox" />
                         <ComboBoxItem Content="硅基流动" Tag="SiliconFlow" />
                         <ComboBoxItem Content="小米 MiMo" Tag="MiMo" />

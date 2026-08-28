@@ -257,6 +257,28 @@ public sealed class ModelServiceSelectionTests
         Assert.False(settings.AllowCloudAudioUpload);
     }
 
+    [Theory]
+    [InlineData(global::VoxLink.UI.Core.Models.AsrProtocol.LocalSenseVoice)]
+    [InlineData(global::VoxLink.UI.Core.Models.AsrProtocol.LocalFireRedAsr2Ctc)]
+    public void NormalizeServiceSelections_PreservesLocalSherpaProtocols(
+        global::VoxLink.UI.Core.Models.AsrProtocol protocol)
+    {
+        var settings = new AppSettings
+        {
+            UseCloudAsr = false,
+            AsrProvider = AsrProvider.LocalWhisper,
+            AsrProtocol = protocol
+        };
+
+        settings.NormalizeServiceSelections();
+
+        Assert.False(settings.UseCloudAsr);
+        Assert.Equal(AsrProvider.LocalWhisper, settings.AsrProvider);
+        Assert.Equal(protocol, settings.AsrProtocol);
+        var engineProtocol = Deserialize(settings).AsrProtocol.ToString();
+        Assert.Equal(protocol.ToString(), engineProtocol);
+    }
+
     private static EngineSettings Deserialize(AppSettings settings)
     {
         var json = JsonSerializer.Serialize(settings.ToEngineJson(), EngineJsonOptions);

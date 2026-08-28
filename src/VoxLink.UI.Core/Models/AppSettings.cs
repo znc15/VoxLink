@@ -54,6 +54,7 @@ public enum AsrProtocol
 {
     LocalWhisper,
     LocalSenseVoice,
+    LocalFireRedAsr2Ctc,
     LocalManagedMoss,
     DashScopeStreaming,
     SonioxStreaming,
@@ -430,6 +431,7 @@ public sealed class AppSettings : ObservableObject
     [JsonIgnore]
     public bool UsesCloudAsr => AsrProtocol is not (AsrProtocol.LocalWhisper
         or AsrProtocol.LocalSenseVoice
+        or AsrProtocol.LocalFireRedAsr2Ctc
         or AsrProtocol.LocalManagedMoss);
 
     [JsonIgnore]
@@ -437,6 +439,11 @@ public sealed class AppSettings : ObservableObject
 
     [JsonIgnore]
     public bool SupportsCloudSpeakerLabels => AsrProtocol == AsrProtocol.SonioxStreaming;
+
+    /// <summary>本地 SenseVoice 或 FireRedASR2-CTC 选择：走 sherpa-onnx 原生运行时，仍需作为本地协议传给引擎。</summary>
+    [JsonIgnore]
+    private bool IsLocalSenseVoiceOrFireRed =>
+        AsrProtocol is AsrProtocol.LocalSenseVoice or AsrProtocol.LocalFireRedAsr2Ctc;
     public void ApplyTranslationBackendDefaults(TranslationBackend backend)
     {
         TranslationBackend = backend;
@@ -622,15 +629,21 @@ public sealed class AppSettings : ObservableObject
 
         if (!UseCloudAsr
             || AsrProvider is AsrProvider.LocalWhisper or AsrProvider.LocalManagedMoss
-            || AsrProtocol is AsrProtocol.LocalWhisper or AsrProtocol.LocalManagedMoss)
+            || AsrProtocol is AsrProtocol.LocalWhisper or AsrProtocol.LocalManagedMoss
+            || AsrProtocol is AsrProtocol.LocalSenseVoice or AsrProtocol.LocalFireRedAsr2Ctc)
         {
             changed |= UseCloudAsr
                 || AsrProvider != AsrProvider.LocalWhisper
-                || AsrProtocol != AsrProtocol.LocalWhisper
+                || AsrProtocol is not (AsrProtocol.LocalWhisper
+                    or AsrProtocol.LocalSenseVoice
+                    or AsrProtocol.LocalFireRedAsr2Ctc)
                 || AllowCloudAudioUpload;
             UseCloudAsr = false;
             AsrProvider = AsrProvider.LocalWhisper;
-            AsrProtocol = AsrProtocol.LocalWhisper;
+            if (AsrProtocol is not (AsrProtocol.LocalSenseVoice or AsrProtocol.LocalFireRedAsr2Ctc))
+            {
+                AsrProtocol = AsrProtocol.LocalWhisper;
+            }
             AllowCloudAudioUpload = false;
         }
         else if (AsrProvider != AsrProvider.Custom)
@@ -699,7 +712,9 @@ public sealed class AppSettings : ObservableObject
             ? "localWhisper"
             : JsonNamingPolicy.CamelCase.ConvertName(AsrProvider.ToString()),
         ["asrProtocol"] = respectSwitches && !UseCloudAsr
-            ? "localWhisper"
+            ? AsrProtocol is AsrProtocol.LocalSenseVoice or AsrProtocol.LocalFireRedAsr2Ctc
+                ? JsonNamingPolicy.CamelCase.ConvertName(AsrProtocol.ToString())
+                : "localWhisper"
             : JsonNamingPolicy.CamelCase.ConvertName(AsrProtocol.ToString()),
         ["asrBaseUrl"] = AsrBaseUrl,
         ["asrApiKey"] = AsrApiKey,

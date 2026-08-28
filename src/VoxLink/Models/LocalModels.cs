@@ -26,6 +26,7 @@ public enum LocalModelRuntimeKind
     WhisperCpp,
     LlamaCppGguf,
     SherpaOnnxSenseVoice,
+    SherpaOnnxFireRedAsr2Ctc,
     SherpaOnnxKokoro,
     ManagedPython,
     ManagedWslCuda

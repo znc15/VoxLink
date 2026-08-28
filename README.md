@@ -75,7 +75,7 @@ VRChat OSC 不承载音频，语音模式需第三方虚拟声卡：
 
 ### 本地模型支持
 
-VoxLink 内置常用模型的一键部署：Whisper base / large-v3-turbo、SenseVoice、MiniCPM5-1B、Kokoro-82M。安装后会校验文件大小与 SHA-256；模型与运行时默认保存在 `%LOCALAPPDATA%\VoxLink`，可在「高级设置」中通过系统文件夹选择器改为其他磁盘位置，以减少 C 盘空间占用。
+VoxLink 内置常用模型的一键部署：Whisper base / large-v3-turbo、SenseVoice、FireRedASR2-CTC（中英混合准确率最高）、MiniCPM5-1B、Kokoro-82M。安装后会校验文件大小与 SHA-256；模型与运行时默认保存在 `%LOCALAPPDATA%\VoxLink`，可在「高级设置」中通过系统文件夹选择器改为其他磁盘位置，以减少 C 盘空间占用。
 
 ## 构建
 

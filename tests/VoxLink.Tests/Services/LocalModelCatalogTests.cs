@@ -13,6 +13,7 @@ public sealed class LocalModelCatalogTests
         LocalModelIds.WhisperSmall,
         LocalModelIds.WhisperLargeV3Turbo,
         LocalModelIds.SenseVoiceSmall,
+        LocalModelIds.FireRedAsr2Ctc,
         LocalModelIds.MiniCpm51BGguf,
         LocalModelIds.HyMt15Gguf,
         LocalModelIds.Kokoro82M

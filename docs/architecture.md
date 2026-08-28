@@ -79,7 +79,7 @@ System loopback (inbound) -+          |
 
 `LocalModelCatalog` 可以保留内部兼容性研究元数据，但产品 UI 只公开已经接入 Windows 原生运行时、具有固定下载工件与校验清单且能实际进入管线的条目。当前公开模型严格限定为 Whisper tiny/base/small、`openbmb/MiniCPM5-1B-GGUF` 和 Kokoro-82M；依赖 Python/CUDA、缺少可发布原生工件或受地域许可证限制的 `CatalogOnly` 条目不会出现在界面中，也不会提供安装或选择入口。
 
-VoxLink 1.3.0 起，九个模型全部接入真实运行管线：Whisper tiny/base/small/large-v3-turbo 与 SenseVoice-Small 使用 Windows 原生运行时（Whisper.net / sherpa-onnx）；HY-MT1.5-1.8B / M2M-100 418M / SMaLL-100 使用应用托管的隔离 Windows Python（transformers，哈希锁定依赖）；MOSS-Transcribe-Diarize / dots.tts / CosyVoice2 / Qwen3-TTS 使用私有 `VoxLink-Models` WSL2 发行版 + NVIDIA CUDA。
+VoxLink 1.3.0 起，九个模型全部接入真实运行管线：Whisper tiny/base/small/large-v3-turbo 与 SenseVoice-Small 使用 Windows 原生运行时（Whisper.net / sherpa-onnx）；HY-MT1.5-1.8B / M2M-100 418M / SMaLL-100 使用应用托管的隔离 Windows Python（transformers，哈希锁定依赖）；MOSS-Transcribe-Diarize / dots.tts / CosyVoice2 / Qwen3-TTS 使用私有 `VoxLink-Models` WSL2 发行版 + NVIDIA CUDA。1.6.x 起新增 FireRedASR2-CTC（中英混合 + 20+ 方言），同样走 sherpa-onnx 1.13.4 原生 CTC 推理。完整选型依据见 [docs/asr-models.md](docs/asr-models.md)。
 
 ### 应用托管运行时
 

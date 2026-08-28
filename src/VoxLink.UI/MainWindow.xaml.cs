@@ -467,6 +467,11 @@ public sealed partial class MainWindow : Window
                 Checked: !settings.UseCloudAsr && settings.AsrProtocol == AsrProtocol.LocalSenseVoice,
                 Enabled: canSwitch && Installed(LocalModelIds.SenseVoiceSmall)),
             new(
+                "FireRedASR2-CTC",
+                () => ActivateLocal(LocalModelIds.FireRedAsr2Ctc),
+                Checked: !settings.UseCloudAsr && settings.AsrProtocol == AsrProtocol.LocalFireRedAsr2Ctc,
+                Enabled: canSwitch && Installed(LocalModelIds.FireRedAsr2Ctc)),
+            new(
                 "Soniox",
                 () => SelectAsr(AsrProvider.Soniox),
                 Checked: settings.UseCloudAsr && settings.AsrProvider == AsrProvider.Soniox),

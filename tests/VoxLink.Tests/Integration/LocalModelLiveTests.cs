@@ -200,6 +200,68 @@ public sealed class LocalModelLiveTests
 
     [Fact]
     [Trait("Category", "Live")]
+    public async Task FireRedAsr2Ctc_InstallsTestsAndRemoves()
+    {
+        if (!LiveTestsEnabled())
+        {
+            return;
+        }
+
+        // FireRedASR2-CTC：520 MB 压缩包下载 + sherpa-onnx 1.13.4 CTC 推理。
+        await using var host = new EngineHost((_, _) => { }, startUiHost: false);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(20));
+        var parameters = JsonSerializer.SerializeToElement(new { modelId = LocalModelIds.FireRedAsr2Ctc });
+
+        var installed = await host.HandleAsync(
+            "installLocalModel", parameters, SerializerOptions, timeout.Token);
+        Assert.Equal(
+            "installed",
+            JsonSerializer.SerializeToElement(installed, SerializerOptions)
+                .GetProperty("installState").GetString());
+
+        try
+        {
+            // 无麦克风时 testLocalModel 应报「请先选择麦克风」而非加载错误；
+            // 有麦克风时运行真实识别（有人说话 ok=true / 安静 ok=false）。
+            var devices = new AudioDeviceService().GetCaptureDevices();
+            if (devices.Count > 0)
+            {
+                var settings = JsonSerializer.SerializeToElement(new
+                {
+                    settings = new AppSettings
+                    {
+                        MicrophoneDeviceId = devices[0].Id,
+                        AsrProtocol = AsrProtocol.LocalFireRedAsr2Ctc
+                    }
+                }, SerializerOptions);
+                await host.HandleAsync("initialize", settings, SerializerOptions, timeout.Token);
+
+                var result = await host.HandleAsync(
+                    "testLocalModel", parameters, SerializerOptions, timeout.Token);
+                var json = JsonSerializer.SerializeToElement(result, SerializerOptions);
+                Assert.True(json.TryGetProperty("ok", out _), "应返回 ok 字段");
+                Assert.True(json.TryGetProperty("detail", out _), "应返回 detail 字段");
+            }
+            else
+            {
+                var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    host.HandleAsync(
+                        "testLocalModel", parameters, SerializerOptions, timeout.Token));
+                Assert.Contains("麦克风", exception.Message);
+            }
+        }
+        finally
+        {
+            if (Environment.GetEnvironmentVariable("VOXLINK_KEEP_MODELS") != "1")
+            {
+                await host.HandleAsync(
+                    "removeLocalModel", parameters, SerializerOptions, timeout.Token);
+            }
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Live")]
     public async Task Whisper_TestLocalModelWithMic_CapturesAndReturnsResult()
     {
         if (!LiveTestsEnabled())

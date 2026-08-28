@@ -57,6 +57,7 @@ public sealed class AsrRecognizerFactory : IAsrRecognizerFactory
                 _whisperRecognizer,
                 settings.WhisperModel),
             AsrProtocol.LocalSenseVoice => new LocalSenseVoiceAsrRecognizer(_localModelManager),
+            AsrProtocol.LocalFireRedAsr2Ctc => new LocalFireRedAsr2CtcRecognizer(_localModelManager),
             AsrProtocol.LocalManagedMoss => new ManagedModelHostAsrRecognizer(
                 _managedOrchestrator
                 ?? throw new InvalidOperationException("托管模型编排器未配置，无法使用 MOSS。")),

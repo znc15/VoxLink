@@ -13,6 +13,7 @@ public static class LocalModelIds
     public const string HyMt15Gguf = "hy-mt15-18b-gguf";
     public const string Kokoro82M = "kokoro-82m";
     public const string SenseVoiceSmall = "sensevoice-small";
+    public const string FireRedAsr2Ctc = "fire-red-asr2-ctc";
 
     // 以下 ID 已从公开目录移除，仅供保留的应用托管运行时代码
     // （MOSS ASR / dots.tts / Qwen3-TTS 宿主适配器）引用；
@@ -178,6 +179,33 @@ public static partial class LocalModelCatalog
             [
                 ArchiveArtifact("model.int8.onnx", 237_115_547, "12ca1a2ae7ecf3e0019ef2822307ee0b5cadc9196569e379b4c4026f8205276d"),
                 ArchiveArtifact("tokens.txt", 315_894, "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc")
+            ]
+        },
+        new()
+        {
+            Id = LocalModelIds.FireRedAsr2Ctc,
+            Name = "FireRedASR2-CTC",
+            Category = LocalModelCategory.Asr,
+            SupportLevel = LocalModelSupportLevel.Stable,
+            Runtime = LocalModelRuntimeKind.SherpaOnnxFireRedAsr2Ctc,
+            InstallKind = LocalModelInstallKind.Archive,
+            Parameters = "约 1.2B（int8）",
+            NumericParameterBillions = 1.2,
+            License = "Apache-2.0",
+            Languages = "中英混合、普通话与 20+ 中文方言（粤/川/沪/闽等）",
+            Requirements = "sherpa-onnx CPU 推理，建议内存 ≥ 4 GB；下载约 520 MB",
+            SourceUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models",
+            Description = "FireRedASR2 的 CTC 分支（sherpa-onnx int8 导出），中英识别准确率当前开源最高之一，CPU 上仍保持快速离线识别。",
+            Archive = new LocalModelArchiveSource(
+                "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-fire-red-asr2-ctc-zh_en-int8-2026-02-25.tar.bz2",
+                null,
+                520_516_278,
+                "1da8b737ecc5e29f36759a4460c754863e7c919a4ba325aea187331fbfc83274",
+                "sherpa-onnx-fire-red-asr2-ctc-zh_en-int8-2026-02-25"),
+            Artifacts =
+            [
+                ArchiveArtifact("model.int8.onnx", 775_861_420, "ca3dbabd82170110cc0b343c2890866d449984bc9cd92b9a18371ff80a81bb99"),
+                ArchiveArtifact("tokens.txt", 79_172, "1bc613de2112d257e61a349c3e72d1b1a9cf19c33d3ca954197ad2171e5ea07b")
             ]
         }
     ];

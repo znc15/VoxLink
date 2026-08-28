@@ -71,6 +71,12 @@ public sealed partial class ModelProvidersPage : Page
             return "SenseVoice";
         }
 
+        if (!Controller.Settings.UseCloudAsr
+            && Controller.Settings.AsrProtocol == AsrProtocol.LocalFireRedAsr2Ctc)
+        {
+            return "FireRedAsr2Ctc";
+        }
+
         // tiny / small 已从产品中移除，旧值一律归一到 base。
         return Controller.Settings.WhisperModel.ToLowerInvariant() switch
         {
@@ -94,9 +100,12 @@ public sealed partial class ModelProvidersPage : Page
 
         AsrStatusText.Text = Controller.Settings.UseCloudAsr
             ? Controller.Settings.AllowCloudAudioUpload ? "云端 · 已授权上传" : "云端 · 等待上传授权"
-            : LocalStatus(Controller.Settings.AsrProtocol == AsrProtocol.LocalSenseVoice
-                ? LocalModelIds.SenseVoiceSmall
-                : LocalModelIds.WhisperId(Controller.Settings.WhisperModel));
+            : LocalStatus(Controller.Settings.AsrProtocol switch
+            {
+                AsrProtocol.LocalSenseVoice => LocalModelIds.SenseVoiceSmall,
+                AsrProtocol.LocalFireRedAsr2Ctc => LocalModelIds.FireRedAsr2Ctc,
+                _ => LocalModelIds.WhisperId(Controller.Settings.WhisperModel)
+            });
 
         SpeechStatusText.Text = Controller.Settings.SpeechServiceMode switch
         {
@@ -110,6 +119,7 @@ public sealed partial class ModelProvidersPage : Page
         UpdateLocalOption(WhisperBaseOption, "Whisper base（推荐）", LocalModelIds.WhisperBase);
         UpdateLocalOption(WhisperLargeV3TurboOption, "Whisper large-v3-turbo（最准确）", LocalModelIds.WhisperLargeV3Turbo);
         UpdateLocalOption(SenseVoiceOption, "本地 SenseVoice（更快出字）", LocalModelIds.SenseVoiceSmall);
+        UpdateLocalOption(FireRedAsr2CtcOption, "FireRedASR2-CTC（最准确）", LocalModelIds.FireRedAsr2Ctc);
         UpdateLocalOption(KokoroOption, "本地 Kokoro-82M", LocalModelIds.Kokoro82M);
         var canSelect = !Controller.HasBusyLocalModels && !Controller.IsBusy;
         TranslationBackendBox.IsEnabled = canSelect;
@@ -173,6 +183,7 @@ public sealed partial class ModelProvidersPage : Page
             "WhisperBase" => LocalModelIds.WhisperBase,
             "WhisperLargeV3Turbo" => LocalModelIds.WhisperLargeV3Turbo,
             "SenseVoice" => LocalModelIds.SenseVoiceSmall,
+            "FireRedAsr2Ctc" => LocalModelIds.FireRedAsr2Ctc,
             _ => null
         };
         if (localModelId is not null)
@@ -322,6 +333,7 @@ public sealed partial class ModelProvidersPage : Page
         "WhisperBase" => "Whisper base",
         "WhisperLargeV3Turbo" => "Whisper large-v3-turbo",
         "SenseVoice" => "本地 SenseVoice",
+        "FireRedAsr2Ctc" => "FireRedASR2-CTC",
         "Soniox" => "Soniox",
         "SiliconFlow" => "硅基流动",
         "MiMo" => "小米 MiMo",

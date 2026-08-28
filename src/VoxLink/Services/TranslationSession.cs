@@ -111,6 +111,16 @@ public sealed class TranslationSession : IAsyncDisposable
                 return settings.UseLocalKokoroTextToSpeech;
             }
 
+            if (modelId == LocalModelIds.SenseVoiceSmall)
+            {
+                return settings.AsrProtocol == AsrProtocol.LocalSenseVoice;
+            }
+
+            if (modelId == LocalModelIds.FireRedAsr2Ctc)
+            {
+                return settings.AsrProtocol == AsrProtocol.LocalFireRedAsr2Ctc;
+            }
+
             var whisperModelId = settings.WhisperModel.Trim().ToLowerInvariant() switch
             {
                 "base" => LocalModelIds.WhisperBase,
