@@ -122,40 +122,57 @@
         </Border>
 
         <Border Grid.Row="5" Padding="16,12" Style="{StaticResource PanelBorderStyle}">
-            <Grid ColumnSpacing="12">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <StackPanel VerticalAlignment="Center" Orientation="Horizontal" Spacing="9">
-                    <Grid Width="10" Height="10" VerticalAlignment="Center">
-                        <Ellipse
-                            x:Name="SessionRunningDot"
-                            Fill="{ThemeResource VoxLinkSuccessBrush}"
-                            Visibility="Collapsed" />
-                        <Ellipse
-                            x:Name="SessionStoppedDot"
-                            Fill="{ThemeResource VoxLinkMutedBrush}" />
-                    </Grid>
-                    <StackPanel>
-                        <TextBlock x:Name="SessionStatusText" FontWeight="SemiBold" Text="准备中" />
-                        <TextBlock
-                            x:Name="ModelStatusText"
-                            Style="{StaticResource CaptionStyle}"
-                            Visibility="Collapsed" />
+            <StackPanel Spacing="12">
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center" Orientation="Horizontal" Spacing="9">
+                        <Grid Width="10" Height="10" VerticalAlignment="Center">
+                            <Ellipse
+                                x:Name="SessionRunningDot"
+                                Fill="{ThemeResource VoxLinkSuccessBrush}"
+                                Visibility="Collapsed" />
+                            <Ellipse
+                                x:Name="SessionStoppedDot"
+                                Fill="{ThemeResource VoxLinkMutedBrush}" />
+                        </Grid>
+                        <StackPanel>
+                            <TextBlock x:Name="SessionStatusText" FontWeight="SemiBold" Text="准备中" />
+                            <TextBlock
+                                x:Name="ModelStatusText"
+                                Style="{StaticResource CaptionStyle}"
+                                Visibility="Collapsed" />
+                        </StackPanel>
                     </StackPanel>
+                    <Button
+                        x:Name="SessionButton"
+                        Grid.Column="1"
+                        MinWidth="120"
+                        Click="SessionButton_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon x:Name="SessionButtonIcon" FontSize="14" Glyph="&#xE768;" />
+                            <TextBlock x:Name="SessionButtonText" Text="开始会话" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+
+                <StackPanel Spacing="6">
+                    <RadioButtons
+                        x:Name="QuickStartModeButtons"
+                        Header="启动模式"
+                        MaxColumns="2"
+                        SelectionChanged="QuickStartModeButtons_SelectionChanged">
+                        <RadioButton Content="仅翻译" Tag="TranslateOnly" />
+                        <RadioButton Content="翻译+语音输出" Tag="TranslateAndSpeech" />
+                    </RadioButtons>
+                    <TextBlock
+                        Style="{StaticResource CaptionStyle}"
+                        Text="仅翻译：译文经 Chatbox 发送；翻译+语音输出：译文经虚拟声卡送入 VRChat 语音。"
+                        TextWrapping="Wrap" />
                 </StackPanel>
-                <Button
-                    x:Name="SessionButton"
-                    Grid.Column="1"
-                    MinWidth="120"
-                    Click="SessionButton_Click">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon x:Name="SessionButtonIcon" FontSize="14" Glyph="&#xE768;" />
-                        <TextBlock x:Name="SessionButtonText" Text="开始会话" />
-                    </StackPanel>
-                </Button>
-            </Grid>
+            </StackPanel>
         </Border>
 
         <Border Grid.Row="6" Height="210" Padding="0" Style="{StaticResource PanelBorderStyle}">

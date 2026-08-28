@@ -102,6 +102,55 @@
                 </StackPanel>
             </Border>
             <Border Style="{StaticResource PanelBorderStyle}">
+                <StackPanel Spacing="14">
+                    <StackPanel Spacing="3">
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="输出语音增强与反听" />
+                        <TextBlock
+                            Style="{StaticResource CaptionStyle}"
+                            Text="对送进 VRChat 的译后语音做增益增强，并可选地在本地监听设备实时听到增强后的效果。增益仅作用于语音输出，不影响麦克风输入的识别。"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel Spacing="6">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock FontWeight="SemiBold" Text="输出增益" />
+                            <TextBlock x:Name="OutputVolumeValueText" Grid.Column="1" Style="{StaticResource CaptionStyle}" />
+                        </Grid>
+                        <Slider
+                            x:Name="OutputVolumeSlider"
+                            Minimum="0.5"
+                            Maximum="2.0"
+                            SmallChange="0.05"
+                            StepFrequency="0.05"
+                            Value="{x:Bind Controller.Settings.TtsOutputVolume, Mode=TwoWay}"
+                            ValueChanged="OutputVolumeSlider_ValueChanged" />
+                    </StackPanel>
+                    <ToggleSwitch
+                        x:Name="VoiceMonitorToggle"
+                        Header="反听增强后语音"
+                        IsOn="{x:Bind Controller.Settings.EnableVoiceMonitoring, Mode=TwoWay}"
+                        OffContent="关闭"
+                        OnContent="开启"
+                        Toggled="VoiceMonitorToggle_Toggled" />
+                    <ComboBox
+                        x:Name="VoiceMonitorBox"
+                        Header="监听设备"
+                        DisplayMemberPath="Label"
+                        ItemsSource="{x:Bind Controller.RenderDevices}"
+                        SelectedValuePath="Id"
+                        SelectionChanged="VoiceMonitorBox_SelectionChanged" />
+                    <InfoBar
+                        x:Name="MonitorFeedbackBar"
+                        IsClosable="False"
+                        IsOpen="False"
+                        Severity="Warning"
+                        Message="反听开启且系统音频回环保留原声并通过回环捕获时，经扬声器输出的增强语音会被回环拾取，可能造成回声；请改选耳机监听或关闭系统音频回环。" />
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource PanelBorderStyle}">
                 <StackPanel Spacing="18">
                     <StackPanel Spacing="3">
                         <TextBlock Style="{StaticResource SectionTitleStyle}" Text="语音活动检测" />

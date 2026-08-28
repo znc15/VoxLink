@@ -487,6 +487,26 @@ public sealed class EngineHostTests
     }
 
     [Fact]
+    public void NormalizeSettings_ClampsTtsOutputVolumeToRange()
+    {
+        var oversized = new AppSettings { TtsOutputVolume = 3.0 };
+        EngineHost.NormalizeSettings(oversized);
+        Assert.Equal(2.0, oversized.TtsOutputVolume);
+
+        var undersized = new AppSettings { TtsOutputVolume = 0.1 };
+        EngineHost.NormalizeSettings(undersized);
+        Assert.Equal(0.5, undersized.TtsOutputVolume);
+
+        var nonFinite = new AppSettings { TtsOutputVolume = double.NaN };
+        EngineHost.NormalizeSettings(nonFinite);
+        Assert.Equal(1.0, nonFinite.TtsOutputVolume);
+
+        var inRange = new AppSettings { TtsOutputVolume = 1.25 };
+        EngineHost.NormalizeSettings(inRange);
+        Assert.Equal(1.25, inRange.TtsOutputVolume);
+    }
+
+    [Fact]
     public void NormalizeSettings_ClampsDesktopOverlaySizeFields()
     {
         var oversized = new AppSettings { DesktopOverlayFontSize = 99, DesktopOverlayHeight = 5_000 };

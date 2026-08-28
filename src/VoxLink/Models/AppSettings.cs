@@ -189,6 +189,15 @@ public sealed class AppSettings
 
     public bool SpeakMyTranslation { get; set; } = true;
 
+    /// <summary>TTS 输出增益（0.5–2.0，默认 1.0），仅作用于语音输出，不影响麦克风识别。</summary>
+    public double TtsOutputVolume { get; set; } = 1.0;
+
+    /// <summary>是否开启反听：把增强后的 TTS 音频并行输出到本地监听设备。</summary>
+    public bool EnableVoiceMonitoring { get; set; }
+
+    /// <summary>监听设备 Id（Render 端点，不限于虚拟声卡）。为空则用系统默认输出。</summary>
+    public string VoiceMonitorDeviceId { get; set; } = string.Empty;
+
     public bool ShowOverlay { get; set; } = true;
 
     public bool ShowVrOverlay { get; set; }

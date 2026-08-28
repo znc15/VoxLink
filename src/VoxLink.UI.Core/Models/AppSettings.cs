@@ -139,6 +139,9 @@ public sealed class AppSettings : ObservableObject
     private bool _useLocalKokoroTextToSpeech;
     private int _kokoroSpeakerId = 3;
     private double _kokoroSpeed = 1.0;
+    private double _ttsOutputVolume = 1.0;
+    private bool _enableVoiceMonitoring;
+    private string _voiceMonitorDeviceId = string.Empty;
     private ManagedTtsModel? _managedTtsModel;
     private string _managedTtsReferenceAudioPath = string.Empty;
     private string _managedTtsReferenceText = string.Empty;
@@ -303,6 +306,29 @@ public sealed class AppSettings : ObservableObject
         set => SetProperty(
             ref _kokoroSpeed,
             Math.Clamp(double.IsFinite(value) ? value : 1.0, 0.5, 2.0));
+    }
+
+    /// <summary>TTS 输出增益（0.5–2.0，默认 1.0），仅作用于语音输出，不影响麦克风识别。</summary>
+    public double TtsOutputVolume
+    {
+        get => _ttsOutputVolume;
+        set => SetProperty(
+            ref _ttsOutputVolume,
+            Math.Clamp(double.IsFinite(value) ? value : 1.0, 0.5, 2.0));
+    }
+
+    /// <summary>是否开启反听：把增强后的 TTS 音频并行输出到本地监听设备。</summary>
+    public bool EnableVoiceMonitoring
+    {
+        get => _enableVoiceMonitoring;
+        set => SetProperty(ref _enableVoiceMonitoring, value);
+    }
+
+    /// <summary>监听设备 Id（Render 端点，不限于虚拟声卡）。为空则用系统默认输出。</summary>
+    public string VoiceMonitorDeviceId
+    {
+        get => _voiceMonitorDeviceId;
+        set => SetProperty(ref _voiceMonitorDeviceId, value);
     }
 
     public ManagedTtsModel? ManagedTtsModel
@@ -753,6 +779,9 @@ public sealed class AppSettings : ObservableObject
         ["speakerEmbeddingModel"] = SpeakerEmbeddingModel,
         ["outboundSpeechContent"] = JsonNamingPolicy.CamelCase.ConvertName(OutboundSpeechContent.ToString()),
         ["speakMyTranslation"] = SpeakMyTranslation,
+        ["ttsOutputVolume"] = TtsOutputVolume,
+        ["enableVoiceMonitoring"] = EnableVoiceMonitoring,
+        ["voiceMonitorDeviceId"] = VoiceMonitorDeviceId,
         ["showOverlay"] = ShowOverlay,
         ["showVrOverlay"] = ShowVrOverlay,
         ["vrOverlayWidthMeters"] = VrOverlayWidthMeters,

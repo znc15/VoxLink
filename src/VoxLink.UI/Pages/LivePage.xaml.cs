@@ -13,6 +13,7 @@ public sealed partial class LivePage : Page
 {
     private bool? _isNarrowLanguageLayout;
     private bool _loadingLanguage;
+    private bool _loadingMode;
 
     public LivePage()
     {
@@ -29,6 +30,7 @@ public sealed partial class LivePage : Page
         Controller.PropertyChanged += Controller_PropertyChanged;
         Controller.Messages.CollectionChanged += Messages_CollectionChanged;
         ApplyLanguageSelections();
+        ApplyModeSelection();
         RefreshState();
     }
 
@@ -45,6 +47,7 @@ public sealed partial class LivePage : Page
         if (args.PropertyName == nameof(AppController.Settings))
         {
             ApplyLanguageSelections();
+            ApplyModeSelection();
         }
 
         RefreshState();
@@ -67,6 +70,7 @@ public sealed partial class LivePage : Page
             : Visibility.Visible;
         SessionRunningDot.Visibility = Controller.IsRunning ? Visibility.Visible : Visibility.Collapsed;
         SessionStoppedDot.Visibility = Controller.IsRunning ? Visibility.Collapsed : Visibility.Visible;
+        QuickStartModeButtons.IsEnabled = !Controller.IsRunning && !Controller.IsBusy && Controller.EngineConnected;
         var hasError = !string.IsNullOrWhiteSpace(Controller.ErrorMessage);
         ErrorInfoBar.Message = Controller.ErrorMessage ?? string.Empty;
         ErrorInfoBar.IsOpen = hasError;
@@ -164,6 +168,42 @@ public sealed partial class LivePage : Page
         {
             _loadingLanguage = false;
         }
+    }
+
+    /// <summary>把已保存的启动模式写回模式单选，避免初始化时序或外部变更导致 UI 漂移。</summary>
+    private void ApplyModeSelection()
+    {
+        _loadingMode = true;
+        try
+        {
+            QuickStartModeButtons.SelectedIndex = Controller.Settings.SpeakMyTranslation ? 1 : 0;
+        }
+        finally
+        {
+            _loadingMode = false;
+        }
+    }
+
+    private void QuickStartModeButtons_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (_loadingMode || QuickStartModeButtons.SelectedItem is not RadioButton { Tag: string tag })
+        {
+            return;
+        }
+
+        var speakMyTranslation = tag == "TranslateAndSpeech";
+        if (Controller.Settings.SpeakMyTranslation == speakMyTranslation)
+        {
+            return;
+        }
+
+        Controller.Settings.SpeakMyTranslation = speakMyTranslation;
+        if (speakMyTranslation)
+        {
+            Controller.EnsureVirtualCableSelected();
+        }
+
+        Controller.NotifySettingsChanged();
     }
 
     private void ErrorInfoBar_Closed(InfoBar sender, InfoBarClosedEventArgs args)

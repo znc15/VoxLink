@@ -70,6 +70,7 @@ public sealed partial class AudioPage : Page
         MicrophoneBox.SelectedValue = Controller.Settings.MicrophoneDeviceId;
         LoopbackBox.SelectedValue = Controller.Settings.SystemAudioDeviceId;
         VoiceOutputBox.SelectedValue = Controller.Settings.VoiceOutputDeviceId;
+        VoiceMonitorBox.SelectedValue = Controller.Settings.VoiceMonitorDeviceId;
     }
     private void Devices_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs args) =>
         ReapplyDeviceSelections();
@@ -77,9 +78,17 @@ public sealed partial class AudioPage : Page
     {
         ThresholdValueText.Text = Controller.Settings.VoiceThreshold.ToString("0.000");
         SilenceValueText.Text = $"{Controller.Settings.SilenceDurationMs} ms";
+        OutputVolumeValueText.Text = Controller.Settings.TtsOutputVolume.ToString("0%");
         AudioErrorBar.Message = Controller.ErrorMessage ?? string.Empty;
         AudioErrorBar.IsOpen = !string.IsNullOrWhiteSpace(Controller.ErrorMessage);
         RestartHintBar.IsOpen = Controller.NeedsSessionRestart;
+
+        var unlocked = !Controller.IsRunning && !Controller.IsBusy;
+        OutputVolumeSlider.IsEnabled = unlocked;
+        VoiceMonitorToggle.IsEnabled = unlocked;
+        VoiceMonitorBox.IsEnabled = unlocked && Controller.Settings.EnableVoiceMonitoring;
+        MonitorFeedbackBar.IsOpen = Controller.Settings.EnableVoiceMonitoring
+            && Controller.Settings.CaptureSystemAudio;
     }
 
     private void Device_SelectionChanged(object sender, SelectionChangedEventArgs args)
@@ -146,6 +155,45 @@ public sealed partial class AudioPage : Page
             RefreshState();
         }
     }
+
+    private void OutputVolumeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs args)
+    {
+        if (!_loading)
+        {
+            RefreshState();
+        }
+    }
+
+    private void VoiceMonitorToggle_Toggled(object sender, RoutedEventArgs args)
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        if (Controller.Settings.EnableVoiceMonitoring)
+        {
+            // 开启反听时若尚未选择监听设备，回退到系统默认输出（Settings 用空串表示默认）。
+            Controller.NotifySettingsChanged();
+        }
+
+        RefreshState();
+    }
+
+    private void VoiceMonitorBox_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        if (VoiceMonitorBox.SelectedValue is string { Length: > 0 } monitorId)
+        {
+            Controller.Settings.VoiceMonitorDeviceId = monitorId;
+            Controller.NotifySettingsChanged();
+        }
+    }
+
     private void AudioErrorBar_Closed(InfoBar sender, InfoBarClosedEventArgs args) =>
         Controller.DismissError();
 }

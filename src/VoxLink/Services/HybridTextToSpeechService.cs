@@ -6,6 +6,7 @@ using EdgeTTS.DotNet;
 using EdgeTTS.DotNet.Models;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
+using VoxLink.Audio;
 using VoxLink.Models;
 
 namespace VoxLink.Services;
@@ -25,7 +26,7 @@ public sealed class HybridTextToSpeechService :
     private readonly SemaphoreSlim _speechGate = new(1, 1);
     private readonly TaskCompletionSource _disposeCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly object _playbackSync = new();
-    private WasapiOut? _activeOutput;
+    private readonly List<WasapiOut> _activeOutputs = new();
     private SpeechSynthesizer? _activeSynthesizer;
     private CancellationTokenSource? _activeSpeech;
     private volatile bool _isSpeaking;
@@ -180,6 +181,8 @@ public sealed class HybridTextToSpeechService :
                         generated.Samples,
                         generated.SampleRate,
                         outputDeviceId,
+                        settings.VoiceMonitorDeviceId,
+                        settings.EnableVoiceMonitoring,
                         linkedCancellation.Token);
                     return;
                 }
@@ -199,7 +202,12 @@ public sealed class HybridTextToSpeechService :
                             : settings.ManagedTtsReferenceText,
                         linkedCancellation.Token);
                     using var reader = new AudioFileReader(wavPath);
-                    await PlayAsync(reader, outputDeviceId, linkedCancellation.Token);
+                    await PlayAsync(
+                        reader,
+                        outputDeviceId,
+                        settings.VoiceMonitorDeviceId,
+                        settings.EnableVoiceMonitoring,
+                        linkedCancellation.Token);
                     return;
                 }
                 if (settings.UseRemoteTextToSpeech)
@@ -214,6 +222,8 @@ public sealed class HybridTextToSpeechService :
                         await PlayEncodedAudioAsync(
                             audio,
                             outputDeviceId,
+                            settings.VoiceMonitorDeviceId,
+                            settings.EnableVoiceMonitoring,
                             linkedCancellation.Token);
                         return;
                     }
@@ -228,6 +238,8 @@ public sealed class HybridTextToSpeechService :
                     text,
                     language,
                     outputDeviceId,
+                    settings.VoiceMonitorDeviceId,
+                    settings.EnableVoiceMonitoring,
                     linkedCancellation.Token);
             }
             finally
@@ -252,6 +264,8 @@ public sealed class HybridTextToSpeechService :
         string text,
         LanguageOption language,
         string? outputDeviceId,
+        string? monitorDeviceId,
+        bool enableMonitoring,
         CancellationToken cancellationToken)
     {
         try
@@ -261,7 +275,7 @@ public sealed class HybridTextToSpeechService :
                 throw new EdgeTTSException("Edge TTS disabled for this service instance.");
             }
 
-            await SpeakWithEdgeAsync(text, language, outputDeviceId, cancellationToken);
+            await SpeakWithEdgeAsync(text, language, outputDeviceId, monitorDeviceId, enableMonitoring, cancellationToken);
         }
         catch (Exception exception) when (
             IsRecoverableOnlineFailure(exception)
@@ -269,13 +283,13 @@ public sealed class HybridTextToSpeechService :
         {
             try
             {
-                await SpeakWithGoogleAsync(text, language, outputDeviceId, cancellationToken);
+                await SpeakWithGoogleAsync(text, language, outputDeviceId, monitorDeviceId, enableMonitoring, cancellationToken);
             }
             catch (Exception googleException) when (
                 IsRecoverableOnlineFailure(googleException)
                 && !cancellationToken.IsCancellationRequested)
             {
-                await SpeakWithWindowsAsync(text, language, outputDeviceId, cancellationToken);
+                await SpeakWithWindowsAsync(text, language, outputDeviceId, monitorDeviceId, enableMonitoring, cancellationToken);
             }
         }
     }
@@ -284,7 +298,10 @@ public sealed class HybridTextToSpeechService :
         lock (_playbackSync)
         {
             _activeSpeech?.Cancel();
-            _activeOutput?.Stop();
+            foreach (var output in _activeOutputs)
+            {
+                output.Stop();
+            }
             _activeSynthesizer?.SpeakAsyncCancelAll();
             _localKokoroRuntime?.UnloadWhenIdle();
         }
@@ -306,8 +323,12 @@ public sealed class HybridTextToSpeechService :
             {
                 lock (_playbackSync)
                 {
-                    _activeOutput?.Dispose();
-                    _activeOutput = null;
+                    foreach (var output in _activeOutputs)
+                    {
+                        output.Stop();
+                        output.Dispose();
+                    }
+                    _activeOutputs.Clear();
                     _activeSynthesizer?.Dispose();
                     _activeSynthesizer = null;
                     _activeSpeech?.Dispose();
@@ -336,6 +357,8 @@ public sealed class HybridTextToSpeechService :
         string text,
         LanguageOption language,
         string? outputDeviceId,
+        string? monitorDeviceId,
+        bool enableMonitoring,
         CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -357,13 +380,15 @@ public sealed class HybridTextToSpeechService :
 
         audio.Position = 0;
         using var reader = new Mp3FileReader(audio);
-        await PlayAsync(reader, outputDeviceId, cancellationToken);
+        await PlayAsync(reader, outputDeviceId, monitorDeviceId, enableMonitoring, cancellationToken);
     }
 
     private async Task SpeakWithGoogleAsync(
         string text,
         LanguageOption language,
         string? outputDeviceId,
+        string? monitorDeviceId,
+        bool enableMonitoring,
         CancellationToken cancellationToken)
     {
         foreach (var chunk in SplitText(text, 180))
@@ -384,7 +409,7 @@ public sealed class HybridTextToSpeechService :
 
             using var stream = new MemoryStream(audio, writable: false);
             using var reader = new Mp3FileReader(stream);
-            await PlayAsync(reader, outputDeviceId, cancellationToken);
+            await PlayAsync(reader, outputDeviceId, monitorDeviceId, enableMonitoring, cancellationToken);
         }
     }
 
@@ -392,6 +417,8 @@ public sealed class HybridTextToSpeechService :
         string text,
         LanguageOption language,
         string? outputDeviceId,
+        string? monitorDeviceId,
+        bool enableMonitoring,
         CancellationToken cancellationToken)
     {
         using var waveStream = new MemoryStream();
@@ -459,12 +486,14 @@ public sealed class HybridTextToSpeechService :
 
         waveStream.Position = 0;
         using var reader = new WaveFileReader(waveStream);
-        await PlayAsync(reader, outputDeviceId, cancellationToken);
+        await PlayAsync(reader, outputDeviceId, monitorDeviceId, enableMonitoring, cancellationToken);
     }
 
     private async Task PlayEncodedAudioAsync(
         byte[] audio,
         string? outputDeviceId,
+        string? monitorDeviceId,
+        bool enableMonitoring,
         CancellationToken cancellationToken)
     {
         using var stream = new MemoryStream(audio, writable: false);
@@ -473,17 +502,19 @@ public sealed class HybridTextToSpeechService :
             && audio.AsSpan(8, 4).SequenceEqual("WAVE"u8))
         {
             using var reader = new WaveFileReader(stream);
-            await PlayAsync(reader, outputDeviceId, cancellationToken);
+            await PlayAsync(reader, outputDeviceId, monitorDeviceId, enableMonitoring, cancellationToken);
             return;
         }
 
         using var mp3Reader = new Mp3FileReader(stream);
-        await PlayAsync(mp3Reader, outputDeviceId, cancellationToken);
+        await PlayAsync(mp3Reader, outputDeviceId, monitorDeviceId, enableMonitoring, cancellationToken);
     }
     private async Task PlayFloatAudioAsync(
         float[] samples,
         int sampleRate,
         string? outputDeviceId,
+        string? monitorDeviceId,
+        bool enableMonitoring,
         CancellationToken cancellationToken)
     {
         if (samples.Length == 0 || sampleRate is < 8_000 or > 192_000)
@@ -497,20 +528,81 @@ public sealed class HybridTextToSpeechService :
         using var provider = new RawSourceWaveStream(
             stream,
             WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels: 1));
-        await PlayAsync(provider, outputDeviceId, cancellationToken);
+        await PlayAsync(provider, outputDeviceId, monitorDeviceId, enableMonitoring, cancellationToken);
     }
 
     private async Task PlayAsync(
         IWaveProvider provider,
         string? outputDeviceId,
+        string? monitorDeviceId,
+        bool enableMonitoring,
         CancellationToken cancellationToken)
     {
+        var enhanced = BuildEnhancedWaveProvider(provider, _settings);
+
+        // 反听：把增强后的同一份流 materialize 一次到内存，双路各持独立 reader，
+        // 保证送入虚拟声卡与听到的是同一份优化后音频（AC-3）。
+        IWaveProvider cableReader = enhanced;
+        IWaveProvider? monitorReader = null;
+        if (enableMonitoring && !string.IsNullOrWhiteSpace(monitorDeviceId))
+        {
+            var (data, format) = MaterializeWave(enhanced, cancellationToken);
+            cableReader = new RawSourceWaveStream(new MemoryStream(data, writable: false), format);
+            monitorReader = new RawSourceWaveStream(new MemoryStream(data, writable: false), format);
+        }
+
         using var enumerator = new MMDeviceEnumerator();
-        using var device = ResolveOutputDevice(enumerator, outputDeviceId);
-        using var output = new WasapiOut(device, AudioClientShareMode.Shared, useEventSync: true, latency: 100);
+        using var cableDevice = ResolveOutputDevice(enumerator, outputDeviceId);
+
+        var outputs = new List<WasapiOut>();
+        var completions = new List<Task>();
+        try
+        {
+            var cable = new WasapiOut(cableDevice, AudioClientShareMode.Shared, useEventSync: true, latency: 100);
+            outputs.Add(cable);
+            completions.Add(PlayOutput(cable, cableReader, cancellationToken));
+
+            if (monitorReader is not null)
+            {
+                using var monitorDevice = ResolveOutputDevice(enumerator, monitorDeviceId);
+                // 硬守卫：监听==虚拟声卡时跳过（同端点双写导致音量翻倍/削波）。
+                if (!string.Equals(cableDevice.ID, monitorDevice.ID, StringComparison.OrdinalIgnoreCase))
+                {
+                    var monitor = new WasapiOut(monitorDevice, AudioClientShareMode.Shared, useEventSync: true, latency: 100);
+                    outputs.Add(monitor);
+                    completions.Add(PlayOutput(monitor, monitorReader, cancellationToken));
+                }
+            }
+
+            lock (_playbackSync)
+            {
+                _activeOutputs.AddRange(outputs);
+            }
+
+            // 注意：Init/provider 绑定发生在 PlayOutput 内；任一路 Init 失败都由 finally 统一停止/释放该批输出。
+            await Task.WhenAll(completions).WaitAsync(cancellationToken);
+        }
+        finally
+        {
+            lock (_playbackSync)
+            {
+                foreach (var output in outputs)
+                {
+                    output.Stop();
+                    output.Dispose();
+                    _activeOutputs.Remove(output);
+                }
+            }
+        }
+    }
+
+    private static Task PlayOutput(WasapiOut output, IWaveProvider provider, CancellationToken cancellationToken)
+    {
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registration = cancellationToken.Register(output.Stop);
         output.PlaybackStopped += (_, eventArgs) =>
         {
+            registration.Dispose();
             if (eventArgs.Exception is not null)
             {
                 completion.TrySetException(eventArgs.Exception);
@@ -520,28 +612,41 @@ public sealed class HybridTextToSpeechService :
                 completion.TrySetResult();
             }
         };
-        lock (_playbackSync)
+        output.Init(provider);
+        output.Play();
+        return completion.Task.WaitAsync(cancellationToken);
+    }
+
+    /// <summary>把任意 IWaveProvider 归一化为 float 样本管线并应用输出增益 + tanh 软限幅。</summary>
+    private static IWaveProvider BuildEnhancedWaveProvider(IWaveProvider provider, AppSettings settings)
+    {
+        var sampleProvider = provider.ToSampleProvider();
+        var gain = settings.TtsOutputVolume;
+        var enhanced = Math.Abs(gain - 1.0) > 0.0001
+            ? new GainLimiterSampleProvider(sampleProvider, gain)
+            : sampleProvider;
+        return enhanced.ToWaveProvider();
+    }
+
+    /// <summary>把增强后 provider 一次性读入内存，供双路 WasapiOut 独立读取。</summary>
+    private static (byte[] Data, WaveFormat Format) MaterializeWave(IWaveProvider provider, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        using var output = new MemoryStream();
+        var buffer = new byte[Math.Max(4096, provider.WaveFormat.AverageBytesPerSecond)];
+        while (true)
         {
-            _activeOutput = output;
+            cancellationToken.ThrowIfCancellationRequested();
+            var read = provider.Read(buffer, 0, buffer.Length);
+            if (read <= 0)
+            {
+                break;
+            }
+
+            output.Write(buffer, 0, read);
         }
 
-        try
-        {
-            using var registration = cancellationToken.Register(output.Stop);
-            output.Init(provider);
-            output.Play();
-            await completion.Task.WaitAsync(cancellationToken);
-        }
-        finally
-        {
-            lock (_playbackSync)
-            {
-                if (ReferenceEquals(_activeOutput, output))
-                {
-                    _activeOutput = null;
-                }
-            }
-        }
+        return (output.ToArray(), provider.WaveFormat);
     }
 
     private static MMDevice ResolveOutputDevice(MMDeviceEnumerator enumerator, string? deviceId)

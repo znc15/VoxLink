@@ -705,6 +705,8 @@ internal sealed class EngineHost : IAsyncDisposable
             double.IsFinite(settings.KokoroSpeed) ? settings.KokoroSpeed : 1.0,
             LocalKokoroTtsRuntime.MinimumSpeed,
             LocalKokoroTtsRuntime.MaximumSpeed);
+        var ttsVolume = settings.TtsOutputVolume;
+        settings.TtsOutputVolume = double.IsFinite(ttsVolume) ? Math.Clamp(ttsVolume, 0.5, 2.0) : 1.0;
         settings.DesktopOverlayFontSize = Math.Clamp(settings.DesktopOverlayFontSize, 14, 40);
         if (settings.DesktopOverlayHeight is { } overlayHeight)
         {

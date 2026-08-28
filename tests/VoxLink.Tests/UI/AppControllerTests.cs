@@ -86,7 +86,10 @@ public sealed class AppControllerTests
             DesktopOverlayTopmost = false,
             DesktopOverlayLockPosition = false,
             LocalModelDirectory = @"D:\VoxLinkModels",
-            ManagedRuntimeDirectory = @"E:\VoxLinkRuntimes"
+            ManagedRuntimeDirectory = @"E:\VoxLinkRuntimes",
+            TtsOutputVolume = 1.5,
+            EnableVoiceMonitoring = true,
+            VoiceMonitorDeviceId = "monitor-1"
         };
 
         var json = JsonSerializer.Serialize(settings.ToEngineJson(), EngineJsonOptions);
@@ -121,6 +124,9 @@ public sealed class AppControllerTests
         Assert.Equal("speaker-model", engineSettings.SpeakerEmbeddingModel);
         Assert.Equal(VoxLink.Models.OutboundSpeechContent.Original, engineSettings.OutboundSpeechContent);
         Assert.False(engineSettings.SpeakMyTranslation);
+        Assert.Equal(1.5, engineSettings.TtsOutputVolume, precision: 3);
+        Assert.True(engineSettings.EnableVoiceMonitoring);
+        Assert.Equal("monitor-1", engineSettings.VoiceMonitorDeviceId);
         Assert.False(engineSettings.ShowOverlay);
         Assert.True(engineSettings.ShowVrOverlay);
         Assert.Equal(2.1, engineSettings.VrOverlayWidthMeters);
