@@ -462,6 +462,30 @@ public sealed class SettingsRepositoryTests : IDisposable
     }
 
     [Fact]
+    public async Task TranscriptionCleanup_RoundTripsAndReachesEngineJson()
+    {
+        var repository = CreateRepository();
+        var settings = new AppSettings
+        {
+            TranscriptionCleanupEnabled = true,
+            TranscriptionCleanupPrompt = "只修正明显口误，不改变原意。",
+            UseAiTranslation = true,
+            TranslationBackend = TranslationBackend.DeepSeek
+        };
+
+        await repository.SaveAsync(settings);
+        var loaded = await repository.LoadAsync();
+
+        Assert.True(loaded.TranscriptionCleanupEnabled);
+        Assert.Equal("只修正明显口误，不改变原意。", loaded.TranscriptionCleanupPrompt);
+        Assert.True(Assert.IsType<bool>(
+            loaded.ToEngineJson()["transcriptionCleanupEnabled"]));
+        Assert.Equal(
+            "只修正明显口误，不改变原意。",
+            Assert.IsType<string>(loaded.ToEngineJson()["transcriptionCleanupPrompt"]));
+    }
+
+    [Fact]
     public async Task LoadAsync_CorruptCurrentSettingsDoesNotMigrateOrOverwrite()
     {
         Directory.CreateDirectory(_directory);

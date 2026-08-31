@@ -98,6 +98,38 @@
             <Border Style="{StaticResource PanelBorderStyle}">
                 <StackPanel Spacing="14">
                     <StackPanel Spacing="3">
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="转写纠错" />
+                        <TextBlock Style="{StaticResource CaptionStyle}" Text="用本地小模型或云端 AI 修正最终转写中的明显口误、重复词和识别错误；流式临时字幕不会上传或修改。" />
+                    </StackPanel>
+
+                    <ToggleSwitch
+                        x:Name="TranscriptionCleanupSwitch"
+                        Header="启用最终转写纠错"
+                        IsOn="{x:Bind Controller.Settings.TranscriptionCleanupEnabled, Mode=TwoWay}"
+                        OffContent="关闭"
+                        OnContent="开启"
+                        Toggled="TranscriptionCleanupSwitch_Toggled" />
+                    <InfoBar
+                        x:Name="TranscriptionCleanupHintBar"
+                        IsClosable="False"
+                        IsOpen="False"
+                        Message="转写纠错需要开启「使用 AI 翻译」，并选择支持文本生成的本地或云端模型服务。"
+                        Severity="Warning" />
+                    <TextBox
+                        x:Name="TranscriptionCleanupPromptBox"
+                        AcceptsReturn="True"
+                        Header="纠错要求"
+                        MaxHeight="120"
+                        PlaceholderText="例如：只修正口误和重复词，保留人名、数字与原意"
+                        Text="{x:Bind Controller.Settings.TranscriptionCleanupPrompt, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                        TextChanged="TranscriptionCleanupPromptBox_TextChanged"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource PanelBorderStyle}">
+                <StackPanel Spacing="14">
+                    <StackPanel Spacing="3">
                         <TextBlock Style="{StaticResource SectionTitleStyle}" Text="朗读口语化" />
                         <TextBlock Style="{StaticResource CaptionStyle}" Text="朗读前用 AI 把内容改写得更口语、更自然，避免生硬拗口。需要开启 AI 翻译并使用公共免密以外的模型服务。" />
                     </StackPanel>
@@ -122,6 +154,7 @@
                         MaxHeight="120"
                         PlaceholderText="例如：用朋友聊天的语气，简短自然，不要书面语"
                         Text="{x:Bind Controller.Settings.SpeechRefinementPrompt, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                        TextChanged="SpeechRefinementPromptBox_TextChanged"
                         TextWrapping="Wrap" />
                 </StackPanel>
             </Border>

@@ -70,10 +70,22 @@ public sealed partial class AudioPage : Page
         MicrophoneBox.SelectedValue = Controller.Settings.MicrophoneDeviceId;
         LoopbackBox.SelectedValue = Controller.Settings.SystemAudioDeviceId;
         VoiceOutputBox.SelectedValue = Controller.Settings.VoiceOutputDeviceId;
-        VoiceMonitorBox.SelectedValue = Controller.Settings.VoiceMonitorDeviceId;
+        VoiceMonitorBox.SelectedValue = string.IsNullOrWhiteSpace(Controller.Settings.VoiceMonitorDeviceId)
+            ? Controller.RenderDevices.FirstOrDefault(device => device.IsDefault)?.Id
+            : Controller.Settings.VoiceMonitorDeviceId;
     }
-    private void Devices_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs args) =>
-        ReapplyDeviceSelections();
+    private void Devices_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs args)
+    {
+        _loading = true;
+        try
+        {
+            ReapplyDeviceSelections();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
     private void RefreshState()
     {
         ThresholdValueText.Text = Controller.Settings.VoiceThreshold.ToString("0.000");
@@ -160,6 +172,7 @@ public sealed partial class AudioPage : Page
     {
         if (!_loading)
         {
+            Controller.NotifySettingsChanged();
             RefreshState();
         }
     }
@@ -171,12 +184,7 @@ public sealed partial class AudioPage : Page
             return;
         }
 
-        if (Controller.Settings.EnableVoiceMonitoring)
-        {
-            // 开启反听时若尚未选择监听设备，回退到系统默认输出（Settings 用空串表示默认）。
-            Controller.NotifySettingsChanged();
-        }
-
+        Controller.NotifySettingsChanged();
         RefreshState();
     }
 
@@ -189,7 +197,10 @@ public sealed partial class AudioPage : Page
 
         if (VoiceMonitorBox.SelectedValue is string { Length: > 0 } monitorId)
         {
-            Controller.Settings.VoiceMonitorDeviceId = monitorId;
+            var selected = Controller.RenderDevices.FirstOrDefault(device => device.Id == monitorId);
+            Controller.Settings.VoiceMonitorDeviceId = selected?.IsDefault == true
+                ? string.Empty
+                : monitorId;
             Controller.NotifySettingsChanged();
         }
     }

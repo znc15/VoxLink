@@ -295,16 +295,22 @@ public sealed class HybridTextToSpeechService :
     }
     public void Stop()
     {
+        WasapiOut[] outputs;
+        SpeechSynthesizer? synthesizer;
         lock (_playbackSync)
         {
             _activeSpeech?.Cancel();
-            foreach (var output in _activeOutputs)
-            {
-                output.Stop();
-            }
-            _activeSynthesizer?.SpeakAsyncCancelAll();
-            _localKokoroRuntime?.UnloadWhenIdle();
+            outputs = [.. _activeOutputs];
+            synthesizer = _activeSynthesizer;
         }
+
+        foreach (var output in outputs)
+        {
+            TryStopOutput(output);
+        }
+
+        synthesizer?.SpeakAsyncCancelAll();
+        _localKokoroRuntime?.UnloadWhenIdle();
     }
 
     public async ValueTask DisposeAsync()
@@ -321,22 +327,35 @@ public sealed class HybridTextToSpeechService :
             await _speechGate.WaitAsync();
             try
             {
+                WasapiOut[] outputs;
+                SpeechSynthesizer? synthesizer;
+                CancellationTokenSource? activeSpeech;
+                ManagedModelHostTtsSynthesizer? managedTts;
                 lock (_playbackSync)
                 {
-                    foreach (var output in _activeOutputs)
-                    {
-                        output.Stop();
-                        output.Dispose();
-                    }
+                    outputs = [.. _activeOutputs];
                     _activeOutputs.Clear();
-                    _activeSynthesizer?.Dispose();
+                    synthesizer = _activeSynthesizer;
                     _activeSynthesizer = null;
-                    _activeSpeech?.Dispose();
+                    activeSpeech = _activeSpeech;
                     _activeSpeech = null;
-                    _localKokoroRuntime?.Dispose();
-                    _managedTts?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                    managedTts = _managedTts;
                     _managedTts = null;
                     _isSpeaking = false;
+                }
+
+                foreach (var output in outputs)
+                {
+                    TryStopOutput(output);
+                    output.Dispose();
+                }
+
+                synthesizer?.Dispose();
+                activeSpeech?.Dispose();
+                _localKokoroRuntime?.Dispose();
+                if (managedTts is not null)
+                {
+                    await managedTts.DisposeAsync();
                 }
             }
             finally
@@ -538,17 +557,27 @@ public sealed class HybridTextToSpeechService :
         bool enableMonitoring,
         CancellationToken cancellationToken)
     {
-        var enhanced = BuildEnhancedWaveProvider(provider, _settings);
+        AppSettings settings;
+        lock (_playbackSync)
+        {
+            settings = _settings.Clone();
+        }
+
+        var enhanced = BuildEnhancedWaveProvider(provider, settings);
 
         // 反听：把增强后的同一份流 materialize 一次到内存，双路各持独立 reader，
         // 保证送入虚拟声卡与听到的是同一份优化后音频（AC-3）。
         IWaveProvider cableReader = enhanced;
         IWaveProvider? monitorReader = null;
-        if (enableMonitoring && !string.IsNullOrWhiteSpace(monitorDeviceId))
+        RawSourceWaveStream? materializedCableReader = null;
+        RawSourceWaveStream? materializedMonitorReader = null;
+        if (enableMonitoring)
         {
             var (data, format) = MaterializeWave(enhanced, cancellationToken);
-            cableReader = new RawSourceWaveStream(new MemoryStream(data, writable: false), format);
-            monitorReader = new RawSourceWaveStream(new MemoryStream(data, writable: false), format);
+            materializedCableReader = new RawSourceWaveStream(new MemoryStream(data, writable: false), format);
+            materializedMonitorReader = new RawSourceWaveStream(new MemoryStream(data, writable: false), format);
+            cableReader = materializedCableReader;
+            monitorReader = materializedMonitorReader;
         }
 
         using var enumerator = new MMDeviceEnumerator();
@@ -560,6 +589,10 @@ public sealed class HybridTextToSpeechService :
         {
             var cable = new WasapiOut(cableDevice, AudioClientShareMode.Shared, useEventSync: true, latency: 100);
             outputs.Add(cable);
+            lock (_playbackSync)
+            {
+                _activeOutputs.Add(cable);
+            }
             completions.Add(PlayOutput(cable, cableReader, cancellationToken));
 
             if (monitorReader is not null)
@@ -570,13 +603,12 @@ public sealed class HybridTextToSpeechService :
                 {
                     var monitor = new WasapiOut(monitorDevice, AudioClientShareMode.Shared, useEventSync: true, latency: 100);
                     outputs.Add(monitor);
+                    lock (_playbackSync)
+                    {
+                        _activeOutputs.Add(monitor);
+                    }
                     completions.Add(PlayOutput(monitor, monitorReader, cancellationToken));
                 }
-            }
-
-            lock (_playbackSync)
-            {
-                _activeOutputs.AddRange(outputs);
             }
 
             // 注意：Init/provider 绑定发生在 PlayOutput 内；任一路 Init 失败都由 finally 统一停止/释放该批输出。
@@ -584,25 +616,37 @@ public sealed class HybridTextToSpeechService :
         }
         finally
         {
+            var ownedOutputs = new List<WasapiOut>(outputs.Count);
             lock (_playbackSync)
             {
                 foreach (var output in outputs)
                 {
-                    output.Stop();
-                    output.Dispose();
-                    _activeOutputs.Remove(output);
+                    if (_activeOutputs.Remove(output))
+                    {
+                        ownedOutputs.Add(output);
+                    }
                 }
             }
+
+            foreach (var output in ownedOutputs)
+            {
+                TryStopOutput(output);
+                output.Dispose();
+            }
+
+            materializedMonitorReader?.Dispose();
+            materializedCableReader?.Dispose();
         }
     }
 
-    private static Task PlayOutput(WasapiOut output, IWaveProvider provider, CancellationToken cancellationToken)
+    private static async Task PlayOutput(
+        WasapiOut output,
+        IWaveProvider provider,
+        CancellationToken cancellationToken)
     {
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var registration = cancellationToken.Register(output.Stop);
-        output.PlaybackStopped += (_, eventArgs) =>
+        void OnPlaybackStopped(object? sender, StoppedEventArgs eventArgs)
         {
-            registration.Dispose();
             if (eventArgs.Exception is not null)
             {
                 completion.TrySetException(eventArgs.Exception);
@@ -611,14 +655,39 @@ public sealed class HybridTextToSpeechService :
             {
                 completion.TrySetResult();
             }
-        };
-        output.Init(provider);
-        output.Play();
-        return completion.Task.WaitAsync(cancellationToken);
+        }
+
+        output.PlaybackStopped += OnPlaybackStopped;
+        using var registration = cancellationToken.Register(
+            static state => TryStopOutput((WasapiOut)state!),
+            output);
+        try
+        {
+            output.Init(provider);
+            output.Play();
+            await completion.Task.WaitAsync(cancellationToken);
+        }
+        finally
+        {
+            output.PlaybackStopped -= OnPlaybackStopped;
+        }
+    }
+
+    /// <summary>停止可能已被并发播放清理释放的输出，不让清理竞态覆盖真实播放结果。</summary>
+    private static void TryStopOutput(WasapiOut output)
+    {
+        try
+        {
+            output.Stop();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Stop() 与播放 finally 可能同时拿到同一输出；已释放等同于已经停止。
+        }
     }
 
     /// <summary>把任意 IWaveProvider 归一化为 float 样本管线并应用输出增益 + tanh 软限幅。</summary>
-    private static IWaveProvider BuildEnhancedWaveProvider(IWaveProvider provider, AppSettings settings)
+    internal static IWaveProvider BuildEnhancedWaveProvider(IWaveProvider provider, AppSettings settings)
     {
         var sampleProvider = provider.ToSampleProvider();
         var gain = settings.TtsOutputVolume;
@@ -629,7 +698,9 @@ public sealed class HybridTextToSpeechService :
     }
 
     /// <summary>把增强后 provider 一次性读入内存，供双路 WasapiOut 独立读取。</summary>
-    private static (byte[] Data, WaveFormat Format) MaterializeWave(IWaveProvider provider, CancellationToken cancellationToken)
+    internal static (byte[] Data, WaveFormat Format) MaterializeWave(
+        IWaveProvider provider,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(provider);
         using var output = new MemoryStream();

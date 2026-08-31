@@ -109,6 +109,14 @@ public sealed partial class SpeechPage : Page
         VoiceRouteInfoBar.Message = Controller.VoiceRouteStatus;
         SpeechErrorBar.Message = Controller.ErrorMessage ?? string.Empty;
         SpeechErrorBar.IsOpen = !string.IsNullOrWhiteSpace(Controller.ErrorMessage);
+        var unlocked = !Controller.IsRunning && !Controller.IsBusy;
+        TranscriptionCleanupSwitch.IsEnabled = unlocked;
+        TranscriptionCleanupPromptBox.IsEnabled = unlocked
+            && Controller.Settings.TranscriptionCleanupEnabled;
+        SpeechRefinementSwitch.IsEnabled = unlocked;
+        SpeechRefinementPromptBox.IsEnabled = unlocked
+            && Controller.Settings.SpeechRefinementEnabled;
+        RefreshTranscriptionCleanupHint();
         RefreshSpeechRefinementHint();
     }
 
@@ -158,8 +166,47 @@ public sealed partial class SpeechPage : Page
         Controller.NotifySettingsChanged();
     }
 
-    private void SpeechRefinementSwitch_Toggled(object sender, RoutedEventArgs args) =>
-        RefreshSpeechRefinementHint();
+    private void TranscriptionCleanupSwitch_Toggled(object sender, RoutedEventArgs args)
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        Controller.NotifySettingsChanged();
+        RefreshState();
+    }
+
+    private void TranscriptionCleanupPromptBox_TextChanged(object sender, TextChangedEventArgs args)
+    {
+        if (!_loading)
+        {
+            Controller.NotifySettingsChanged();
+        }
+    }
+
+    private void RefreshTranscriptionCleanupHint() =>
+        TranscriptionCleanupHintBar.IsOpen = TranscriptionCleanupSwitch.IsOn
+            && (!Controller.Settings.UseAiTranslation || !Controller.Settings.SupportsGeneration);
+
+    private void SpeechRefinementSwitch_Toggled(object sender, RoutedEventArgs args)
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        Controller.NotifySettingsChanged();
+        RefreshState();
+    }
+
+    private void SpeechRefinementPromptBox_TextChanged(object sender, TextChangedEventArgs args)
+    {
+        if (!_loading)
+        {
+            Controller.NotifySettingsChanged();
+        }
+    }
 
     private void RefreshSpeechRefinementHint() =>
         SpeechRefinementHintBar.IsOpen = SpeechRefinementSwitch.IsOn

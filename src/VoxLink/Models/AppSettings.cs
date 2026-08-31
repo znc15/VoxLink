@@ -123,6 +123,10 @@ public sealed class AppSettings
     public bool EnableTranslationRefinement { get; set; }
     public string TranslationRefinementPrompt { get; set; } = string.Empty;
 
+    public bool TranscriptionCleanupEnabled { get; set; }
+    public string TranscriptionCleanupPrompt { get; set; } =
+        "只修正明显口误、重复词和 ASR 误识别。保留原意、人名、数字、语言和说话者意图。只返回修正后的文本，不要解释。";
+
     public bool SpeechRefinementEnabled { get; set; }
     public string SpeechRefinementPrompt { get; set; } = string.Empty;
     public AsrProvider AsrProvider { get; set; } = AsrProvider.LocalWhisper;

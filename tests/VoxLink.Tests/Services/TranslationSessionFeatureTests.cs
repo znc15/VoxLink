@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using VoxLink.Audio;
@@ -317,6 +318,172 @@ public sealed class TranslationSessionFeatureTests
         Assert.Equal(firstError.Message, secondError.Message);
         Assert.Equal(1, tts.DisposeCount);
     }
+
+    [Fact]
+    public async Task CleanupTranscriptionAsync_UsesCustomPromptAndNormalizesSimplifiedChinese()
+    {
+        using var httpClient = new HttpClient(new DelegateHandler((_, _) =>
+            Task.FromResult(JsonResponse("unused"))));
+        var generation = new StubTextGenerationService((_, _) => Task.FromResult("  繁體測試  "));
+        await using var session = new TranslationSession(
+            new StubSpeechRecognizer(),
+            new TranslationServiceFactory(httpClient),
+            new RecordingTextToSpeech());
+        SetPrivateField(session, "_transcriptionCleanupService", generation);
+        var settings = new AppSettings
+        {
+            TranscriptionCleanupEnabled = true,
+            TranscriptionCleanupPrompt = "仅修正重复词。"
+        };
+
+        var result = await InvokeCleanupTranscriptionAsync(
+            session,
+            "我我马上来",
+            LanguageCatalog.Get("zh"),
+            settings);
+
+        Assert.Equal("繁体测试", result);
+        var prompt = Assert.Single(generation.Prompts);
+        Assert.Contains("仅修正重复词。", prompt, StringComparison.Ordinal);
+        Assert.Contains("原始转写：我我马上来", prompt, StringComparison.Ordinal);
+        Assert.Contains("简体中文", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CleanupTranscriptionAsync_EmptyGenerationPreservesOriginalText()
+    {
+        using var httpClient = new HttpClient(new DelegateHandler((_, _) =>
+            Task.FromResult(JsonResponse("unused"))));
+        var generation = new StubTextGenerationService((_, _) => Task.FromResult("   "));
+        await using var session = new TranslationSession(
+            new StubSpeechRecognizer(),
+            new TranslationServiceFactory(httpClient),
+            new RecordingTextToSpeech());
+        SetPrivateField(session, "_transcriptionCleanupService", generation);
+
+        var result = await InvokeCleanupTranscriptionAsync(
+            session,
+            "keep original",
+            LanguageCatalog.Get("en"),
+            new AppSettings { TranscriptionCleanupEnabled = true });
+
+        Assert.Equal("keep original", result);
+    }
+
+    [Fact]
+    public async Task CleanupTranscriptionAsync_RepeatedFailurePreservesTextAndRaisesOneError()
+    {
+        using var httpClient = new HttpClient(new DelegateHandler((_, _) =>
+            Task.FromResult(JsonResponse("unused"))));
+        var generation = new StubTextGenerationService((_, _) =>
+            Task.FromException<string>(new InvalidOperationException("cleanup failed")));
+        await using var session = new TranslationSession(
+            new StubSpeechRecognizer(),
+            new TranslationServiceFactory(httpClient),
+            new RecordingTextToSpeech());
+        SetPrivateField(session, "_transcriptionCleanupService", generation);
+        var errors = new List<SessionErrorEventArgs>();
+        session.ErrorOccurred += (_, error) => errors.Add(error);
+        var settings = new AppSettings { TranscriptionCleanupEnabled = true };
+
+        var first = await InvokeCleanupTranscriptionAsync(
+            session,
+            "first original",
+            LanguageCatalog.Get("en"),
+            settings);
+        var second = await InvokeCleanupTranscriptionAsync(
+            session,
+            "second original",
+            LanguageCatalog.Get("en"),
+            settings);
+
+        Assert.Equal("first original", first);
+        Assert.Equal("second original", second);
+        var error = Assert.Single(errors);
+        Assert.Equal("转写纠错失败，已保留原始转写并继续会话。", error.Message);
+        Assert.Equal("cleanup failed", error.Exception.Message);
+    }
+
+    [Fact]
+    public async Task MuteSelf_SuppressesOnlyOutboundAndStopsActiveSpeech()
+    {
+        using var httpClient = new HttpClient(new DelegateHandler((_, _) =>
+            Task.FromResult(JsonResponse("unused"))));
+        var tts = new RecordingTextToSpeech();
+        await using var session = new TranslationSession(
+            new StubSpeechRecognizer(),
+            new TranslationServiceFactory(httpClient),
+            tts);
+
+        InvokeMuteStateChanged(session, muted: true);
+
+        Assert.True(InvokeShouldSuppressOutbound(session, TranslationDirection.Outbound));
+        Assert.False(InvokeShouldSuppressOutbound(session, TranslationDirection.Inbound));
+        Assert.False(InvokeShouldSuppressOutbound(session, TranslationDirection.Typed));
+        Assert.Equal(1, tts.StopCount);
+    }
+
+    [Theory]
+    [InlineData("system", "system", false, "monitor", true)]
+    [InlineData("SYSTEM", "system", false, "monitor", true)]
+    [InlineData("voice", "system", true, "system", true)]
+    [InlineData("voice", "SYSTEM", true, "system", true)]
+    [InlineData("voice", "system", false, "system", false)]
+    [InlineData("voice", "system", true, "monitor", false)]
+    [InlineData("", "system", false, "monitor", true)]
+    [InlineData("voice", "", false, "monitor", true)]
+    [InlineData("voice", "system", true, "", true)]
+    public void ShouldSuppressLoopbackDuringSpeech_AccountsForVoiceAndMonitorEndpoints(
+        string voiceDeviceId,
+        string systemDeviceId,
+        bool enableMonitoring,
+        string monitorDeviceId,
+        bool expected)
+    {
+        var settings = new AppSettings
+        {
+            VoiceOutputDeviceId = voiceDeviceId,
+            SystemAudioDeviceId = systemDeviceId,
+            EnableVoiceMonitoring = enableMonitoring,
+            VoiceMonitorDeviceId = monitorDeviceId
+        };
+
+        Assert.Equal(expected, TranslationSession.ShouldSuppressLoopbackDuringSpeech(settings));
+    }
+
+    private static async Task<string> InvokeCleanupTranscriptionAsync(
+        TranslationSession session,
+        string sourceText,
+        LanguageOption sourceLanguage,
+        AppSettings settings)
+    {
+        var method = typeof(TranslationSession).GetMethod(
+            "CleanupTranscriptionAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var task = (Task<string>)method.Invoke(
+            session,
+            [sourceText, sourceLanguage, settings, CancellationToken.None])!;
+        return await task;
+    }
+
+    private static bool InvokeShouldSuppressOutbound(
+        TranslationSession session,
+        TranslationDirection direction) =>
+        (bool)typeof(TranslationSession).GetMethod(
+            "ShouldSuppressOutbound",
+            BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(session, [direction])!;
+
+    private static void InvokeMuteStateChanged(TranslationSession session, bool muted) =>
+        typeof(TranslationSession).GetMethod(
+            "OnMuteStateChanged",
+            BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(session, [null, muted]);
+
+    private static void SetPrivateField(TranslationSession session, string name, object value) =>
+        typeof(TranslationSession).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(session, value);
+
     private static ConversationMessage Message(TranslationDirection direction) => new(
         direction,
         "source",
@@ -445,6 +612,7 @@ public sealed class TranslationSessionFeatureTests
     private sealed class RecordingTextToSpeech : ITextToSpeechService
     {
         public bool IsSpeaking => false;
+        public int StopCount { get; private set; }
         public List<(string Text, LanguageOption Language, string? OutputDeviceId)> Calls { get; } = [];
 
         public IReadOnlyList<string> GetInstalledVoices(LanguageOption language) => [];
@@ -461,8 +629,30 @@ public sealed class TranslationSessionFeatureTests
 
         public void Stop()
         {
+            StopCount++;
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class StubTextGenerationService(
+        Func<string, CancellationToken, Task<string>> generate) : ITextGenerationService
+    {
+        public List<string> Prompts { get; } = [];
+
+        public Task<string> GenerateAsync(
+            string prompt,
+            CancellationToken cancellationToken = default)
+        {
+            Prompts.Add(prompt);
+            return generate(prompt, cancellationToken);
+        }
+
+        public Task<string> TranslateAsync(
+            string text,
+            LanguageOption sourceLanguage,
+            LanguageOption targetLanguage,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(text);
     }
 }

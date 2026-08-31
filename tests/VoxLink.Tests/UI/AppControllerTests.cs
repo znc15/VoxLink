@@ -40,6 +40,8 @@ public sealed class AppControllerTests
             TranslationHeaders = new Dictionary<string, string> { ["X-Test"] = "header-value" },
             EnableTranslationRefinement = true,
             TranslationRefinementPrompt = "Keep game terms concise.",
+            TranscriptionCleanupEnabled = true,
+            TranscriptionCleanupPrompt = "Fix obvious slips only.",
             AsrProvider = AsrProvider.Soniox,
             UseCloudAsr = true,
             AsrProtocol = AsrProtocol.SonioxStreaming,
@@ -106,6 +108,8 @@ public sealed class AppControllerTests
         Assert.Equal("header-value", engineSettings.OpenAiHeaders["X-Test"]);
         Assert.True(engineSettings.EnableTranslationRefinement);
         Assert.Equal("Keep game terms concise.", engineSettings.TranslationRefinementPrompt);
+        Assert.True(engineSettings.TranscriptionCleanupEnabled);
+        Assert.Equal("Fix obvious slips only.", engineSettings.TranscriptionCleanupPrompt);
         Assert.Equal(EngineAsrProvider.Soniox, engineSettings.AsrProvider);
         Assert.Equal(EngineAsrProtocol.SonioxStreaming, engineSettings.AsrProtocol);
         Assert.Equal("asr-key", engineSettings.AsrApiKey);
@@ -157,6 +161,7 @@ public sealed class AppControllerTests
         {
             UseAiTranslation = false,
             TranslationBackend = TranslationBackend.DeepSeek,
+            TranscriptionCleanupEnabled = true,
             UseCloudAsr = false,
             AsrProvider = AsrProvider.Soniox,
             AsrProtocol = AsrProtocol.SonioxStreaming
@@ -167,6 +172,7 @@ public sealed class AppControllerTests
 
         Assert.NotNull(engineSettings);
         Assert.Equal(EngineTranslationProvider.GoogleWeb, engineSettings.TranslationProvider);
+        Assert.False(engineSettings.TranscriptionCleanupEnabled);
         Assert.Equal(EngineAsrProvider.LocalWhisper, engineSettings.AsrProvider);
         Assert.Equal(EngineAsrProtocol.LocalWhisper, engineSettings.AsrProtocol);
     }

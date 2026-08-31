@@ -28,10 +28,12 @@ public sealed class TranslationSession : IAsyncDisposable
     private AppSettings? _settings;
     private ITranslationService? _translator;
     private ITextGenerationService? _refinementService;
+    private ITextGenerationService? _transcriptionCleanupService;
     private ITextGenerationService? _speechRefinementService;
     private volatile bool _vrChatMuted;
     private volatile bool _isRunning;
     private int _refinementWarningRaised;
+    private int _transcriptionCleanupWarningRaised;
     private int _speechRefinementWarningRaised;
     private string? _outboundStreamingUtteranceId;
     private string? _inboundStreamingUtteranceId;
@@ -300,6 +302,7 @@ public sealed class TranslationSession : IAsyncDisposable
     {
         _settings = settings.Clone();
         _refinementWarningRaised = 0;
+        _transcriptionCleanupWarningRaised = 0;
         _speechRefinementWarningRaised = 0;
         ResetStreamingUtteranceIds();
         _vrChatMuted = false;
@@ -314,6 +317,9 @@ public sealed class TranslationSession : IAsyncDisposable
         _refinementService = !_settings.TranscriptionOnly && _settings.EnableTranslationRefinement
             ? _translationFactory.CreateChatService(_settings)
             : null;
+        _transcriptionCleanupService = _settings.TranscriptionCleanupEnabled
+            ? _translationFactory.CreateChatService(_settings)
+            : null;
         _speechRefinementService = !_settings.TranscriptionOnly && _settings.SpeechRefinementEnabled
             && _settings.TranslationProvider != TranslationProvider.GoogleWeb
             ? _translationFactory.CreateChatService(_settings)
@@ -324,7 +330,9 @@ public sealed class TranslationSession : IAsyncDisposable
         foreach (var preloadable in new IPreloadableRuntime?[]
                  {
                      _translator as IPreloadableRuntime,
-                     _refinementService as IPreloadableRuntime
+                     _refinementService as IPreloadableRuntime,
+                     _transcriptionCleanupService as IPreloadableRuntime,
+                     _speechRefinementService as IPreloadableRuntime
                  })
         {
             if (preloadable is not null)
@@ -387,6 +395,7 @@ public sealed class TranslationSession : IAsyncDisposable
         var speakerLabeler = _speakerLabeler;
         var translator = _translator;
         var refinementService = _refinementService;
+        var transcriptionCleanupService = _transcriptionCleanupService;
         var speechRefinementService = _speechRefinementService;
         var workItems = _workItems;
         var externalRegistration = _externalCancellationRegistration;
@@ -405,6 +414,7 @@ public sealed class TranslationSession : IAsyncDisposable
         _settings = null;
         _translator = null;
         _refinementService = null;
+        _transcriptionCleanupService = null;
         _speechRefinementService = null;
         _vrChatMuted = false;
         ResetStreamingUtteranceIds();
@@ -463,7 +473,11 @@ public sealed class TranslationSession : IAsyncDisposable
             await speakerLabeler.DisposeAsync().ConfigureAwait(false);
         }
 
-        await DisposeDistinctServicesAsync(translator, refinementService, speechRefinementService);
+        await DisposeDistinctServicesAsync(
+            translator,
+            refinementService,
+            transcriptionCleanupService,
+            speechRefinementService);
         _translationFactory.UnloadIdleLocalRuntimes();
 
         cancellation?.Dispose();
@@ -594,14 +608,13 @@ public sealed class TranslationSession : IAsyncDisposable
 
         if (settings.CaptureSystemAudio)
         {
-            var voiceSharesLoopbackDevice = string.IsNullOrWhiteSpace(settings.VoiceOutputDeviceId)
-                || settings.VoiceOutputDeviceId == settings.SystemAudioDeviceId;
+            var suppressLoopbackDuringSpeech = ShouldSuppressLoopbackDuringSpeech(settings);
             _loopbackCapture = new WasapiSpeechCapture(
                 settings.SystemAudioDeviceId,
                 loopback: true,
                 settings.VoiceThreshold,
                 settings.SilenceDurationMs,
-                () => voiceSharesLoopbackDevice && _textToSpeech.IsSpeaking,
+                () => suppressLoopbackDuringSpeech && _textToSpeech.IsSpeaking,
                 settings.SmartSentenceSegmentation);
             _loopbackCapture.UtteranceReady += OnLoopbackUtterance;
             _loopbackCapture.CaptureFailed += OnCaptureFailed;
@@ -614,6 +627,24 @@ public sealed class TranslationSession : IAsyncDisposable
             _loopbackCapture.Start();
         }
     }
+
+    /// <summary>
+    /// TTS 主输出或反听输出可能落到当前 loopback 端点时，在朗读期间暂停该端点采集，
+    /// 避免把自己的合成语音再次识别、翻译和朗读。空设备 Id 表示 Windows 默认端点，
+    /// 无法静态证明不重叠，因此按可能重叠处理。
+    /// </summary>
+    internal static bool ShouldSuppressLoopbackDuringSpeech(AppSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        return MayShareOutputEndpoint(settings.VoiceOutputDeviceId, settings.SystemAudioDeviceId)
+            || (settings.EnableVoiceMonitoring
+                && MayShareOutputEndpoint(settings.VoiceMonitorDeviceId, settings.SystemAudioDeviceId));
+    }
+
+    private static bool MayShareOutputEndpoint(string? outputDeviceId, string? loopbackDeviceId) =>
+        string.IsNullOrWhiteSpace(outputDeviceId)
+        || string.IsNullOrWhiteSpace(loopbackDeviceId)
+        || string.Equals(outputDeviceId, loopbackDeviceId, StringComparison.OrdinalIgnoreCase);
 
     private async Task StopAfterExternalCancellationAsync()
     {
@@ -629,7 +660,8 @@ public sealed class TranslationSession : IAsyncDisposable
 
     private void OnMicrophoneUtterance(object? sender, AudioUtterance utterance)
     {
-        if (_recognizer?.SupportsStreaming == true)
+        if (_recognizer?.SupportsStreaming == true
+            || ShouldSuppressOutbound(TranslationDirection.Outbound))
         {
             return;
         }
@@ -647,8 +679,13 @@ public sealed class TranslationSession : IAsyncDisposable
         Enqueue(SpeechWorkItem.FromUtterance(TranslationDirection.Inbound, utterance));
     }
 
-    private void OnMicrophonePcmChunk(object? sender, float[] samples) =>
-        _microphoneStream?.TryWrite(samples);
+    private void OnMicrophonePcmChunk(object? sender, float[] samples)
+    {
+        if (!ShouldSuppressOutbound(TranslationDirection.Outbound))
+        {
+            _microphoneStream?.TryWrite(samples);
+        }
+    }
 
     private void OnLoopbackPcmChunk(object? sender, float[] samples) =>
         _loopbackStream?.TryWrite(samples);
@@ -672,6 +709,8 @@ public sealed class TranslationSession : IAsyncDisposable
         _vrChatMuted = muted;
         if (muted)
         {
+            ResetStreamingUtteranceId(TranslationDirection.Outbound);
+            _textToSpeech.Stop();
             RaiseStatus("VRChat 麦克风已静音，暂停 VoxLink 麦克风采集", SessionActivity.Listening);
         }
         else if (_settings is not null)
@@ -689,7 +728,9 @@ public sealed class TranslationSession : IAsyncDisposable
         TranslationDirection direction,
         StreamingTranscriptEventArgs transcript)
     {
-        if (!_isRunning || string.IsNullOrWhiteSpace(transcript.Text))
+        if (!_isRunning
+            || ShouldSuppressOutbound(direction)
+            || string.IsNullOrWhiteSpace(transcript.Text))
         {
             return;
         }
@@ -782,7 +823,9 @@ public sealed class TranslationSession : IAsyncDisposable
 
     private void Enqueue(SpeechWorkItem workItem)
     {
-        if (!_isRunning || !(_workItems?.Writer.TryWrite(workItem) ?? false))
+        if (!_isRunning
+            || ShouldSuppressOutbound(workItem.Direction)
+            || !(_workItems?.Writer.TryWrite(workItem) ?? false))
         {
             return;
         }
@@ -791,6 +834,9 @@ public sealed class TranslationSession : IAsyncDisposable
             workItem.Direction == TranslationDirection.Outbound ? "听到你的语音" : "听到系统语音",
             SessionActivity.Transcribing);
     }
+
+    private bool ShouldSuppressOutbound(TranslationDirection direction) =>
+        direction == TranslationDirection.Outbound && _vrChatMuted;
 
     private async Task ProcessWorkItemsAsync(
         ChannelReader<SpeechWorkItem> reader,
@@ -820,6 +866,11 @@ public sealed class TranslationSession : IAsyncDisposable
         SpeechWorkItem workItem,
         CancellationToken cancellationToken)
     {
+        if (ShouldSuppressOutbound(workItem.Direction))
+        {
+            return;
+        }
+
         var settings = _settings ?? throw new InvalidOperationException("翻译会话尚未配置。");
         var recognizer = _recognizer ?? throw new InvalidOperationException("语音识别器尚未配置。");
         var source = workItem.Direction == TranslationDirection.Outbound
@@ -838,6 +889,12 @@ public sealed class TranslationSession : IAsyncDisposable
                 workItem.Utterance,
                 source,
                 cancellationToken).ConfigureAwait(false);
+            if (ShouldSuppressOutbound(workItem.Direction))
+            {
+                RaiseReadyStatus();
+                return;
+            }
+
             sourceText = ChineseTextNormalizer.Normalize(result.Text.Trim(), source);
             speaker = GetCloudSpeaker(result.SpeakerId);
             if (speaker is null
@@ -853,6 +910,29 @@ public sealed class TranslationSession : IAsyncDisposable
         {
             sourceText = ChineseTextNormalizer.Normalize(workItem.SourceText?.Trim() ?? string.Empty, source);
             speaker = GetCloudSpeaker(workItem.SpeakerId);
+        }
+
+        if (ShouldSuppressOutbound(workItem.Direction))
+        {
+            RaiseReadyStatus();
+            return;
+        }
+
+        if (sourceText.Length == 0)
+        {
+            RaiseReadyStatus();
+            return;
+        }
+
+        sourceText = await CleanupTranscriptionAsync(
+            sourceText,
+            source,
+            settings,
+            cancellationToken).ConfigureAwait(false);
+        if (ShouldSuppressOutbound(workItem.Direction))
+        {
+            RaiseReadyStatus();
+            return;
         }
 
         if (sourceText.Length == 0)
@@ -889,15 +969,32 @@ public sealed class TranslationSession : IAsyncDisposable
                 _refinementService,
                 speaker,
                 cancellationToken).ConfigureAwait(false);
+            if (ShouldSuppressOutbound(workItem.Direction))
+            {
+                RaiseReadyStatus();
+                return;
+            }
         }
 
         message = message with { UtteranceId = workItem.UtteranceId };
+        if (ShouldSuppressOutbound(workItem.Direction))
+        {
+            RaiseReadyStatus();
+            return;
+        }
+
         MessageReceived?.Invoke(this, message);
         if (ShouldSpeakTranslation(message, settings))
         {
             var (speechText, speechLanguage) = ResolveSpeech(message, settings, source, target);
             speechText = await PolishSpeechTextAsync(
                 speechText, speechLanguage, message.Direction, settings, cancellationToken).ConfigureAwait(false);
+            if (ShouldSuppressOutbound(workItem.Direction))
+            {
+                RaiseReadyStatus();
+                return;
+            }
+
             RaiseStatus("正在输出语音", SessionActivity.Speaking);
             // 朗读放后台：长句播放不应阻塞工作队列处理后续句（TTS 内部按
             // 到达顺序串行播放）。Stop 时统一等待最后一个，避免跨会话串音。
@@ -974,6 +1071,56 @@ public sealed class TranslationSession : IAsyncDisposable
             && message.Direction is (TranslationDirection.Outbound or TranslationDirection.Typed)
             ? (message.SourceText, source)
             : (message.TranslatedText, target);
+
+    /// <summary>对最终转写做一次可选的轻量纠错；失败或空结果时保留原文。</summary>
+    private async Task<string> CleanupTranscriptionAsync(
+        string sourceText,
+        LanguageOption sourceLanguage,
+        AppSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var service = _transcriptionCleanupService;
+        if (service is null || string.IsNullOrWhiteSpace(sourceText))
+        {
+            return sourceText;
+        }
+
+        var instruction = string.IsNullOrWhiteSpace(settings.TranscriptionCleanupPrompt)
+            ? "只修正明显口误、重复词和 ASR 误识别。保留原意、人名、数字、语言和说话者意图。只返回修正后的文本，不要解释。"
+            : settings.TranscriptionCleanupPrompt.Trim();
+        var chineseConstraint = sourceLanguage.Culture.Equals("zh-CN", StringComparison.OrdinalIgnoreCase)
+            ? "\n输出必须使用简体中文，不要转换成繁体中文。"
+            : string.Empty;
+
+        try
+        {
+            var generated = await service.GenerateAsync(
+                $"请修正下面的语音转写。\n要求：{instruction}{chineseConstraint}\n" +
+                $"原始转写：{sourceText}\n只返回修正后的文本。",
+                cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(generated))
+            {
+                return sourceText;
+            }
+
+            return ChineseTextNormalizer.Normalize(generated.Trim(), sourceLanguage);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            if (Interlocked.Exchange(ref _transcriptionCleanupWarningRaised, 1) == 0)
+            {
+                ErrorOccurred?.Invoke(this, new SessionErrorEventArgs(
+                    "转写纠错失败，已保留原始转写并继续会话。",
+                    exception));
+            }
+
+            return sourceText;
+        }
+    }
 
     /// <summary>朗读前用 LLM 把外发朗读内容改写成口语化表达（仅当开启口语化朗读且可用时）。</summary>
     private async Task<string> PolishSpeechTextAsync(

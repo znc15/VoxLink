@@ -1,4 +1,5 @@
 using SherpaOnnx;
+using System.Text.RegularExpressions;
 using VoxLink.Audio;
 using VoxLink.Models;
 
@@ -12,6 +13,13 @@ namespace VoxLink.Services;
 /// </summary>
 internal sealed class LocalFireRedAsr2CtcRecognizer : IAsrRecognizer
 {
+    private static readonly Regex ControlMarkerRegex = new(
+        @"<\s*/?\s*sli(?:\s+[^>]*)?\s*>",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex WhitespaceRegex = new(
+        @"\s+",
+        RegexOptions.CultureInvariant);
+
     private readonly ILocalModelManager _modelManager;
     private readonly SemaphoreSlim _inferenceGate = new(1, 1);
     private readonly object _disposeSync = new();
@@ -113,13 +121,25 @@ internal sealed class LocalFireRedAsr2CtcRecognizer : IAsrRecognizer
             stream.AcceptWaveform(utterance.SampleRate, utterance.Samples);
             recognizer.Decode(stream);
             cancellationToken.ThrowIfCancellationRequested();
-            var text = stream.Result.Text ?? string.Empty;
+            var text = SanitizeTranscript(stream.Result.Text);
             return new SpeechRecognitionResult(text);
         }
         finally
         {
             _inferenceGate.Release();
         }
+    }
+
+    /// <summary>移除 FireRed 解码器偶尔混入转写的控制标记，并统一空白。</summary>
+    internal static string SanitizeTranscript(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return string.Empty;
+        }
+
+        var withoutMarkers = ControlMarkerRegex.Replace(text, " ");
+        return WhitespaceRegex.Replace(withoutMarkers, " ").Trim();
     }
 
     public Task<IAsrStream> StartStreamAsync(
