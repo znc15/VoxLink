@@ -59,8 +59,8 @@ public sealed partial class LivePage : Page
         SessionStatusText.Text = Controller.StatusMessage;
         SessionButtonText.Text = Controller.IsRunning ? "停止翻译" : "开启翻译";
         SessionButtonIcon.Glyph = Controller.IsRunning ? "\uE71A" : "\uE768";
-        SessionButton.IsEnabled = !Controller.IsBusy && Controller.EngineConnected;
-        SubmitButton.IsEnabled = !Controller.IsBusy && Controller.EngineConnected;
+        SessionButton.IsEnabled = Controller.Initialized && !Controller.IsBusy && Controller.EngineConnected;
+        SubmitButton.IsEnabled = Controller.Initialized && !Controller.IsBusy && Controller.EngineConnected;
         SubmitButtonText.Text = "翻译并发送";
         ModelStatusText.Text = Controller.ModelStatus.Length == 0
             ? string.Empty
@@ -70,7 +70,10 @@ public sealed partial class LivePage : Page
             : Visibility.Visible;
         SessionRunningDot.Visibility = Controller.IsRunning ? Visibility.Visible : Visibility.Collapsed;
         SessionStoppedDot.Visibility = Controller.IsRunning ? Visibility.Collapsed : Visibility.Visible;
-        QuickStartModeButtons.IsEnabled = !Controller.IsRunning && !Controller.IsBusy && Controller.EngineConnected;
+        QuickStartModeButtons.IsEnabled = Controller.Initialized
+            && !Controller.IsRunning
+            && !Controller.IsBusy
+            && Controller.EngineConnected;
         var hasError = !string.IsNullOrWhiteSpace(Controller.ErrorMessage);
         ErrorInfoBar.Message = Controller.ErrorMessage ?? string.Empty;
         ErrorInfoBar.IsOpen = hasError;

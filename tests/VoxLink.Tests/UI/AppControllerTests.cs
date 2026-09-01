@@ -1759,6 +1759,70 @@ public sealed class AppControllerTests
     }
 
     [Fact]
+    public async Task ToggleSessionAsync_WaitsForColdStartModelCatalogBeforeStarting()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.WhisperBase, "asr", "installed")),
+            BlockListModels = true
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+
+        var initialization = controller.InitializeAsync();
+        await gateway.ListModelsStarted.Task.WaitAsync(TimeSpan.FromSeconds(15));
+
+        Assert.True(controller.EngineConnected);
+        Assert.False(controller.Initialized);
+
+        var start = controller.ToggleSessionAsync();
+        await Task.Yield();
+
+        Assert.False(start.IsCompleted);
+        Assert.DoesNotContain("startSession", gateway.Requests);
+
+        gateway.ListModelsRelease.TrySetResult();
+        await initialization.WaitAsync(TimeSpan.FromSeconds(15));
+        await start.WaitAsync(TimeSpan.FromSeconds(15));
+
+        Assert.True(controller.IsRunning);
+        Assert.True(gateway.Requests.IndexOf("listLocalModels")
+            < gateway.Requests.IndexOf("startSession"));
+    }
+
+    [Fact]
+    public async Task ToggleSessionAsync_RetriesModelCatalogAfterInitializationReadFailure()
+    {
+        var gateway = new FakeEngineGateway
+        {
+            ModelsResponse = ModelsPayload(
+                LocalModelJson(LocalModelIds.WhisperBase, "asr", "installed")),
+            FailNextMethod = "listLocalModels",
+            NextFailure = new EngineException("模拟目录读取失败")
+        };
+        await using var controller = new AppController(
+            gateway,
+            new FakeSettingsRepository(new AppSettings()),
+            new InlineSynchronizationContext());
+
+        await controller.InitializeAsync();
+
+        Assert.True(controller.Initialized);
+        Assert.True(controller.EngineConnected);
+        Assert.Empty(controller.LocalModels);
+
+        await controller.ToggleSessionAsync();
+
+        Assert.True(controller.IsRunning);
+        Assert.Equal(2, gateway.Requests.Count(request => request == "listLocalModels"));
+        Assert.Contains("startSession", gateway.Requests);
+        Assert.Null(controller.ErrorMessage);
+    }
+
+    [Fact]
     public async Task InstallRecommendedLocalModelsAsync_ReadyStackEnablesAndStarts()
     {
         var gateway = new FakeEngineGateway
@@ -2168,6 +2232,11 @@ public sealed class AppControllerTests
             JsonSerializer.SerializeToElement(new { ok = true, detail = "测试通过" });
         public string? FailNextMethod { get; set; }
         public Exception NextFailure { get; set; } = new EngineException("模拟引擎失败");
+        public bool BlockListModels { get; init; }
+        public TaskCompletionSource ListModelsStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ListModelsRelease { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool BlockInstall { get; init; }
         public TaskCompletionSource InstallStarted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2201,6 +2270,11 @@ public sealed class AppControllerTests
             {
                 FailNextMethod = null;
                 throw NextFailure;
+            }
+            if (method == "listLocalModels" && BlockListModels)
+            {
+                ListModelsStarted.TrySetResult();
+                await ListModelsRelease.Task.WaitAsync(cancellationToken);
             }
             if (method == "installLocalModel" && BlockInstall)
             {

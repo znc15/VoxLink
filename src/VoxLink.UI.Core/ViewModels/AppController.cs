@@ -320,6 +320,17 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
 
     public async Task ToggleSessionAsync()
     {
+        if (!Initialized)
+        {
+            await InitializeAsync();
+        }
+
+        if (!EngineConnected)
+        {
+            ErrorMessage ??= "音频引擎尚未就绪，请稍后重试。";
+            return;
+        }
+
         if (IsRunning)
         {
             await RunOperationAsync(async () =>
@@ -1914,10 +1925,20 @@ public sealed class AppController : ObservableObject, IAsyncDisposable
             required.Add(LocalModelIds.Kokoro82M);
         }
 
-        foreach (var modelId in required.Distinct(StringComparer.Ordinal))
+        var requiredModelIds = required.Distinct(StringComparer.Ordinal).ToArray();
+        if (requiredModelIds.Any(modelId => FindLocalModel(modelId) is null))
+        {
+            // 冷启动时引擎连接会先于模型目录读取完成；初始化期间的首次目录请求也可能
+            // 因磁盘或安全软件暂时占用而失败。启动前主动刷新一次，避免把瞬时状态误报
+            // 为“目录尚未就绪”。
+            await RefreshLocalModelsCoreAsync();
+        }
+
+        foreach (var modelId in requiredModelIds)
         {
             var model = FindLocalModel(modelId)
-                ?? throw new EngineException("本地模型目录尚未就绪，请稍后重试。");
+                ?? throw new EngineException(
+                    $"本地模型目录中未找到所选模型（{modelId}）。请重启 VoxLink 后重试。");
             if (!model.Installed && !await RunLocalModelOperationAsync(modelId, install: true))
             {
                 throw new EngineException($"{model.Name} 安装失败，无法启动翻译。");
