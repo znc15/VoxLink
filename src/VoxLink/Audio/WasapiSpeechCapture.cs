@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
 
@@ -19,6 +20,7 @@ public sealed class WasapiSpeechCapture : IAsyncDisposable
     private MMDeviceEnumerator? _enumerator;
     private MMDevice? _device;
     private bool _acceptData;
+    private bool _starting;
     private bool _disposed;
 
     public WasapiSpeechCapture(
@@ -49,49 +51,91 @@ public sealed class WasapiSpeechCapture : IAsyncDisposable
 
     public void Start()
     {
-        CaptureResources? failedResources = null;
+        lock (_sync)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_capture is not null || _starting)
+            {
+                return;
+            }
+
+            _starting = true;
+        }
+
+        var forceDefaultEndpoint = false;
         try
         {
-            lock (_sync)
+            while (true)
             {
-                ObjectDisposedException.ThrowIf(_disposed, this);
-                if (_capture is not null)
+                CaptureResources? failedResources = null;
+                Exception? failure = null;
+                var usedDefaultFallback = false;
+
+                lock (_sync)
                 {
+                    ObjectDisposedException.ThrowIf(_disposed, this);
+                    try
+                    {
+                        usedDefaultFallback = StartCaptureLocked(forceDefaultEndpoint);
+                    }
+                    catch (Exception exception)
+                    {
+                        _acceptData = false;
+                        failedResources = DetachResourcesLocked();
+                        failure = exception;
+                    }
+                }
+
+                // 设备失效时必须先完整释放旧 AudioClient，再重新枚举当前默认端点。
+                failedResources?.Dispose();
+                if (failure is null)
+                {
+                    if (usedDefaultFallback)
+                    {
+                        DeviceFallbackOccurred?.Invoke(this, _deviceId);
+                    }
+
                     return;
                 }
 
-                try
+                if (!forceDefaultEndpoint && IsDeviceInvalidated(failure))
                 {
-                    _enumerator = new MMDeviceEnumerator();
-                    var flow = _loopback ? DataFlow.Render : DataFlow.Capture;
-                    _device = ResolveDevice(_enumerator, flow, _deviceId);
-                    if (!_loopback && IsLoopbackLikeDeviceName(_device.FriendlyName))
-                    {
-                        LoopbackLikeMicWarning?.Invoke(this, _device.FriendlyName);
-                    }
+                    forceDefaultEndpoint = true;
+                    continue;
+                }
 
-                    _capture = _loopback
-                        ? new WasapiLoopbackCapture(_device)
-                        : new NAudio.CoreAudioApi.WasapiCapture(_device);
-                    _capture.DataAvailable += OnDataAvailable;
-                    _capture.RecordingStopped += OnRecordingStopped;
-                    Interlocked.Exchange(ref _lastPacketTimestamp, Stopwatch.GetTimestamp());
-                    _acceptData = true;
-                    _capture.StartRecording();
-                    _gapTimer = new Timer(CheckForPacketGap, null, 100, 100);
-                }
-                catch
-                {
-                    _acceptData = false;
-                    failedResources = DetachResourcesLocked();
-                    throw;
-                }
+                ExceptionDispatchInfo.Capture(failure).Throw();
             }
         }
         finally
         {
-            failedResources?.Dispose();
+            lock (_sync)
+            {
+                _starting = false;
+            }
         }
+    }
+
+    private bool StartCaptureLocked(bool forceDefaultEndpoint)
+    {
+        _enumerator = new MMDeviceEnumerator();
+        var flow = _loopback ? DataFlow.Render : DataFlow.Capture;
+        _device = ResolveDevice(_enumerator, flow, _deviceId, forceDefaultEndpoint, out var usedDefaultFallback);
+        if (!_loopback && IsLoopbackLikeDeviceName(_device.FriendlyName))
+        {
+            LoopbackLikeMicWarning?.Invoke(this, _device.FriendlyName);
+        }
+
+        _capture = _loopback
+            ? new WasapiLoopbackCapture(_device)
+            : new NAudio.CoreAudioApi.WasapiCapture(_device);
+        _capture.DataAvailable += OnDataAvailable;
+        _capture.RecordingStopped += OnRecordingStopped;
+        Interlocked.Exchange(ref _lastPacketTimestamp, Stopwatch.GetTimestamp());
+        _acceptData = true;
+        _capture.StartRecording();
+        _gapTimer = new Timer(CheckForPacketGap, null, 100, 100);
+        return usedDefaultFallback;
     }
 
     public void Stop()
@@ -151,9 +195,15 @@ public sealed class WasapiSpeechCapture : IAsyncDisposable
         return new CaptureResources(timer, capture, device, enumerator);
     }
 
-    private MMDevice ResolveDevice(MMDeviceEnumerator enumerator, DataFlow flow, string id)
+    private static MMDevice ResolveDevice(
+        MMDeviceEnumerator enumerator,
+        DataFlow flow,
+        string id,
+        bool forceDefaultEndpoint,
+        out bool usedDefaultFallback)
     {
-        if (!string.IsNullOrWhiteSpace(id))
+        usedDefaultFallback = forceDefaultEndpoint && !string.IsNullOrWhiteSpace(id);
+        if (!forceDefaultEndpoint && !string.IsNullOrWhiteSpace(id))
         {
             try
             {
@@ -161,7 +211,7 @@ public sealed class WasapiSpeechCapture : IAsyncDisposable
             }
             catch (ArgumentException)
             {
-                DeviceFallbackOccurred?.Invoke(this, id);
+                usedDefaultFallback = true;
             }
         }
 
@@ -265,8 +315,23 @@ public sealed class WasapiSpeechCapture : IAsyncDisposable
     /// <summary>麦克风设备可能是系统音频回环设备（如立体声混音）时触发，参数为设备名称。</summary>
     public event EventHandler<string>? LoopbackLikeMicWarning;
 
-    /// <summary>请求的设备 ID 不存在时回退到 Windows 默认设备前触发（参数为请求的设备 ID）。</summary>
+    /// <summary>请求的设备不存在或初始化时失效，成功回退到 Windows 默认设备后触发。</summary>
     public event EventHandler<string>? DeviceFallbackOccurred;
+
+    /// <summary>检查异常链中是否包含 WASAPI 设备已失效错误。</summary>
+    internal static bool IsDeviceInvalidated(Exception exception)
+    {
+        const int deviceInvalidatedHResult = unchecked((int)0x88890004);
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current.HResult == deviceInvalidatedHResult)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// 判断设备名是否可能是系统音频回环设备（立体声混音等）。这类设备作为麦克风时，
@@ -299,10 +364,28 @@ public sealed class WasapiSpeechCapture : IAsyncDisposable
     {
         public void Dispose()
         {
-            timer?.Dispose();
-            capture?.Dispose();
-            device?.Dispose();
-            enumerator?.Dispose();
+            try
+            {
+                timer?.Dispose();
+            }
+            finally
+            {
+                try
+                {
+                    capture?.Dispose();
+                }
+                finally
+                {
+                    try
+                    {
+                        device?.Dispose();
+                    }
+                    finally
+                    {
+                        enumerator?.Dispose();
+                    }
+                }
+            }
         }
     }
 }

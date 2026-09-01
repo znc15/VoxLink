@@ -700,8 +700,8 @@ public sealed class TranslationSession : IAsyncDisposable
     private void OnDeviceFallback(object? sender, string requestedDeviceId)
     {
         ErrorOccurred?.Invoke(this, new SessionErrorEventArgs(
-            "未找到已保存的音频设备，已回退到 Windows 默认设备。",
-            new InvalidOperationException($"Requested device '{requestedDeviceId}' was not found.")));
+            "已保存的音频设备不可用，已回退到 Windows 默认设备。",
+            new InvalidOperationException($"Requested audio device '{requestedDeviceId}' was unavailable.")));
     }
 
     private void OnMuteStateChanged(object? sender, bool muted)
